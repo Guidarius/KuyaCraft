@@ -250,6 +250,8 @@ its armies fight and belongs with the wider bot work.
 
 - No public lobbies, NAT traversal, accounts, reconnect, host migration, ranked play, or persistent player saves.
 
+- The Windows package is a fused `LoveRTS.exe` plus its runtime DLLs, verified only by launching it and running the unit suite against the packaged archive on this machine. It has not been run on a second PC, is unsigned (SmartScreen will warn on first run), and ships with procedural placeholder art unless `assets/generated` was present at packaging time.
+
 
 
 ## Next engineering work

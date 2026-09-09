@@ -1,7 +1,10 @@
 function love.conf(t)
     t.identity = 'LoveRTS'
     t.version = '11.5'
-    t.console = true
+    -- love.exe would pop a separate console window next to the game, which a packaged
+    -- build should not do. Development and the test harness use lovec.exe, which is a
+    -- console application and keeps its output regardless of this setting.
+    t.console = false
     t.window.title = 'LoveRTS | deterministic skirmish prototype'
     t.window.width, t.window.height = 1280, 800
     t.window.resizable = true

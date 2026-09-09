@@ -193,7 +193,19 @@ function T.gamefeel(app)
   assert(app.world.entities[mover].order.kind=='follow','right click on an own unit did not follow')
   assert(app.world.entities[mover].order.target==other)
  end
+ -- Saving a replay must not be able to take the game down. This runs from love.quit, so
+ -- in a packaged build sitting somewhere unwritable a hard failure here would turn
+ -- "quit the game" into a crash. An unwritable path has to fall back, not throw.
+ local unwritable=require('src.app').create({map='open_fields'})
+ unwritable.noAutoSave=true
+ for _=1,4 do unwritable:update(.05) end
+ local saved=unwritable:save('no-such-directory/nested/match.replay')
+ assert(saved,'saving to an unwritable path did not fall back: '..tostring(unwritable.message))
+ local fallback=unwritable.message:match('^Replay saved: (.+)$')
+ assert(fallback,'fallback save reported no path: '..tostring(unwritable.message))
+ local handle=io.open(fallback,'rb');assert(handle,'the fallback path does not exist: '..fallback);handle:close()
+ unwritable:close()
  app:draw()
- print('PASS gamefeel: idle workers, army select, bookmarks, eased camera, game speed, unit tiles, floating text, overlays, rally, patrol, follow')
+ print('PASS gamefeel: idle workers, army select, bookmarks, eased camera, game speed, unit tiles, floating text, overlays, rally, patrol, follow, replay fallback')
 end
 return T

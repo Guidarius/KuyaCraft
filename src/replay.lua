@@ -20,6 +20,7 @@ function M.record(replay,w,commands)
     local interval=replay.header.checkpointInterval or M.DEFAULT_INTERVAL
     if w.tick%interval==0 or w.result then replay.hashes[w.tick]=Hash.bytes(Sim.serializeAuthoritative(w)) end
 end
+function M.encode(replay) return Codec.encode(replay) end
 function M.write(path,replay)
     local file=assert(io.open(path,'wb'));file:write(Codec.encode(replay));file:close()
 end

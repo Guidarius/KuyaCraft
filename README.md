@@ -15,6 +15,26 @@ In PowerShell, from this folder:
 
 Setup downloads the official portable runtime into .tools and verifies the checksum in toolchain.json. No global Lua installation or MCP is required.
 
+Once setup has run, **Play.bat** in this folder launches the game with a double-click.
+
+## Standalone build
+
+```powershell
+.\scripts\package.ps1
+```
+
+This writes `dist\LoveRTS-<timestamp>\` containing **LoveRTS.exe**, a normal
+double-clickable Windows program: the pinned LÖVE runtime with the game archive appended
+to it. The folder stands alone — copy it to another PC, shortcut the executable, or zip
+and share it — but keep its files together, because the executable loads the DLLs beside
+it. `RunTests.ps1` in that folder runs the regression suites against that exact build,
+and packaging verifies itself by running the unit suite before it reports success.
+
+Generated sprite atlases are optional: without them the game draws procedural
+placeholders rather than failing, so a machine with no Blender or Python toolchain can
+still produce a playable package. Pass `-WithAssets` to require the real atlases and fail
+if they cannot be built.
+
 ## Testing
 
 ```powershell
@@ -43,6 +63,7 @@ The game opens a main menu. Choose Skirmish to select your map and factions. All
 
 - Left click/drag selects; Shift adds/removes; double click selects a visible unit type.
 - Right click moves, attacks, harvests or resumes construction. A then **left click** issues attack-move. Shift appends; S stops and clears orders; H holds position without chasing or yielding.
+- Replays are written next to the game under `artifacts`. If that folder cannot be written to — a packaged build placed somewhere read-only — the game saves to `%APPDATA%\LOVE\LoveRTS` instead and reports the path it used.
 - Right click on one of your own units to follow it; the follower keeps station and never starts a fight of its own, and the order ends when its target dies.
 - P then **left click** sets a patrol beat between where the unit stands and the point clicked. It engages on the way and turns around at each end, including when an end is unreachable.
 - Right click with only production buildings selected sets their rally point; new units walk there, or harvest it if it is a resource node and they are workers. The flag and its line are drawn while the building is selected.

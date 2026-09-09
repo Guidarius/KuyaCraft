@@ -503,11 +503,31 @@ function App:seek(tick,player)
     self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.audio:clear()
     self.alerts=require('src.ui.alerts').create();self.selected={self.view.player.hero};if self.sprites then self.sprites:reset() end
 end
+-- Saving a replay must never be able to take the game down with it. A packaged build
+-- can easily be sitting somewhere the player cannot write -- Program Files, a read-only
+-- share, a different working directory than the one it was launched from -- and this
+-- runs from love.quit, so a failure here would turn "quit the game" into a crash.
+-- The save directory always exists and is always writable, so it is the fallback.
 function App:save(path)
-    if not self.playback then
-        path=path or ('artifacts/match-'..os.date('%Y%m%d-%H%M%S')..'-player-'..self.player..'.replay')
-        Replay.write(path,self.recording);require('src.ui.replay_library').remember(path);self.message='Replay saved: '..path;print(self.message)
+    if self.playback then return false end
+    local name=os.date('%Y%m%d-%H%M%S')..'-player-'..self.player..'.replay'
+    path=path or ('artifacts/match-'..name)
+    local bytes=Replay.encode(self.recording)
+    local ok,err=pcall(function()
+        local file=assert(io.open(path,'wb'));file:write(bytes);file:close()
+    end)
+    if not ok then
+        local relative='match-'..name
+        if love.filesystem.write(relative,bytes) then
+            path=love.filesystem.getSaveDirectory()..'/'..relative;ok=true
+        end
     end
+    if not ok then
+        self.message='Could not save replay: '..tostring(err);print(self.message);return false
+    end
+    pcall(require('src.ui.replay_library').remember,path)
+    self.message='Replay saved: '..path;print(self.message)
+    return true
 end
 function App:close() if not self.noAutoSave then self:save() end;self.audio:clear();if self.miniCache then self.miniCache.terrain:release();self.miniCache.fog:release();self.miniCache=nil end;if self.network then self.network:close() end end
 return App
