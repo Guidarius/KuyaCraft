@@ -21,13 +21,22 @@ local function opposed(b,e)
     end end
     return nil
 end
-local function nearby(w,b,x,y,r)
+-- Neighbour lookups run once per proposal per tick and previously allocated a
+-- fresh table each time, plus an empty one per missed bin. The results are
+-- consumed immediately and never retained, so they go into a reusable buffer;
+-- the caller gets the count rather than relying on the array length.
+local scratch={}
+local function nearby(w,b,x,y,r,out)
     r=r or 1
-    local out={}
+    out=out or scratch
+    local n=0
+    local entities=w.entities
     for cy=F.cell(y)-r,F.cell(y)+r do for cx=F.cell(x)-r,F.cell(x)+r do
-        for _,id in ipairs(b[cy*256+cx] or {}) do out[#out+1]=w.entities[id] end
+        local bin=b[cy*256+cx]
+        if bin then for i=1,#bin do n=n+1;out[n]=entities[bin[i]] end end
     end end
-    return out
+    for i=#out,n+1,-1 do out[i]=nil end
+    return out,n
 end
 local function clear(w,e,x,y,neighbors)
     local r=G.radius(w,e)
@@ -62,6 +71,16 @@ local function choices(w,e,tx,ty)
         end
     end
     return out
+end
+-- The move loop holds its neighbour list across several clear() calls, so it uses a
+-- buffer of its own rather than the one the proposal scan reuses.
+local moveScratch={}
+-- Longest wait first, entity id as the tiebreaker: a total order, defined once rather
+-- than as a fresh closure on every tick.
+local function byWaitThenId(a,b)
+    local av,bv=a.e.waitTicks or 0,b.e.waitTicks or 0
+    if av~=bv then return av>bv end
+    return a.e.id<b.e.id
 end
 function M.step(w,halt,route)
     Path.step(w)
@@ -98,15 +117,16 @@ function M.step(w,halt,route)
             proposals[#proposals+1]={e=e,choices=choices(w,e,e.yieldOrigin.x+dx,e.yieldOrigin.y+dy),yielding=true}
         end
     end
-    table.sort(proposals,function(a,b)
-        local av,bv=a.e.waitTicks or 0,b.e.waitTicks or 0
-        if av~=bv then return av>bv end;return a.e.id<b.e.id
-    end)
+    table.sort(proposals,byWaitThenId)
     -- The candidate lists use frozen positions. Reservations use the accepted
     -- positions, so a later mover cannot overlap an earlier mover or swap through it.
-    local live=bins(w)
+    -- Nothing has moved since `before` was built, so the reservation index starts as
+    -- exactly the same content; it is updated in place below rather than rebuilt from
+    -- scratch, which is why the bins are only walked once per tick instead of twice.
+    -- `before` is not read again after this point.
+    local live=before
     for _,p in ipairs(proposals) do
-        local e=p.e;local oldX,oldY=e.x,e.y;local neighbors=nearby(w,live,e.x,e.y);local ax,ay
+        local e=p.e;local oldX,oldY=e.x,e.y;local neighbors=nearby(w,live,e.x,e.y,1,moveScratch);local ax,ay
         if not p.choices and clear(w,e,p.fx,p.fy,neighbors) then ax,ay=p.fx,p.fy
         else
             local candidates=p.choices or choices(w,e,p.tx,p.ty)

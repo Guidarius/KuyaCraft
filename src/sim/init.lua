@@ -51,21 +51,53 @@ local function occupied(w,x,y,except)
     end
     return false
 end
+-- Free-cell search, outward ring by ring. The ring used to be found by walking the
+-- whole (2r+1)^2 square and discarding everything but its edge, which makes the search
+-- cubic in the radius to produce a quadratic number of candidates; each candidate also
+-- cost a table and each ring a fresh comparator. Now only the perimeter is walked, into
+-- reused parallel arrays sorted through an index permutation.
+--
+-- Candidates are ordered by (distance, cell key), a total order over distinct cells, so
+-- the result does not depend on the order they were found in and this returns exactly
+-- what the square scan did.
+local candX,candY,candKey,candDistance={},{},{},{}
+local candOrder={}
+local function lessCandidate(a,b)
+    if candDistance[a]~=candDistance[b] then return candDistance[a]<candDistance[b] end
+    return candKey[a]<candKey[b]
+end
 local function nearest(w,x,y,except,claimed,radius)
     radius=radius or (except and G.radius(w,w.entities[except])) or 112
     local unit=except and w.entities[except]
-    for r=0,math.max(w.map.width,w.map.height) do
-        local candidates={}
-        for cy=math.max(0,y-r),math.min(w.map.height-1,y+r) do
-            for cx=math.max(0,x-r),math.min(w.map.width-1,x+r) do
-                local key=Path.key(w.map,cx,cy)
-                if (r==0 or math.max(math.abs(cx-x),math.abs(cy-y))==r) and not (claimed and claimed[key]) and Path.walkable(w,cx,cy) then
-                    candidates[#candidates+1]={x=cx,y=cy,key=key,distance=unit and F.distance2Bounded(unit.x,unit.y,F.center(cx),F.center(cy)) or 0}
-                end
+    local map=w.map;local width,height=map.width,map.height
+    local ux,uy=0,0;if unit then ux,uy=unit.x,unit.y end
+    -- Not re-entrant: the scratch arrays are shared. Nothing reachable from G.free or
+    -- Path.walkable calls back into this, and every caller is a leaf of one step phase.
+    local count=0
+    local function consider(cx,cy)
+        if cx<0 or cy<0 or cx>=width or cy>=height then return end
+        local key=Path.key(map,cx,cy)
+        if (claimed and claimed[key]) or not Path.walkable(w,cx,cy) then return end
+        count=count+1
+        candX[count]=cx;candY[count]=cy;candKey[count]=key
+        candDistance[count]=unit and F.distance2Bounded(ux,uy,F.center(cx),F.center(cy)) or 0
+    end
+    for r=0,math.max(width,height) do
+        count=0
+        if r==0 then consider(x,y)
+        else
+            for cx=x-r,x+r do consider(cx,y-r);consider(cx,y+r) end
+            for cy=y-r+1,y+r-1 do consider(x-r,cy);consider(x+r,cy) end
+        end
+        if count>0 then
+            for i=1,count do candOrder[i]=i end
+            for i=#candOrder,count+1,-1 do candOrder[i]=nil end
+            table.sort(candOrder,lessCandidate)
+            for i=1,count do
+                local c=candOrder[i]
+                if G.free(w,F.center(candX[c]),F.center(candY[c]),radius,except) then return candX[c],candY[c] end
             end
         end
-        table.sort(candidates,function(a,b)if a.distance~=b.distance then return a.distance<b.distance end;return a.key<b.key end)
-        for _,c in ipairs(candidates) do if G.free(w,F.center(c.x),F.center(c.y),radius,except) then return c.x,c.y end end
     end
 end
 
@@ -117,34 +149,75 @@ local function approachTarget(w,e,t,range)
     return false
 end
 local sightSpans={}
+-- Scratch reused across ticks and players. Sight marking writes a sparse +1/-1 delta
+-- per covered row; the flush then prefix-sums each row. Both used to be rebuilt from
+-- nothing every tick, and the flush scanned the entire map width for every covered
+-- row, so a 128x112 map cost about 14,000 iterations per player per tick regardless
+-- of how much of it anyone could actually see. Tracking the covered rows and the span
+-- of each makes the cost proportional to what is visible. Every delta written is
+-- cleared during the flush that consumes it, so these never leak between worlds.
+local rowDeltas={}
+local rowMin,rowMax,rowList={},{},{}
 local function visibility(w)
+    local width,height=w.map.width,w.map.height
     for p=1,#w.players do
-        local player=w.players[p];player.visible={};player.knownResources=player.knownResources or {}
-        local rows={}
+        local player=w.players[p]
+        -- Reused rather than replaced: this table is shared by reference into views.
+        local visible=player.visible
+        if visible then for key in pairs(visible) do visible[key]=nil end else visible={};player.visible=visible end
+        local explored=player.explored
+        player.knownResources=player.knownResources or {}
+        local rowCount=0
         for _,id in ipairs(w.order) do local e=w.entities[id]
             if e.alive and e.owner==p then
                 local sight=def(w,e).sight;local spans=sightSpans[sight]
                 if not spans then spans={};for dy=-sight,sight do spans[dy]=F.isqrt(sight*sight-dy*dy) end;sightSpans[sight]=spans end
                 local cx,cy=F.cell(e.x),F.cell(e.y)
-                for y=math.max(0,cy-sight),math.min(w.map.height-1,cy+sight) do
-                    local reach=spans[y-cy];local row=rows[y] or {};rows[y]=row
-                    local left,right=math.max(0,cx-reach),math.min(w.map.width-1,cx+reach)+1
+                local top=cy-sight;if top<0 then top=0 end
+                local bottom=cy+sight;if bottom>height-1 then bottom=height-1 end
+                for y=top,bottom do
+                    local reach=spans[y-cy]
+                    local row=rowDeltas[y];if not row then row={};rowDeltas[y]=row end
+                    local left=cx-reach;if left<0 then left=0 end
+                    local right=cx+reach;if right>width-1 then right=width-1 end
+                    right=right+1
+                    if rowMin[y] then
+                        if left<rowMin[y] then rowMin[y]=left end
+                        if right>rowMax[y] then rowMax[y]=right end
+                    else
+                        rowCount=rowCount+1;rowList[rowCount]=y;rowMin[y]=left;rowMax[y]=right
+                    end
                     row[left]=(row[left] or 0)+1;row[right]=(row[right] or 0)-1
                 end
             end
         end
         -- Prefix-sum sight intervals before touching cells. Same circular visibility,
         -- much less repeated work for a packed army; all caches derive solely from sight.
-        for y=0,w.map.height-1 do local row=rows[y]
-            if row then
-                local coverage=0
-                for x=0,w.map.width-1 do
-                    coverage=coverage+(row[x] or 0)
-                    if coverage>0 then local key=Path.key(w.map,x,y);player.visible[key]=true;player.explored[key]=true end
+        -- Every +1 is matched by a -1 at or before rowMax, so coverage is back to zero
+        -- by the end of the span and nothing outside it could have been visible.
+        for i=1,rowCount do
+            local y=rowList[i];local row=rowDeltas[y];local base=y*width+1
+            local coverage=0
+            for x=rowMin[y],rowMax[y] do
+                local delta=row[x]
+                if delta then coverage=coverage+delta;row[x]=nil end
+                if coverage>0 then local key=base+x;visible[key]=true;explored[key]=true end
+            end
+            rowMin[y]=nil;rowMax[y]=nil
+        end
+        -- Resource nodes never move, so a remembered entry stays correct for as long as
+        -- it exists; rebuilding one per visible node per tick allocated thousands of
+        -- identical tables a second. Only a first sighting or a witnessed depletion
+        -- changes anything, and an unseen node keeps whatever was last observed.
+        if w.content.rules.profile then
+            local known=player.knownResources
+            for _,id in ipairs(w.order) do local n=w.entities[id]
+                if n.category=='node' and Sim.visible(w,p,n) then
+                    if not n.alive then known[id]=nil
+                    elseif not known[id] then known[id]={id=id,x=n.x,y=n.y,size=n.size,resource=n.resource} end
                 end
             end
         end
-        if w.content.rules.profile then for _,id in ipairs(w.order) do local n=w.entities[id];if n.category=='node' and Sim.visible(w,p,n) then player.knownResources[id]=n.alive and {id=id,x=n.x,y=n.y,size=n.size,resource=n.resource} or nil end end end
     end
 end
 function Sim.visible(w,player,e)
@@ -406,12 +479,22 @@ local function apply(w,c)
         if not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry then
             e.orders={};w.commandClaims[Path.key(w.map,e.order.x,e.order.y)]=true;return
         end
-        local claims={}
-        for key,value in pairs(w.commandClaims) do claims[key]=value end
+        -- A 240-unit group move applies 240 of these commands in one tick. Allocating
+        -- a fresh claims table per command, and a `reserve` closure per entity inside
+        -- the scan, meant tens of thousands of short-lived objects for one order. The
+        -- table is a per-tick scratch that is cleared and refilled, and the closure is
+        -- inlined; the scan itself still runs per command because each unit must not
+        -- see its own reservations, and the set changes as earlier commands are applied.
+        local claims=w.claimScratch
+        for key in pairs(claims) do claims[key]=nil end
+        for key in pairs(w.commandClaims) do claims[key]=true end
+        local map=w.map
         for _,id in ipairs(w.order) do local other=w.entities[id]
             if other.alive and other.owner==e.owner and id~=e.id then
-                local function reserve(o) if o.x then claims[Path.key(w.map,o.x,o.y)]=true end end
-                reserve(other.order);for _,o in ipairs(other.orders) do reserve(o) end
+                local active=other.order
+                if active.x then claims[Path.key(map,active.x,active.y)]=true end
+                local queued=other.orders
+                for i=1,#queued do local o=queued[i];if o.x then claims[Path.key(map,o.x,o.y)]=true end end
             end
         end
         local x,y=nearest(w,rx,ry,e.id,claims)
@@ -654,7 +737,9 @@ end
 function Sim.step(w,commands)
     w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0
     if w.result then return w.events end
-    w.commandClaims={};G.beginStep(w)
+    -- Both live only for the command-application part of the step and are removed
+    -- before it returns, so neither reaches snapshots or canonical serialization.
+    w.commandClaims={};w.claimScratch={};G.beginStep(w)
     local ordered={}
     for i=1,#commands do ordered[i]=commands[i] end
     table.sort(ordered,function(a,b)
@@ -666,7 +751,7 @@ function Sim.step(w,commands)
         return Codec.byteLess(Codec.encode(a),Codec.encode(b))
     end)
     for _,c in ipairs(ordered) do local before=#w.events;apply(w,c);local rejected=false;for i=before+1,#w.events do if w.events[i].kind=='rejected' then rejected=true end end;if not rejected then emit(w,'accepted',{player=c.player,sequence=c.sequence,entity=c.args.entity}) end end
-    w.commandClaims=nil
+    w.commandClaims=nil;w.claimScratch=nil
     combatOrders(w);economy(w);movement(w);visibility(w);finishOrders(w); if combat(w) then visibility(w) end
     local survivors={}
     for p=1,#w.players do
