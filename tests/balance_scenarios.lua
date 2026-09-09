@@ -73,7 +73,9 @@ function M.performance()
  end
  if stopProfile then stopProfile() end
  table.sort(times);write('balance-performance.txt',string.format('128x112 map, 240 live mobiles, 2000 active ticks, new combat/sight profile. Clearings widened for fixture deployment.\nSim.step p95 %.3fms; max %.3fms; attacks %d; lead moving ticks %d. Excludes bot/replay/rendering.\n',times[1900],times[2000],attacks,moved))
- assert(attacks>100 and moved>100);assert(times[1900]<10,'new-profile simulation exceeds 10ms p95')
+ assert(attacks>100 and moved>100)
+ local budget=M.perfBudget or 10
+ assert(times[1900]<budget,string.format('new-profile simulation exceeds %g ms p95 (%.3f ms)',budget,times[1900]))
 end
 return M
 

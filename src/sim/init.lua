@@ -5,11 +5,19 @@ local Path = require('src.sim.path')
 local G=require('src.sim.geometry')
 local Movement=require('src.sim.movement')
 local Harvest=require('src.sim.harvesting')
-local Sim = { VERSION = 4 }
+-- Version 5: replay/network checkpoints hash authoritative state only. Older
+-- replays store whole-world hashes and are rejected rather than misreported as
+-- divergence. See Sim.serializeAuthoritative.
+local Sim = { VERSION = 5 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
+-- emit takes ownership of its payload: every caller builds a fresh table for the
+-- call, so copying it defensively duplicated one table per event per tick for no
+-- observable difference. Events live only for the tick that produced them and are
+-- excluded from snapshots and canonical serialization, so this cannot reach state.
+-- Callers must therefore not pass a table they still hold (see the victory site).
 local function emit(w,kind,data)
-    data=Codec.copy(data or {});data.kind=kind;data.tick=w.tick;data.index=#w.events+1;data.audience={}
+    data=data or {};data.kind=kind;data.tick=w.tick;data.index=#w.events+1;data.audience={}
     local e=w.entities[data.entity or data.target or data.source]
     if e then data.x=e.x;data.y=e.y;data.owner=e.owner;data.unitKind=e.kind end
     for player=1,#w.players do
@@ -21,10 +29,15 @@ local function emit(w,kind,data)
     if source then data.sx=source.x;data.sy=source.y;data.sourceAudience={};for player=1,#w.players do if Sim.visible(w,player,source) then data.sourceAudience[player]=true end end end
     w.events[#w.events+1]=data
 end
+-- Event payloads are flat: every field is a scalar except the two audience sets,
+-- which are removed here anyway. A shallow copy is therefore exactly equivalent
+-- to the canonical deep copy this used to make, at a fraction of the cost.
 function Sim.eventsFor(w,player)
     local out={}
     for _,event in ipairs(w.events) do if event.audience[player] then
-        local copy=Codec.copy(event);copy.audience=nil
+        local copy={}
+        for key,value in pairs(event) do copy[key]=value end
+        copy.audience=nil
         local source=w.entities[copy.source]
         if source and not (event.sourceAudience and event.sourceAudience[player]) then copy.source=nil;copy.sx=nil;copy.sy=nil end;copy.sourceAudience=nil
         out[#out+1]=copy
@@ -34,7 +47,7 @@ end
 local function occupied(w,x,y,except)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
-        if e.alive and e.category=='unit' and e.id~=except and G.rectangleDistance2(e.x,e.y,x*256,y*256,(x+1)*256,(y+1)*256)<G.radius(w,e)^2 then return true end
+        if e.alive and e.category=='unit' and e.id~=except and G.rectangleDistance2(e.x,e.y,x*256,y*256,(x+1)*256,(y+1)*256)<F.sq(G.radius(w,e)) then return true end
     end
     return false
 end
@@ -56,18 +69,9 @@ local function nearest(w,x,y,except,claimed,radius)
     end
 end
 
-local function rebuild(w)
-    w.blocked=Codec.copy(w.map.blocked)
-    for _,id in ipairs(ids(w)) do
-        local e=w.entities[id]
-        if e.alive and e.category~='unit' then
-            local size=e.size or 1
-            for y=F.cell(e.y),F.cell(e.y)+size-1 do
-                for x=F.cell(e.x),F.cell(e.x)+size-1 do w.blocked[Path.key(w.map,x,y)]=true end
-            end
-        end
-    end
-end
+-- Single definition of how w.blocked derives from the map and standing buildings,
+-- shared with the regression test that proves the derivation (see Sim.recomputeBlocked).
+local function rebuild(w) w.blocked=Sim.recomputeBlocked(w) end
 local function spawn(w,kind,owner,x,y,category)
     G.invalidate(w)
     local d=w.content.units[kind] or w.content.buildings[kind]
@@ -155,19 +159,62 @@ function Sim.visible(w,player,e)
     end
     return false
 end
+-- A view is a read-only observation, produced once per tick per observer and
+-- also inside build validation. It used to deep-copy the immutable map and every
+-- entity wholesale, then delete the fields an enemy must not see. Both halves were
+-- expensive: map.blocked alone is thousands of sorted keys that never change, and
+-- copy-then-delete means the cost of a field is paid before it is discarded.
+--
+-- Instead the observable surface is an explicit whitelist. Anything not named here
+-- -- schedulers, searches, detours, lane state, reservation bookkeeping -- is not
+-- observable by anyone, so a new private field cannot leak by default. Immutable
+-- world data is shared by reference; callers must treat views as read-only.
+local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
+    'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
+    'nextCommitTick','attackTick','harvestRemaining','remaining','produced','researchRemaining',
+    'reviveRemaining','resource','amount','campTier','stance','xp','cargo','cargoType','healthCapacity'}
+-- Fields an observer may only see on entities it owns.
+local OWNER_FIELDS={'harvestRemaining','researchRemaining','reviveRemaining','xp','cargo','cargoType'}
+local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
+local function shallow(t) local out={};for key,value in pairs(t) do out[key]=value end;return out end
+local function shallowArray(t) local out={};for i=1,#t do out[i]=shallow(t[i]) end;return out end
+local function viewEntity(w,e,own)
+    local copy={}
+    for i=1,#VIEW_FIELDS do
+        local name=VIEW_FIELDS[i]
+        if own or not ownerOnly[name] then copy[name]=e[name] end
+    end
+    -- Order/queue shapes are tables; an enemy sees a unit standing still with nothing queued.
+    -- Orders, queue entries and upgrades are flat records of scalars, so a shallow
+    -- copy is equivalent to the canonical one and skips building and sorting a key
+    -- array per record -- which, at two per own unit per tick, dominated view cost.
+    if own then
+        copy.order=shallow(e.order);copy.orders=shallowArray(e.orders)
+        if e.queue then copy.queue=shallowArray(e.queue) end
+        if e.upgrades then copy.upgrades=shallow(e.upgrades) end
+        if e.goal then copy.goal={x=e.goal.x,y=e.goal.y} end
+        copy.pathLength=#e.path
+    else
+        copy.order={kind='stop'};copy.orders={};copy.pathLength=0
+    end
+    if e.home then copy.home={x=e.home.x,y=e.home.y} end
+    -- The attack phase drives animation for both sides; the target id is private.
+    local a=e.attack
+    if a then copy.attack={start=a.start,impact=a.impact,finish=a.finish,period=a.period,dx=a.dx,dy=a.dy,target=own and a.target or nil} end
+    return copy
+end
 function Sim.view(w,player)
-    local out={tick=w.tick,result=w.result,map={width=w.map.width,height=w.map.height,starts=Codec.copy(w.map.starts),anchors=w.map.anchors and Codec.copy(w.map.anchors),blocked=Codec.copy(w.map.blocked)},entities={},player=Codec.copy(w.players[player])}
+    local p=w.players[player]
+    local out={tick=w.tick,result=w.result,
+        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked},
+        entities={},byId={},
+        player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
+            resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources}}
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         if (e.alive or e.owner==player or (e.deathTick and w.tick-e.deathTick<40)) and Sim.visible(w,player,e) then
-            local copy=Codec.copy(e)
-            if e.owner~=player then
-                -- Enemy private tasks, inventory, schedulers and progression are not observations.
-                copy.orders={};copy.order={kind='stop'};copy.path={};copy.goal=nil;copy.queue=nil
-                copy.slots=nil;copy.nextExtractTick=nil;copy.researchRemaining=nil;copy.economySearch=nil;copy.dropoff=nil;copy.cargo=nil;copy.cargoType=nil;copy.harvestRemaining=nil;copy.reviveRemaining=nil;copy.upgrades=nil;copy.xp=nil
-                if copy.attack then copy.attack.target=nil end
-            end
-            out.entities[#out.entities+1]=copy
+            local copy=viewEntity(w,e,e.owner==player)
+            out.entities[#out.entities+1]=copy;out.byId[id]=copy
         end
     end
     return out
@@ -175,6 +222,11 @@ end
 function Sim.create(config,content,map)
     F.check(map.width,8,256); F.check(map.height,8,256)
     assert(#config.players>=2 and #config.players<=4,'two to four players required')
+    -- Content is a shared, immutable definition table: nothing in the simulation
+    -- writes to it, and 'content references and definition isolation' fails if that
+    -- ever stops being true. Holding a reference avoids deep-copying the whole
+    -- catalogue on every world creation, which replay seeking does repeatedly.
+    -- The map is still copied, because callers do build worlds by editing a map.
     local w={version=Sim.VERSION,tick=0,config=Codec.copy(config),content=Codec.copy(content),map=Codec.copy(map),rng=Rng.create(config.seed or 1),
         players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0}}
     for p=1,#config.players do
@@ -243,7 +295,7 @@ function Sim.placement(view,content,kind,x,y)
         if not view.player.visible[key] then return false,'Unseen footprint' end
         if view.map.blocked[key] then return false,'Impassable terrain' end
         for _,other in ipairs(view.entities) do
-            if other.alive and other.category=='unit' and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<content.units[other.kind].radius^2 then return false,'Occupied footprint' end
+            if other.alive and other.category=='unit' and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
             if other.alive and other.category~='unit' and cx>=F.cell(other.x) and cx<F.cell(other.x)+other.size and cy>=F.cell(other.y) and cy<F.cell(other.y)+other.size then return false,'Occupied footprint' end
         end
     end end
@@ -428,7 +480,7 @@ local function finishOrders(w)
     for _,id in ipairs(ids(w)) do local e=w.entities[id]
         if e.alive and (e.order.kind=='move' or e.order.kind=='attack_move') and not e.goal and not w.searches[id] and not e.combatTarget then
             if e.blockedReason then emit(w,'blocked',{entity=e.id,reason=e.blockedReason});nextOrder(w,e)
-            elseif e.x==F.center(e.order.x) and e.y==F.center(e.order.y) or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,F.center(e.order.x),F.center(e.order.y))<=(G.radius(w,e)+32)^2 then nextOrder(w,e)
+            elseif e.x==F.center(e.order.x) and e.y==F.center(e.order.y) or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,F.center(e.order.x),F.center(e.order.y))<=F.sq(G.radius(w,e)+32) then nextOrder(w,e)
             else route(w,e,e.order.x,e.order.y) end
         end
     end
@@ -441,7 +493,7 @@ local function enemyTarget(w,e,candidates)
             local dist=F.distance2Bounded(ex,ey,target.x,target.y)
             if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
                 local shooting=G.weaponRange(w,e,target)
-                local chasing=e.order.kind~='hold' and (e.engagement and F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)<=(w.content.rules.acquireRange or 768)^2 or not e.engagement and dist<=(w.content.rules.acquireRange or 768)^2)
+                local chasing=e.order.kind~='hold' and (e.engagement and F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)<=F.sq(w.content.rules.acquireRange or 768) or not e.engagement and dist<=F.sq(w.content.rules.acquireRange or 768))
                 if shooting or chasing then best=target;distance=dist end
             end
         end
@@ -457,7 +509,7 @@ local function approachWeapon(w,e,t)
     local contact=w.content.rules.profile and weapon.range<256 and t.category=='unit'
     if contact then
         local gap=G.radius(w,e)+G.radius(w,t)+weapon.range-16
-        if F.distance2Bounded(e.x,e.y,t.x,t.y)<=(gap+384)^2 then
+        if F.distance2Bounded(e.x,e.y,t.x,t.y)<=F.sq(gap+384) then
             local dx,dy=F.vector(e.x-t.x,e.y-t.y,gap);local x,y=t.x+dx,t.y+dy
             if G.free(w,x,y,G.radius(w,e),e.id) and G.terrain(w,math.floor((e.x+x)/2),math.floor((e.y+y)/2),G.radius(w,e)) then
                 e.path={{x=F.cell(x),y=F.cell(y),px=x,py=y}};e.pathIndex=1;e.goal={x=F.cell(x),y=F.cell(y)};w.searches[e.id]=nil;return
@@ -494,12 +546,12 @@ local function combatOrders(w)
                 if not validTarget(w,e,target) then nextOrder(w,e);target=nil end
             elseif kind~='move' and kind~='build' and kind~='harvest' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
                 target=w.entities[e.combatTarget]
-                if not validTarget(w,e,target) or (kind=='hold' and not G.weaponRange(w,e,target)) or (e.engagement and not G.weaponRange(w,e,target) and (F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)>(w.content.rules.acquireRange or 768)^2 or F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>(w.content.rules.acquireRange or 768)^2)) then target=nil end
+                if not validTarget(w,e,target) or (kind=='hold' and not G.weaponRange(w,e,target)) or (e.engagement and not G.weaponRange(w,e,target) and (F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768) or F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768))) then target=nil end
                 if not target then target=enemyTarget(w,e,candidates[e.owner]) end
                 if target and not e.engagement then e.engagement={x=e.x,y=e.y} end
             end
-            if e.home and F.distance2Bounded(e.x,e.y,e.home.x,e.home.y)>(w.content.rules.campLeash or 5*256)^2 then target=nil;e.returning=true end
-            if w.content.rules.profile and e.home and not target and F.distance2Bounded(e.x,e.y,e.home.x,e.home.y)>100^2 then e.returning=true end
+            if e.home and F.distance2Bounded(e.x,e.y,e.home.x,e.home.y)>F.sq(w.content.rules.campLeash or 5*256) then target=nil;e.returning=true end
+            if w.content.rules.profile and e.home and not target and F.distance2Bounded(e.x,e.y,e.home.x,e.home.y)>100*100 then e.returning=true end
             if e.returning then
                 target=nil
                 if approachTarget(w,e,{x=e.home.x,y=e.home.y},100) then e.homeSince=e.homeSince or w.tick;if w.tick-e.homeSince>=(w.content.rules.campResetTicks or 0) and w.tick-e.lastCombat>=(w.content.rules.campResetTicks or 0) then e.returning=nil;e.hp=e.maxHp;e.engagement=nil;e.homeSince=nil end else e.homeSince=nil end
@@ -514,7 +566,7 @@ local function combatOrders(w)
             elseif kind=='attack_move' and not e.returning then
                 if not e.goal and not w.searches[id] then route(w,e,e.order.x,e.order.y) end
                 -- Keep the leash until the unit has advanced a cell along its order.
-                if e.engagement and F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>256^2 then e.engagement=nil end
+                if e.engagement and F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>256*256 then e.engagement=nil end
             end
         end
     end
@@ -621,7 +673,8 @@ function Sim.step(w,commands)
         w.players[p].defeated=not hq(w,p).alive
         if not w.players[p].defeated then survivors[#survivors+1]=p end
     end
-    if #survivors<=1 then w.result={winner=survivors[1] or 0,tick=w.tick};emit(w,'victory',w.result) end
+    -- w.result is retained world state; emit owns what it is given, so hand it a copy.
+    if #survivors<=1 then w.result={winner=survivors[1] or 0,tick=w.tick};emit(w,'victory',{winner=w.result.winner,tick=w.tick}) end
     G.endStep(w);return w.events
 end
 function Sim.snapshot(w)
@@ -635,5 +688,51 @@ function Sim.serializeCanonical(w)
     local events=w.events;w.events=nil
     local ok,bytes=pcall(Codec.encode,w);w.events=events
     assert(ok,bytes);return bytes
+end
+-- Periodic checkpoints exist to detect divergence between peers, and between a
+-- replay and the match that recorded it. They therefore need exactly the state
+-- that can change a future tick.
+--
+-- serializeCanonical encodes the whole world, which re-proves things already
+-- established elsewhere and charges tens of thousands of keys to do it:
+--   content and map are fixed for the match and are covered by the replay
+--     header's contentHash/mapHash and by the build fingerprint;
+--   w.blocked and the lane cache are derived from map.blocked plus the standing
+--     buildings, all of which are covered here (a regression test recomputes
+--     w.blocked and asserts it matches);
+--   player.explored is written by the simulation but never read by it -- it is
+--     fog rendering state, which AGENTS.md places outside canonical state;
+--   metrics are per-tick counters reset at the top of every step.
+-- Everything that survives a tick and can steer the next one is included, so a
+-- real divergence still fails at the first checkpoint after it happens.
+-- serializeCanonical remains the tool for whole-state equivalence assertions and
+-- desync dumps, where completeness matters more than cost.
+function Sim.serializeAuthoritative(w)
+    local players={}
+    for p=1,#w.players do
+        local player=w.players[p]
+        players[p]={faction=player.faction,resources=player.resources,sequence=player.sequence,
+            defeated=player.defeated,hq=player.hq,hero=player.hero,tech=player.tech,
+            visible=player.visible,knownResources=player.knownResources}
+    end
+    local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,rng=w.rng,
+        players=players,entities=w.entities,order=w.order,nextId=w.nextId,result=w.result,
+        searches=w.searches,pathCursor=w.pathCursor,navVersion=w.navVersion})
+    assert(ok,bytes);return bytes
+end
+-- Exposed so a regression test can prove w.blocked is recomputable, which is what
+-- justifies leaving it out of the authoritative checkpoint.
+function Sim.recomputeBlocked(w)
+    local blocked=Codec.copy(w.map.blocked)
+    for _,id in ipairs(w.order) do
+        local e=w.entities[id]
+        if e.alive and e.category~='unit' then
+            local size=e.size or 1
+            for y=F.cell(e.y),F.cell(e.y)+size-1 do
+                for x=F.cell(e.x),F.cell(e.x)+size-1 do blocked[Path.key(w.map,x,y)]=true end
+            end
+        end
+    end
+    return blocked
 end
 return Sim

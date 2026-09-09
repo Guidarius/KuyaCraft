@@ -1,3 +1,4 @@
+local F=require('src.sim.fixed')
 local H={}
 function H.step(w,emit)
  if w.tick%20~=0 then return end
@@ -11,7 +12,7 @@ function H.step(w,emit)
    local count=0;local limit=d.baseHeal and 3 or 1;local range=d.healRange or 1536
    local ex,ey=e.x,e.y;if e.category=='building' then ex=ex+(e.size-1)*128;ey=ey+(e.size-1)*128 end
    for _,ally in ipairs(recipients) do
-    if count<limit and not healed[ally.id] and ally.owner==e.owner and (not d.baseHeal or w.tick-ally.lastCombat>=w.content.rules.outOfCombatTicks) and (ex-ally.x)^2+(ey-ally.y)^2<=range^2 then
+    if count<limit and not healed[ally.id] and ally.owner==e.owner and (not d.baseHeal or w.tick-ally.lastCombat>=w.content.rules.outOfCombatTicks) and F.sq(ex-ally.x)+F.sq(ey-ally.y)<=F.sq(range) then
      ally.hp=math.min(ally.maxHp,ally.hp+(d.heal or d.baseHeal));healed[ally.id]=true;count=count+1;emit(w,'healed',{entity=ally.id})
     end
    end

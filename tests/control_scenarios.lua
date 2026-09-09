@@ -162,7 +162,8 @@ function S.register(test)
         local file=assert(io.open('artifacts/control-performance.txt','wb'));file:write(report);file:close();print(report)
         assert(attacks>100 and moved>100,'benchmark did not exercise active movement and combat')
         assert(last-middle<4096,'retained heap growth exceeds 4 MiB')
-        assert(p95<10,'active simulation exceeds 10 ms p95 target')
+        local budget=S.perfBudget or 10
+        assert(p95<budget,string.format('active simulation exceeds %g ms p95 target (%.3f ms)',budget,p95))
     end)
 end
 return S

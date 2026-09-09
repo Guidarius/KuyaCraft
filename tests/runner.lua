@@ -187,6 +187,33 @@ test('simulation','group destinations remain distinct and bodies respect clearan
     end
     for _,c in ipairs(commands) do local e=w.entities[c.args.entity];eq(e.order.kind,'stop');assert(not e.lastOrderFailure) end
 end)
+test('simulation','authoritative checkpoint covers derived navigation state',function()
+    -- w.blocked and the lane cache are excluded from Sim.serializeAuthoritative on
+    -- the grounds that they derive from map.blocked plus the standing buildings,
+    -- which the checkpoint does cover. Prove that across construction, depletion
+    -- and destruction rather than asserting it in a comment.
+    local Path=require('src.sim.path')
+    local w=world(24)
+    local builder=find(w,1,'worker')
+    local function derived()
+        eq(Codec.encode(w.blocked),Codec.encode(Sim.recomputeBlocked(w)),'w.blocked is not recomputable')
+    end
+    derived()
+    -- Close enough to the worker that the footprint is inside its sight radius.
+    step(w,1,{command(w,1,'build',builder.id,{building='barracks',x=7,y=6})})
+    for _,event in ipairs(w.events) do assert(event.kind~='rejected','build rejected: '..tostring(event.reason)) end
+    local site=find(w,1,'barracks');assert(site,'no construction site')
+    derived();assert(w.blocked[Path.key(w.map,7,6)],'footprint did not block navigation')
+    for _=1,400 do step(w,1);derived() end
+    assert(site.remaining==0,'construction did not complete')
+    site.hp=0;step(w,1);assert(not site.alive,'building survived zero health')
+    derived();assert(not w.blocked[Path.key(w.map,7,6)],'destroyed footprint still blocks navigation')
+    -- A checkpoint must still notice a real divergence in state it does cover.
+    local a,b=world(24),world(24)
+    eq(Sim.serializeAuthoritative(a),Sim.serializeAuthoritative(b))
+    local mover=find(a,1,'worker');step(a,1,{command(a,1,'move',mover.id,{x=F.center(6),y=F.center(6)})});step(b,1)
+    assert(Sim.serializeAuthoritative(a)~=Sim.serializeAuthoritative(b),'checkpoint missed a divergence')
+end)
 test('scenario','mirror bot match and replay',function() require('tests.scenarios').match(true) end)
 test('scenario','asymmetric bot match and replay',function() require('tests.scenarios').match(false) end)
 test('performance','240-unit four-player stress',function() require('tests.scenarios').performance() end)
@@ -211,9 +238,16 @@ function T.run(options)
     if options['determinism-worker'] then return T.worker(options) end
     require('tests.control_scenarios').benchmarkTicks=tonumber(options['benchmark-ticks'])
     require('tests.control_scenarios').profile=options['profile-sim']
-    local suite=options.test or 'all';assert(({all=true,balance=true,unit=true,simulation=true,determinism=true,network=true,scenario=true,performance=true,crowd=true,soak=true})[suite],'unknown suite')
+    -- Perf gates are budgets, not constants: slower reference hardware sets its own.
+    local budget=tonumber(options['perf-budget']) or 10
+    require('tests.control_scenarios').perfBudget=budget
+    require('tests.balance_scenarios').perfBudget=budget
+    local suite=options.test or 'all'
+    assert(({all=true,balance=true,unit=true,simulation=true,determinism=true,network=true,scenario=true,performance=true,crowd=true,soak=true,quick=true})[suite],'unknown suite')
+    -- 'quick' is unit+simulation in one process: no determinism or network child processes.
+    local accepts=suite=='quick' and function(s) return s=='unit' or s=='simulation' end or function(s) return suite=='all' or s==suite end
     local passed,failed=0,0
-    for _,item in ipairs(tests) do if (suite=='all' or item.suite==suite) and (not options.filter or item.name:find(options.filter,1,true)) then
+    for _,item in ipairs(tests) do if accepts(item.suite) and (not options.filter or item.name:find(options.filter,1,true)) then
         local ok,err=xpcall(item.fn,debug.traceback)
         if ok then passed=passed+1;print('PASS '..item.name) else failed=failed+1;print('FAIL '..item.name..'\n'..err) end
     end end

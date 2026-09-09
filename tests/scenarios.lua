@@ -30,7 +30,7 @@ function M.match(mirror)
     local restored=Sim.create(config,Content,map)
     for _,frame in ipairs(recording.frames) do
         Sim.step(restored,frame.commands)
-        if recording.hashes[frame.tick] then assert(Hash.bytes(Sim.serializeCanonical(restored))==recording.hashes[frame.tick],'full match replay diverged') end
+        if recording.hashes[frame.tick] then assert(Hash.bytes(Sim.serializeAuthoritative(restored))==recording.hashes[frame.tick],'full match replay diverged') end
     end
     return w
 end

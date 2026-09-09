@@ -14,7 +14,7 @@ local function near(x,y,t)
  local left,top=F.cell(t.x)*256,F.cell(t.y)*256
  local dx=x-math.max(left,math.min(x,left+(t.size or 1)*256))
  local dy=y-math.max(top,math.min(y,top+(t.size or 1)*256))
- return dx*dx+dy*dy<=256^2
+ return dx*dx+dy*dy<=256*256
 end
 function H.select(w,e,mode)
  local s=e.economySearch

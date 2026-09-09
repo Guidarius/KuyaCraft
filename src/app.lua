@@ -6,6 +6,13 @@ local Replay=require('src.replay')
 local Hash=require('src.hash')
 local Bot=require('src.bot')
 local F=require('src.sim.fixed')
+-- Hoisted because these sit on the per-frame and per-entity draw paths, where an
+-- inline require() is a package.loaded hash lookup on every single call.
+local Camera=require('src.ui.camera')
+local Minimap=require('src.ui.minimap')
+local Hud=require('src.ui.hud')
+local Input=require('src.ui.input')
+local Frames=require('src.asset_frames')
 local App={}
 local CELL_Y=26*math.sin(math.pi/3)
 local colors={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.67,0.47,0.95},{0.92,0.78,0.32}}
@@ -21,7 +28,7 @@ function App.create(options)
         self.playback=Replay.read(options.replay,Content);config=self.playback.header.config;map=self.playback.header.map
         self.message='Replay playback | commands are read-only'
     end
-    self.world=Sim.create(config,Content,map);self.recording=Replay.create(config,Content,map)
+    self.world=Sim.create(config,Content,map);self.recording=Replay.create(config,Content,map,Replay.OFFLINE_INTERVAL)
     if options.host or options.join then
         self.network=require('src.net.session').create(options,config,Content,map);self.player=self.network.player
     end
@@ -36,8 +43,8 @@ function App.create(options)
     self.selected={self.world.players[self.player].hero}
     local ok,sprites=pcall(require,'src.sprites')
     if ok then self.sprites=sprites.load() end
-    require('src.ui.camera').normalize(self)
-    require('src.ui.camera').center(self,self.world.entities[self.view.player.hero].x,self.world.entities[self.view.player.hero].y)
+    Camera.normalize(self)
+    Camera.center(self,self.world.entities[self.view.player.hero].x,self.world.entities[self.view.player.hero].y)
     return self
 end
 function App:screen(x,y)
@@ -46,8 +53,10 @@ end
 function App:position(x,y)
     return math.floor((x-self.camera.x)/26/self.camera.zoom*256),math.floor((y-self.camera.y)/CELL_Y/self.camera.zoom*256)
 end
+-- The view carries its own id index. This used to be a linear scan called once
+-- per selected entity per frame, which is quadratic with an army selected.
 function App:entity(id)
-    for _,e in ipairs(self.view.entities) do if e.id==id then return e end end
+    return self.view.byId[id]
 end
 function App:command(kind,id,args)
     if self.playback or self.world.result or (self.network and not self.network.ready) then return end
@@ -67,7 +76,7 @@ function App:update(dt)
         local target=self.seeking;local limit=math.min(target,self.world.tick+40)
         while self.world.tick<limit do
             local tick=self.world.tick+1;Sim.step(self.world,self.playback.frames[tick].commands)
-            if self.playback.hashes[tick] then assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeCanonical(self.world)),'Replay diverged at tick '..tick) end
+            if self.playback.hashes[tick] then assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..tick) end
             self.observation:update(Sim.view(self.world,self.player))
         end
         self.view=Sim.view(self.world,self.player);self.message='Seeking '..self.world.tick..' / '..target
@@ -77,8 +86,8 @@ function App:update(dt)
     if self.overlay and not self.network then self.accumulator=0;return end
     if self.playback then if self.replayPaused then self.accumulator=0;return end;dt=dt*self.replaySpeed end
     if self.settings.edgeScroll and not self.overlay and not self.capture then
-        local mx,my=love.mouse.getPosition();local r=require('src.ui.camera').rect(self)
-        if require('src.ui.camera').contains(self,mx,my) then
+        local mx,my=love.mouse.getPosition();local r=Camera.rect(self)
+        if Camera.contains(self,mx,my) then
             if mx<8 then self.camera.x=self.camera.x+dt*350 elseif mx>r.w-8 then self.camera.x=self.camera.x-dt*350 end
             if my<r.y+8 then self.camera.y=self.camera.y+dt*350 elseif my>r.y+r.h-8 then self.camera.y=self.camera.y-dt*350 end
         end
@@ -87,7 +96,7 @@ function App:update(dt)
     if love.keyboard.isDown('right') then self.camera.x=self.camera.x-dt*350 end
     if love.keyboard.isDown('up') then self.camera.y=self.camera.y+dt*350 end
     if love.keyboard.isDown('down') then self.camera.y=self.camera.y-dt*350 end
-    if not self.overlay then require('src.ui.camera').clamp(self) end
+    if not self.overlay then Camera.clamp(self) end
     if self.network then
         self.network:poll()
         self.message=self.network.status
@@ -102,7 +111,7 @@ function App:update(dt)
         if not self.network.ready then return end
         if not self.started then
             self.started=true;self.world=Sim.create(self.network.config,Content,self.network.map)
-            self.recording=Replay.create(self.network.config,Content,self.network.map)
+            self.recording=Replay.create(self.network.config,Content,self.network.map,Replay.OFFLINE_INTERVAL)
             self.selected={self.world.players[self.player].hero};self.view=Sim.view(self.world,self.player)
             self.observation=require('src.ui.observation').create();self.observation:update(self.view)
             self.alerts=require('src.ui.alerts').create();self.healthTrails={};self.audio:clear()
@@ -112,7 +121,15 @@ function App:update(dt)
             for tick=1,3 do self.network:submit(tick,{}) end
         end
     end
-    self.accumulator=self.accumulator+dt
+    -- A load stall (asset page upload, window drag, GC pause) must not become a
+    -- catch-up spiral. Clamp the frame delta, then, offline only, discard backlog
+    -- beyond half a second: dropping cosmetic catch-up is preferable to a freeze.
+    -- Network play keeps every tick because lockstep peers must agree tick for tick.
+    self.accumulator=self.accumulator+math.min(dt,0.25)
+    if not self.network and self.accumulator>0.5 then
+        self.discardedTicks=(self.discardedTicks or 0)+math.floor((self.accumulator-0.5)/0.05)
+        self.accumulator=0.5
+    end
     local steps=0
     while self.accumulator>=0.05 and steps<8 do
         if self.world.result then self.accumulator=0;break end
@@ -138,8 +155,18 @@ function App:update(dt)
                 self.sequences[2]=self.sequences[2]+1;c.player=2;c.sequence=self.sequences[2];c.tick=tick;commands[#commands+1]=c
             end
         end
-        self.previous={}
-        for _,e in ipairs(self.view.entities) do self.previous[e.id]={x=e.x,y=e.y} end
+        -- Interpolation needs one previous position per drawn entity. Rebuilding
+        -- the table allocated a record per unit per tick; the records are reused
+        -- and stamped instead. The stamp matters: an entity that was fogged and
+        -- has reappeared must not be interpolated from wherever it was last seen.
+        self.previousStamp=(self.previousStamp or 0)+1
+        local previous,stamp=self.previous,self.previousStamp
+        for _,e in ipairs(self.view.entities) do
+            local record=previous[e.id]
+            if record then record.x=e.x;record.y=e.y;record.stamp=stamp
+            else previous[e.id]={x=e.x,y=e.y,stamp=stamp} end
+        end
+        if stamp%150==0 then for id,record in pairs(previous) do if record.stamp~=stamp then previous[id]=nil end end end
         local events=Sim.step(self.world,commands)
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
         events=Sim.eventsFor(self.world,self.player)
@@ -162,16 +189,24 @@ function App:update(dt)
         if rejectedCount>0 then self.message=acceptedCount>0 and (acceptedCount..' accepted, '..rejectedCount..' rejected: '..firstReason) or firstReason elseif acceptedCount>0 then self.message=acceptedCount..' order'..(acceptedCount==1 and '' or 's')..' accepted' end
         if not self.playback then Replay.record(self.recording,self.world,commands)
         elseif self.playback.hashes[tick] then
-            assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeCanonical(self.world)),'Replay diverged at tick '..tick)
+            assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..tick)
         end
-        if self.network and tick%100==0 then local bytes=Sim.serializeCanonical(self.world);self.network:checksum(tick,Hash.bytes(bytes),bytes) end
+        if self.network and tick%100==0 then local bytes=Sim.serializeAuthoritative(self.world);self.network:checksum(tick,Hash.bytes(bytes),bytes) end
         self.accumulator=self.accumulator-0.05;steps=steps+1
     end
 end
-local function selected(self,id) for _,v in ipairs(self.selected) do if v==id then return true end end return false end
+-- Rebuilt once per frame rather than scanned per drawn entity.
+local function selectionSet(self)
+    local set=self.selectedSet
+    if not set then set={};self.selectedSet=set else for key in pairs(set) do set[key]=nil end end
+    for _,v in ipairs(self.selected) do set[v]=true end
+    return set
+end
+local function selected(self,id) return self.selectedSet and self.selectedSet[id] or false end
 function App:drawEntity(e)
     local g=love.graphics
     local x,y=e.x,e.y;local prev=self.previous[e.id]
+    if prev and prev.stamp~=self.previousStamp then prev=nil end
     if prev and e.category=='unit' then
         local alpha=math.min(1,self.accumulator/0.05)
         x=prev.x+(x-prev.x)*alpha;y=prev.y+(y-prev.y)*alpha
@@ -179,7 +214,7 @@ function App:drawEntity(e)
     x,y=self:screen(x,y)
     local z=self.camera.zoom
     local team=colors[e.owner] or {0.76,0.61,0.39}
-    if not e.alive and not (self.sprites and self.sprites.units[require('src.asset_frames').assetId(e)]) then
+    if not e.alive and not (self.sprites and self.sprites.units[Frames.assetId(e)]) then
         color(team,0.5);g.ellipse('fill',x,y,15*z,5*z);return
     end
     g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*z,5*z)
@@ -220,12 +255,13 @@ function App:draw()
     if self.options['sprite-proof'] then return require('src.sprite_proof').draw(self.sprites) end
     local g=love.graphics;local width,height=g.getDimensions();local panel=width
     g.clear(0.055,0.078,0.088)
-    local cameraModule=require('src.ui.camera');local cameraRect=cameraModule.rect(self);if self.camera.viewportHeight and self.camera.viewportHeight~=cameraRect.h then local cx,cy=self:position(cameraRect.w/2,cameraRect.y+cameraRect.h/2);cameraModule.normalize(self);cameraModule.center(self,cx,cy) end;self.camera.viewportHeight=cameraRect.h
+    local cameraRect=Camera.rect(self);if self.camera.viewportHeight and self.camera.viewportHeight~=cameraRect.h then local cx,cy=self:position(cameraRect.w/2,cameraRect.y+cameraRect.h/2);Camera.normalize(self);Camera.center(self,cx,cy) end;self.camera.viewportHeight=cameraRect.h
     local viewport=cameraRect;g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
     local m=self.world.map;local z=self.camera.zoom
-    local terrain=require('src.ui.minimap').cache(self)
+    local terrain=Minimap.cache(self)
     g.setColor(1,1,1);g.draw(terrain.terrain,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
     g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    selectionSet(self)
     local entities={}
     for _,e in ipairs(self.view.entities) do if e.alive or (e.category=='unit' and e.deathTick and self.world.tick-e.deathTick<40) then entities[#entities+1]=e end end
     table.sort(entities,function(a,b) local ay=a.y+(a.size-1)*256;local by=b.y+(b.size-1)*256;if ay~=by then return ay<by end return a.id<b.id end)
@@ -257,12 +293,12 @@ function App:draw()
             if wx then local x,y=self:screen(wx,wy);g.setColor(.5,.8,.6,.5);g.line(px,py,x,y);g.circle('line',x,y,4);px,py=x,y end
         end
     end end
-    g.setScissor();require('src.ui.hud').draw(self)
+    g.setScissor();Hud.draw(self)
 end
 
 function App:unitVisualScale(e)
     local d=Content.units[e.kind];if not d then return 1 end
-    local u=self.sprites and self.sprites.units[require('src.asset_frames').assetId(e)]
+    local u=self.sprites and self.sprites.units[Frames.assetId(e)]
     local target=d.hero and 38.4 or d.worker and 26.24 or 32
     return u and target/(u.metadata.bodyHeightPixels*(u.metadata.drawScale or 1)) or d.worker and .82 or 1
 end
@@ -284,13 +320,13 @@ function App:pick(x,y,ownOnly)
     end
     return best
 end
-function App:mousepressed(...) return require('src.ui.input').mousepressed(self,...) end
-function App:mousereleased(...) return require('src.ui.input').mousereleased(self,...) end
-function App:mousemoved(...) return require('src.ui.input').mousemoved(self,...) end
-function App:keypressed(...) return require('src.ui.input').keypressed(self,...) end
+function App:mousepressed(...) return Input.mousepressed(self,...) end
+function App:mousereleased(...) return Input.mousereleased(self,...) end
+function App:mousemoved(...) return Input.mousemoved(self,...) end
+function App:keypressed(...) return Input.keypressed(self,...) end
 function App:wheelmoved(_,dy)
     if self.overlay then return end
-    local x,y=love.mouse.getPosition();if require('src.ui.camera').contains(self,x,y) then require('src.ui.camera').zoom(self,x,y,dy) end
+    local x,y=love.mouse.getPosition();if Camera.contains(self,x,y) then Camera.zoom(self,x,y,dy) end
 end
 function App:requestSeek(tick,player)
     self:seek(0,player);self.seeking=math.max(0,math.min(#self.playback.frames,math.floor(tick)))
@@ -301,7 +337,7 @@ function App:seek(tick,player)
     self.observation=require('src.ui.observation').create();self.observation:update(Sim.view(self.world,self.player))
     for i=1,math.min(tick,#self.playback.frames) do
         Sim.step(self.world,self.playback.frames[i].commands)
-        if self.playback.hashes[i] then assert(self.playback.hashes[i]==Hash.bytes(Sim.serializeCanonical(self.world)),'Replay diverged at tick '..i) end
+        if self.playback.hashes[i] then assert(self.playback.hashes[i]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..i) end
         self.observation:update(Sim.view(self.world,self.player))
     end
     self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.audio:clear()

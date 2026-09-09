@@ -81,7 +81,7 @@ function M.step(w,halt,route)
                     proposals[#proposals+1]={e=e,fx=e.x+dx,fy=e.y+dy,tx=tx,ty=ty}
                     if (e.waitTicks or 0)>=10 then
                         for _,other in ipairs(nearby(w,before,e.x,e.y)) do
-                            if other.id~=id and other.owner==e.owner and other.order.kind=='stop' and not other.goal and not other.attack and (other.suppressAcquireUntil or -1)<w.tick and F.distance2Bounded(e.x,e.y,other.x,other.y)<(G.radius(w,e)+G.radius(w,other)+64)^2 and not yields[other.id] then
+                            if other.id~=id and other.owner==e.owner and other.order.kind=='stop' and not other.goal and not other.attack and (other.suppressAcquireUntil or -1)<w.tick and F.distance2Bounded(e.x,e.y,other.x,other.y)<F.sq(G.radius(w,e)+G.radius(w,other)+64) and not yields[other.id] then
                                 local dx,dy=tx-e.x,ty-e.y;local sx,sy=F.vector(-dy,dx,256)
                                 yields[other.id]={x=other.x+sx,y=other.y+sy}
                             end
@@ -112,7 +112,7 @@ function M.step(w,halt,route)
             local candidates=p.choices or choices(w,e,p.tx,p.ty)
             for i=1,#candidates,3 do
                 local x,y=candidates[i],candidates[i+1]
-                if (not p.yielding or F.distance2Bounded(x,y,e.yieldOrigin.x,e.yieldOrigin.y)<=256^2) and clear(w,e,x,y,neighbors) then ax,ay=x,y;break end
+                if (not p.yielding or F.distance2Bounded(x,y,e.yieldOrigin.x,e.yieldOrigin.y)<=256*256) and clear(w,e,x,y,neighbors) then ax,ay=x,y;break end
             end
         end
         if ax then
@@ -134,7 +134,7 @@ function M.step(w,halt,route)
                 end
             end
         elseif not p.yielding then e.waitTicks=(e.waitTicks or 0)+1 end
-        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,F.center(e.goal.x),F.center(e.goal.y))<=(G.radius(w,e)+32)^2 then
+        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,F.center(e.goal.x),F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
             halt(w,e);e.navigation='arrived'
         end
         if not p.yielding and (e.waitTicks or 0)>=10 then

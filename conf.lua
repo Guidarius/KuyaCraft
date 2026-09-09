@@ -8,6 +8,9 @@ function love.conf(t)
     t.modules.physics = false
     t.modules.joystick = false
     t.modules.audio = true
+    -- Nothing in the project uses video decoding or touch input; skip their init cost.
+    t.modules.video = false
+    t.modules.touch = false
     local options = require('src.args').parse(arg or {})
     if options.test or options['network-worker'] then
         t.window = nil

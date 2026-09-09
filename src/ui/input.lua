@@ -1,3 +1,7 @@
+local Codec=require('src.sim.codec')
+local Content=require('src.content')
+local Sim=require('src.sim')
+local Actions=require('src.ui.actions')
 local Camera=require('src.ui.camera')
 local Selection=require('src.ui.selection')
 local Mini=require('src.ui.minimap')
@@ -50,7 +54,7 @@ function I.mousepressed(app,x,y,button,presses)
  if button==1 then
   if app.building then
    local wx,wy=app:position(x,y);local cx,cy=math.floor(wx/256),math.floor(wy/256)
-   local valid,reason=require('src.sim').placement(app.view,require('src.content'),app.building,cx,cy)
+   local valid,reason=Sim.placement(app.view,Content,app.building,cx,cy)
    if valid then
     for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.kind=='worker' then app:command('build',id,{building=app.building,x=cx,y=cy,append=shift()});break end end
     if not shift() then app.awaitingPlacement=app.building;app.building=nil end
@@ -97,13 +101,13 @@ function I.keypressed(app,key)
   if #app.subgroups>0 then app.subgroupIndex=app.subgroupIndex%#app.subgroups+1;app.selected=app.subgroups[app.subgroupIndex].ids end;app.lastTab=app.clock
  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
   local n=tonumber(key)
-  if love.keyboard.isDown('lctrl','rctrl') then app.groups[n]=require('src.sim.codec').copy(app.selected)
+  if love.keyboard.isDown('lctrl','rctrl') then app.groups[n]=Codec.copy(app.selected)
   elseif app.groups[n] then app.selected={};for _,id in ipairs(app.groups[n]) do local e=app:entity(id);if e and e.alive then app.selected[#app.selected+1]=id end end
    if app.lastGroup==n and app.clock-(app.lastGroupTime or -100)<.35 then local e=app:entity(app.selected[1]);if e then Camera.center(app,e.x,e.y) end end
    app.lastGroup=n;app.lastGroupTime=app.clock
   end
  elseif key=='f3' then app.debugOrders=not app.debugOrders
  elseif key=='f5' then app:save()
- else for _,a in ipairs(require('src.ui.actions').list(app)) do if a.key==key then if not a.reason then a.run() else app.message=a.reason end;break end end end
+ else for _,a in ipairs(Actions.list(app)) do if a.key==key then if not a.reason then a.run() else app.message=a.reason end;break end end end
 end
 return I

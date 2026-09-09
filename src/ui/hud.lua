@@ -1,3 +1,8 @@
+local Sim=require('src.sim')
+local Minimap=require('src.ui.minimap')
+local Selection=require('src.ui.selection')
+local Icons=require('src.ui.icons')
+local Actions=require('src.ui.actions')
 local C=require('src.content')
 local Camera=require('src.ui.camera')
 local H={}
@@ -12,25 +17,25 @@ function H.draw(app)
  g.setColor(.48,.4,.25);g.line(0,40,w,40);g.line(0,y,w,y)
  text('LoveRTS',16,13);local p=app.view.player
  text('Gold  '..p.resources.gold,135,13);text('Lumber  '..p.resources.lumber,270,13)
- text('Food  '..require('src.sim').population(app.world,app.player)..' / '..C.rules.population..'   Units '..require('src.sim').unitCount(app.world,app.player),430,13,300)
+ text('Food  '..Sim.population(app.world,app.player)..' / '..C.rules.population..'   Units '..Sim.unitCount(app.world,app.player),430,13,300)
  text(string.format('%02d:%02d',math.floor(app.world.tick/1200),math.floor(app.world.tick/20)%60),w-220,13,100)
  app.widgets:button('menu','Menu',w-98,6,86,28,function() app.overlay='pause' end)
- require('src.ui.minimap').draw(app,{x=10,y=y+10,w=190,h=160})
+ Minimap.draw(app,{x=10,y=y+10,w=190,h=160})
  local hero=app:entity(p.hero);local hx=214
  if hero then
   app.widgets:button('hero',C.units[hero.kind].label..' [F1]',hx+42,y+12,103,42,function() app.selected={hero.id};Camera.center(app,hero.x,hero.y) end)
-  require('src.ui.icons').portrait(hero.kind,hx,y+12)
+  Icons.portrait(hero.kind,hx,y+12)
   text(hero.hp..' / '..hero.maxHp..' HP',hx,y+59,145);bar(hx,y+77,145,hero.hp,hero.maxHp)
   text('XP '..hero.xp..'  |  Stance '..hero.stance,hx,y+87,150)
   app.widgets:button('hero-stance','Toggle stance',hx,y+108,145,25,function() app:command('toggle',hero.id) end,not hero.alive and 'Hero is dead' or nil)
   local milestone
   for i,t in ipairs(C.rules.xpThresholds) do if hero.xp>=t and not hero.upgrades[i] then milestone=i;break end end
   if milestone and hero.alive then app.widgets:button('upgrade','Upgrade available',hx,y+140,145,28,function() app.overlay='upgrade';app.upgradeMilestone=milestone;app.upgradeChoice=nil end)
-  elseif not hero.alive then app.widgets:button('revive',hero.reviveRemaining and ('Reviving '..math.ceil(hero.reviveRemaining/20)..'s') or ('Revive: '..require('src.sim').revival(C,hero)..' gold'),hx,y+140,145,28,function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or p.resources.gold<require('src.sim').revival(C,hero) and 'Insufficient gold' or nil) end
+  elseif not hero.alive then app.widgets:button('revive',hero.reviveRemaining and ('Reviving '..math.ceil(hero.reviveRemaining/20)..'s') or ('Revive: '..Sim.revival(C,hero)..' gold'),hx,y+140,145,28,function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or p.resources.gold<Sim.revival(C,hero) and 'Insufficient gold' or nil) end
  end
  local sx,sw=375,math.max(140,w-375-330);local e=app:entity(app.selected[1])
  text(#app.selected..' selected',sx,y+12,sw)
- local groups=require('src.ui.selection').groups(app)
+ local groups=Selection.groups(app)
  for i,group in ipairs(groups) do local col=(i-1)%3;local row=math.floor((i-1)/3)
   app.widgets:button('group-'..group.kind,(C.units[group.kind] or C.buildings[group.kind]).label..' x'..#group.ids,sx+col*(sw/3),y+35+row*30,sw/3-4,26,function() app.selected=group.ids end)
  end
@@ -40,7 +45,7 @@ function H.draw(app)
    for i,q in ipairs(e.queue) do app.widgets:button('production-'..i,C.units[q.kind].label..' '..math.ceil(q.remaining/20)..'s  x',sx+(i-1)%3*(sw/3),y+127+math.floor((i-1)/3)*24,sw/3-4,22,function() app:command('cancel',e.id,{index=i}) end,nil,'Cancel: unstarted units refund 100%; training units refund 50%.') end
   elseif #app.selected==1 then local d=C.units[e.kind];if d then text('Damage '..(d.damage or 0)..'  Range '..string.format('%.1f',d.range/256)..' cells',sx,y+132,sw) end end
  end
- for i,a in ipairs(require('src.ui.actions').list(app)) do
+ for i,a in ipairs(Actions.list(app)) do
   local col=(i-1)%3;local row=math.floor((i-1)/3)
   app.widgets:button(a.id,a.label..(a.key~='' and (' ['..a.key:upper()..']') or ''),w-320+col*103,y+14+row*49,98,44,a.run,a.reason,a.tip,a.id)
  end
