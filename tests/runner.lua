@@ -23,6 +23,8 @@ local function find(w,p,kind) for _,id in ipairs(w.order) do local e=w.entities[
 local tests={}
 local function test(suite,name,fn) tests[#tests+1]={suite=suite,name=name,fn=fn} end
 for _,case in ipairs({'queues','construction','combat','fog','minimap','lobby'}) do test(case=='lobby' and 'network' or 'simulation','UI contract: '..case,function() require('tests.ui_contracts')[case]() end) end
+test('unit','context-sensitive command cards',function() require('tests.command_card').context() end)
+test('unit','command costs and prerequisites',function() require('tests.command_card').availability() end)
 require('tests.balance').register(test)
 require('tests.controls').register(test)
 require('tests.control_scenarios').register(test)

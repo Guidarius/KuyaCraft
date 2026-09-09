@@ -24,15 +24,16 @@ function T.run(app)
  assert(app.world.entities[worker.id].order.kind=='attack_move','A left click')
  app:keypressed('h');app:update(.05);assert(app.world.entities[worker.id].order.kind=='hold')
  app:keypressed('f3');app:draw();assert(app.debugOrders);app:keypressed('f3')
- app:keypressed('b');assert(app.building=='barracks');app:keypressed('escape');assert(not app.building and not app.overlay)
+ app:keypressed('b');assert(app.cardPage=='build' and not app.building);app:keypressed('q');assert(app.building=='barracks');app:keypressed('escape');assert(not app.building and not app.overlay);app:keypressed('escape');assert(not app.cardPage)
  app:keypressed('f1');local hero=app.world.entities[app.view.player.hero];local stance=hero.stance;click('hero-stance');app:update(.05);assert(hero.stance~=stance)
  hero.xp=400;app.view=Sim.view(app.world,1);app.observation:update(app.view)
- click('upgrade');click('choice-1');assert(not hero.upgrades[1],'preview committed early');click('commit');app:update(.05);assert(hero.upgrades[1]==1)
+ click('upgrade');assert(app.cardPage=='abilities');click('ability-1-1');click('choice-1');assert(not hero.upgrades[1],'preview committed early');click('commit');app:update(.05);assert(hero.upgrades[1]==1)
  app.selected={app.view.player.hq};click('recruit-worker');app:update(.05);assert(#app.world.entities[app.view.player.hq].queue==1)
  local before=#app.queue;app:keypressed('1');assert(#app.queue==before,'number recruited')
  local state=Sim.serializeCanonical(app.world);for _=1,4 do app:draw() end;assert(Sim.serializeCanonical(app.world)==state,'render mutated sim')
  app.overlay='pause';app.network={poll=function() end,ready=false,status='Lobby'}
  local polls=0;app.network.poll=function() polls=polls+1 end;app:update(.1);assert(polls==1,'multiplayer menu blocked network');app.network=nil;app.overlay=nil
+ require('tests.command_card').rendered(app,click)
  require('tests.control_input').run()
  local clean=require('src.app').create({map='open_fields'})
  for _=1,120 do clean:update(.05) end
@@ -54,6 +55,7 @@ function T.run(app)
  shell.screen='multiplayer';shell.focus='address';local old=shell.address;shell:keypressed('a');assert(shell.address==old and not shell.match,'text focus leaked');shell:textinput('1');assert(shell.address==old..'1');shell.focus=nil
  app.overlay='upgrade';app.upgradeMilestone=2;app.upgradeChoice=1;capture('upgrade',function() app:draw() end)
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
+ require('tests.command_card').captures(app,capture)
  canvas:release();shell:close();app:draw()
  print('PASS rendered UI: scales, capture, minimap drag, transforms, pause, commands, upgrades, recruitment, replay seek')
 end

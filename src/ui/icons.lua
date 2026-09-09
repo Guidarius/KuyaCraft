@@ -1,8 +1,11 @@
 -- Small geometric symbols remain legible without downloaded icon assets.
 local I={}
-function I.draw(name,x,y,size)
- local g=love.graphics;g.push('all');g.translate(x,y);g.scale(size/20);g.setColor(.86,.77,.49);g.setLineWidth(1.5)
- if name=='move' then g.line(2,16,17,3,8,3);g.line(17,3,17,12)
+function I.draw(name,x,y,size,disabled)
+ local g=love.graphics;g.push('all');g.translate(x,y);g.scale(size/20);g.setColor(disabled and .4 or .86,disabled and .44 or .77,disabled and .44 or .49);g.setLineWidth(1.5)
+ if name=='build-menu' then g.polygon('line',2,9,10,2,18,9);g.rectangle('line',4,9,12,10)
+ elseif name=='abilities' or name:find('ability%-') then g.rectangle('line',3,3,14,14);g.line(10,5,10,15);g.line(5,10,15,10)
+ elseif name=='back-card' then g.line(17,10,3,10,8,5);g.line(3,10,8,15)
+ elseif name=='move' then g.line(2,16,17,3,8,3);g.line(17,3,17,12)
  elseif name=='stop' then g.rectangle('fill',4,4,12,12)
  elseif name=='attack' then g.line(3,17,17,3);g.line(3,3,17,17);g.line(1,13,7,19);g.line(13,19,19,13)
  elseif name=='harvest' then g.line(5,18,13,3);g.line(3,7,11,2,18,5)

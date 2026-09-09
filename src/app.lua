@@ -16,7 +16,7 @@ function App.create(options)
     local map=Maps.create(options.map)
     local self=setmetatable({options=options,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
         camera={x=28,y=115,zoom=1},previous={},message='Select a worker and right-click gold or lumber to begin.',effects={},fonts={}}, {__index=App})
-    self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12)
+    self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12);self.fonts.card=love.graphics.newFont(10)
     if options.replay then
         self.playback=Replay.read(options.replay,Content);config=self.playback.header.config;map=self.playback.header.map
         self.message='Replay playback | commands are read-only'
@@ -50,11 +50,12 @@ function App:entity(id)
     for _,e in ipairs(self.view.entities) do if e.id==id then return e end end
 end
 function App:command(kind,id,args)
-    if self.playback or self.world.result or (self.network and not self.network.ready) then return end
+    if self.playback or self.world.result or (self.network and not self.network.ready) then require('src.ui.command_feedback').notify(self,'rejected',self.playback and 'Replay is read-only' or self.world.result and 'Match has ended' or 'Waiting for match to start',self.activeAction);return end
     args=args or {};args.entity=id
     self.sequences[self.player]=self.sequences[self.player]+1
-    self.pending[self.sequences[self.player]]={kind=kind,group=self.commandGroup or 0,issuedTick=self.world.tick,issuedTime=self.clock}
+    self.pending[self.sequences[self.player]]={kind=kind,group=self.commandGroup or 0,issuedTick=self.world.tick,issuedTime=self.clock,action=self.activeAction,building=args.building,selection=self.cardSelection,x=kind=='build' and args.x and (args.x*256+128) or args.x,y=kind=='build' and args.y and (args.y*256+128) or args.y}
     self.queue[#self.queue+1]={tick=0,player=self.player,sequence=self.sequences[self.player],kind=kind,args=args}
+    return true
 end
 function App:update(dt)
     self.clock=self.clock+dt;self.audio:update(dt);self.alerts:update(dt)
@@ -150,12 +151,14 @@ function App:update(dt)
         for _,event in ipairs(events) do
             if (event.kind=='rejected' or event.kind=='accepted') and event.player==self.player then
                 local pending=self.pending[event.sequence];self.pending[event.sequence]=nil
+                require('src.ui.command_feedback').resolve(self,event,pending)
                 if pending then self.lastCommandTiming={ticks=self.world.tick-pending.issuedTick,milliseconds=math.floor((self.clock-pending.issuedTime)*1000+.5)} end
-                if event.kind=='rejected' then rejectedCount=rejectedCount+1;firstReason=firstReason or event.reason;self.audio:play('rejected');if pending and pending.kind=='build' then self.building=self.awaitingPlacement;self.awaitingPlacement=nil end
-                elseif pending then acceptedCount=acceptedCount+1;self.audio:play('accepted');if pending.kind=='build' then self.awaitingPlacement=nil end end
+                if event.kind=='rejected' then rejectedCount=rejectedCount+1;firstReason=firstReason or (self.uiNotice and self.uiNotice.kind=='rejected' and self.uiNotice.text) or event.reason;if pending and pending.kind=='build' then if pending.selection==self.cardSelection and require('src.ui.actions').context(self).onlyWorkers then self.building=pending.building end;self.awaitingPlacement=nil end
+                elseif pending then acceptedCount=acceptedCount+1;if pending.kind=='build' then self.awaitingPlacement=nil end end
+            elseif event.kind=='researched' then self.audio:play('research',self,event.x,event.y)
             elseif event.kind=='healed' then self.audio:play('heal',self,event.x,event.y)
             elseif event.kind=='attack' or event.kind=='death' then self.audio:play(event.kind,self,event.x,event.y)
-            elseif event.kind=='constructed' or event.kind=='recruited' or event.kind=='upgraded' or event.kind=='revived' then self.audio:play('ready',self,event.x,event.y) end
+            elseif event.kind=='constructed' or event.kind=='recruited' or event.kind=='revived' then self.audio:play('ready',self,event.x,event.y) end
         end
         for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.harvestRemaining or unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
         self.audio:play('ambience')
@@ -230,11 +233,11 @@ function App:draw()
     for _,e in ipairs(self.view.entities) do if e.alive or (e.category=='unit' and e.deathTick and self.world.tick-e.deathTick<40) then entities[#entities+1]=e end end
     table.sort(entities,function(a,b) local ay=a.y+(a.size-1)*256;local by=b.y+(b.size-1)*256;if ay~=by then return ay<by end return a.id<b.id end)
     for _,e in ipairs(entities) do self:drawEntity(e) end
-    if not self.options['effects-disabled'] then self.feedback:draw(self) end
+    if not self.options['effects-disabled'] then self.feedback:draw(self);require('src.ui.command_feedback').draw(self) end
     if self.orderMarker and self.clock-(self.orderMarker.time or 0)<.4 then
         local marker=self.orderMarker;local mx,my=self:screen(marker.x,marker.y)
         local age=(self.clock-(marker.time or 0))*20
-        g.setColor(0.65,0.95,0.65,1-age/8);g.setLineWidth(2*z)
+        g.setColor(marker.kind=='rejected' and 1 or .65,marker.kind=='rejected' and .3 or .95,.65,1-age/8);g.setLineWidth(2*z)
         g.ellipse('line',mx,my,(7+age)*z,(4+age*0.5)*z)
     end
     if self.drag then
@@ -305,7 +308,7 @@ function App:seek(tick,player)
         self.observation:update(Sim.view(self.world,self.player))
     end
     self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.audio:clear()
-    self.alerts=require('src.ui.alerts').create();self.selected={self.view.player.hero};if self.sprites then self.sprites:reset() end
+    self.alerts=require('src.ui.alerts').create();self.selected={self.view.player.hero};self.cardPage=nil;self.cardSelection=nil;self.uiNotice=nil;self.costFlash=nil;self.commandMarks={};self.orderMarker=nil;if self.sprites then self.sprites:reset() end
 end
 function App:save(path)
     if not self.playback then

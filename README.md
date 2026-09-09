@@ -45,15 +45,15 @@ The game opens a main menu. Choose Skirmish to select your map and factions. All
 - Right click moves, attacks, harvests or resumes construction. A then **left click** issues attack-move. Shift appends; S stops and clears orders; H holds position without chasing or yielding.
 - Ctrl+1–9 assigns groups; 1–9 recalls; double tap centers. Number keys never recruit.
 - F1 selects the hero; double tap centers. Q/W/E/R use contextual commands.
-- B/T/O/L arm war hall, watchtower, outpost and lumber-depot placement. Select the HQ and use T to advance technology, unlocking support and heavy troops. Preview explains invalid footprints. Shift repeats queued placement.
-- Hero dock buttons toggle stance, revive and open upgrades. Preview an upgrade, then click Choose Upgrade.
+- With only workers selected, B opens Build; Q/T/E/R choose war hall, watchtower, outpost and lumber depot. Cards show costs; shortages are red. Escape cancels placement, then returns to commands. Shift repeats queued placement. Select one HQ and use T to advance technology, unlocking support and heavy troops.
+- With only the hero selected, U opens the ability card: three paired tiers show XP requirements, learned choices and exclusions. Preview an available upgrade, then click Choose Upgrade. The hero dock also selects the hero and opens the card. Mixed groups get shared movement/combat commands; worker-only groups get Build/Harvest.
 - Minimap left drag pans, right click orders, A-left attack-moves; Alt-left adds a local marker. Space centers an important alert.
 - Middle drag/arrows pan; wheel zooms. Edge scroll is optional in Settings.
 - Escape cancels targeting, closes a panel, then opens the match menu. Use Leave Match to exit. Offline menus pause; multiplayer continues.
 - F3 toggles the selected own-unit order inspector, including paths, attack timing, blocking and command acknowledgement latency.
 - F5 / Save Replay writes under artifacts. Replays menu provides pause/speed/timeline/perspective.
 
-UI scale (80–125%), volume buses, edge scroll and common hotkey bindings are in Settings. The implementation and acceptance checklist are in [docs/UI_UX_ROADMAP.md](docs/UI_UX_ROADMAP.md).
+UI scale (80–125%), volume buses, edge scroll and common hotkey bindings are in Settings. Commands use distinct audio cues and brief visual markers; invalid actions flash the card and deficient resource totals. See [command cards and feedback](docs/COMMAND_CARDS.md). The implementation and acceptance checklist are in [docs/UI_UX_ROADMAP.md](docs/UI_UX_ROADMAP.md).
 
 The movement lab is selectable in Skirmish or with `scripts/run.ps1 -Map movement_lab`. It contains flat chokepoints, a U-shaped obstacle, a concave wall, a corridor, and forest clutter. Its purpose is navigation testing, not a balanced economic match. See [the control and movement verification record](docs/CONTROL_MOVEMENT.md).
 

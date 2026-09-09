@@ -9,7 +9,7 @@ function S.settings(app,w,h,back)
  end
  app.widgets:button('edges','Edge scroll: '..(app.settings.edgeScroll and 'On' or 'Off'),x,y+215,200,28,function() app.settings.edgeScroll=not app.settings.edgeScroll;require('src.ui.settings').save(app.settings) end)
  for i,key in ipairs({'attack','stop','hold','hero','alert','build','tower'}) do
-  app.widgets:button('bind-'..key,key..': '..app.settings.bindings[key],x+((i-1)%3)*155,y+255+math.floor((i-1)/3)*34,148,28,function() app.rebind=key end,nil,'Click, then press a key. Numbers, Q/W/E/R, F3 and F5 are reserved.')
+  app.widgets:button('bind-'..key,key..': '..app.settings.bindings[key],x+((i-1)%3)*155,y+255+math.floor((i-1)/3)*34,148,28,function() app.rebind=key end,nil,'Click, then press a key. Numbers, Q/W/E/R/U/Y, F3 and F5 are reserved.')
  end
  if app.rebind then g.setColor(1,.8,.4);g.print('Press a key for '..app.rebind..' (Escape cancels)',x,y+355) end
  app.widgets:button('back','Back',x,y+395,460,30,back)
@@ -22,14 +22,19 @@ function S.overlay(app,w,h)
  local x,y=w/2-220,h/2-170;g.setColor(.07,.1,.12);g.rectangle('fill',x-20,y-25,480,355,6)
  if app.overlay=='upgrade' then
   local hero=app:entity(app.view.player.hero);local milestone=app.upgradeMilestone;local faction=C.factions[app.view.player.faction]
+  local Actions=require('src.ui.actions');local reason=app.playback and 'Replay is read-only' or Actions.upgradeReason(app,hero,milestone)
   g.setColor(.94,.85,.6);g.print('Choose a permanent hero upgrade',x,y)
   for i=1,2 do
    local xx=x+(i-1)*225
-   app.widgets:button('choice-'..i,faction.upgrades[milestone][i],xx,y+40,215,45,function() app.upgradeChoice=i end)
+   app.widgets:button('choice-'..i,faction.upgrades[milestone][i],xx,y+40,215,45,function() app.upgradeChoice=i;app.audio:play('menu') end,reason)
    g.setColor(.84,.88,.82);g.printf(require('src.ui.actions').upgrades[app.view.player.faction][milestone][i],xx,y+100,210)
    if app.upgradeChoice==i then g.setColor(.85,.75,.35);g.rectangle('line',xx-2,y+38,219,170) end
   end
-  app.widgets:button('commit','Choose Upgrade',x,y+235,440,34,function() app:command('upgrade',hero.id,{milestone=milestone,choice=app.upgradeChoice});app.overlay=nil end,not app.upgradeChoice and 'Preview an option first' or nil)
+  app.widgets:button('commit','Choose Upgrade',x,y+235,440,34,function()
+   local current=Actions.upgradeReason(app,app:entity(hero.id),milestone)
+   if current then require('src.ui.command_feedback').notify(app,'rejected',current,'commit');return end
+   app.activeAction='ability-'..milestone..'-'..app.upgradeChoice;app:command('upgrade',hero.id,{milestone=milestone,choice=app.upgradeChoice});app.activeAction=nil;app.overlay=nil
+  end,reason or not app.upgradeChoice and 'Preview an option first' or nil)
   app.widgets:button('close','Decide later',x,y+279,440,28,function() app.overlay=nil end)
  else
   g.setColor(.95,.86,.6);g.print(app.network and 'Match continues' or 'Match paused',x,y)

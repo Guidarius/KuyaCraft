@@ -272,3 +272,12 @@ Evidence: `artifacts/balance-release-tests.log`, `balance-current-simulation.log
 Portable balance build: `D:\LoveRTS\dist\LoveRTS-20260909-105528`. Archive SHA-256: `20AE518BD6BDE15CC89A95AC230ADF962902BFC354FC986923C814B69F7B9D36`.
 
 Launched and tested from the package directory, outside the development checkout: **11 unit tests**, **39 simulation tests**, the **1280×720 rendered UI regression**, and startup of the current-profile `sample.replay` all passed. The executable, runtime, source archive and active assets were packaged successfully. Package logs/screenshots are under that package's `artifacts` directory. Use `Play.ps1` or the repository's `scripts/run.ps1` to start.
+
+
+## Context-sensitive command cards and feedback - 2026-09-09
+
+Delivered worker Build and hero ability submenus, full-selection action context, grey prerequisite states, individually red resource/food/XP costs, explicit permanent-upgrade choices, and short command/rejection visual cues. Audio now distinguishes selection, menu navigation, orders, cancellation, stance, upgrade and research; individual cues accept bundled files with a synthesized fallback. See [docs/COMMAND_CARDS.md](docs/COMMAND_CARDS.md).
+
+Verification: 13 unit tests passed; the rendered UI suite passed at 1280x720, 1920x1080 and 2560x1080 with the existing scale checks. New tests cover selection permutations, costs/prerequisites, mouse/keyboard parity, hero choice submission, late acknowledgement isolation, bounded feedback and missing audio-file fallback. Build/ability/mixed-selection captures were generated and representative images visually inspected. Evidence is under `artifacts/command-card-*.log` and `ui-*-card-*.png`.
+
+Gameplay simulation/content were unchanged; full gameplay, performance and cross-process suites were not rerun for this presentation delivery. Listening review, continuous human play and two-PC sessions remain unperformed. The cost display supports mana metadata; current content does not yet spend mana.
