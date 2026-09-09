@@ -8,7 +8,9 @@ local Harvest=require('src.sim.harvesting')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
 -- replays store whole-world hashes and are rejected rather than misreported as
 -- divergence. See Sim.serializeAuthoritative.
-local Sim = { VERSION = 5 }
+-- Version 6: rally points, patrol and follow orders; per-player and per-entity kill
+-- and loss tallies; a `delivered` event carrying the exact amount and resource.
+local Sim = { VERSION = 6 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -245,7 +247,7 @@ end
 local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
     'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
     'nextCommitTick','attackTick','harvestRemaining','remaining','produced','researchRemaining',
-    'reviveRemaining','resource','amount','campTier','stance','xp','cargo','cargoType','healthCapacity'}
+    'reviveRemaining','resource','amount','campTier','stance','xp','cargo','cargoType','healthCapacity','kills'}
 -- Fields an observer may only see on entities it owns.
 local OWNER_FIELDS={'harvestRemaining','researchRemaining','reviveRemaining','xp','cargo','cargoType'}
 local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
@@ -266,6 +268,8 @@ local function viewEntity(w,e,own)
         if e.queue then copy.queue=shallowArray(e.queue) end
         if e.upgrades then copy.upgrades=shallow(e.upgrades) end
         if e.goal then copy.goal={x=e.goal.x,y=e.goal.y} end
+        -- A rally point is your own standing policy and is drawn for you alone.
+        if e.rally then copy.rally={x=e.rally.x,y=e.rally.y,target=e.rally.target} end
         copy.pathLength=#e.path
     else
         copy.order={kind='stop'};copy.orders={};copy.pathLength=0
@@ -282,6 +286,7 @@ function Sim.view(w,player)
         map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked},
         entities={},byId={},
         player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
+            kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,
             resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources}}
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
@@ -305,7 +310,8 @@ function Sim.create(config,content,map)
     for p=1,#config.players do
         local faction=config.players[p].faction or 'bastion'
         assert(content.factions[faction],'unknown faction')
-        w.players[p]={faction=faction,resources=Codec.copy(content.rules.startingResources or {gold=350,lumber=180}),sequence=0,visible={},explored={},defeated=false}
+        w.players[p]={faction=faction,resources=Codec.copy(content.rules.startingResources or {gold=350,lumber=180}),sequence=0,visible={},explored={},defeated=false,
+            kills=0,unitsLost=0,buildingsLost=0}
     end
     for _,node in ipairs(map.resources or {}) do
         F.check(node.x,0,map.width-1); F.check(node.y,0,map.height-1)
@@ -393,6 +399,7 @@ local function setOrder(w,e,order,append)
     end
     return true
 end
+Sim.setOrder=setOrder
 local function nextOrder(w,e)
     local blocked=e.blockedReason
     local rest=e.order.x and {x=F.center(e.order.x),y=F.center(e.order.y)} or nil
@@ -401,7 +408,10 @@ local function nextOrder(w,e)
     if e.order.x then route(w,e,e.order.x,e.order.y) end
 end
 local function reject(w,c,reason) emit(w,'rejected',{player=c.player or 0,sequence=c.sequence or 0,reason=reason}) end
-local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,harvest=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true}
+local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,harvest=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
+    rally=true,patrol=true,follow=true}
+-- Orders that take a destination slot and are reserved against other units' slots.
+local destinationKinds={move=true,attack_move=true,patrol=true}
 local function apply(w,c)
     if type(c)~='table' or not F.integer(c.player,1,#w.players) or not F.integer(c.sequence,1,2147483646) or c.tick~=w.tick or not commandKinds[c.kind] or type(c.args)~='table' then
         reject(w,type(c)=='table' and c or {},'malformed command'); return
@@ -469,14 +479,28 @@ local function apply(w,c)
         spend(p,bd.cost)
         local site=spawn(w,a.building,c.player,a.x,a.y,'building'); site.remaining=bd.buildTicks; site.builder=e.id;if w.content.rules.constructionHealth then site.hp=math.ceil(bd.hp/10);site.healthCapacity=site.hp end
         w.navVersion=w.navVersion+1; rebuild(w);setOrder(w,e,{kind='build',target=site.id},a.append);return
+    elseif c.kind=='rally' then
+        -- A rally point belongs to the building, not to an order queue: it is standing
+        -- policy for whatever the building produces next, and survives until replaced.
+        if e.category~='building' or not e.queue then reject(w,c,'cannot rally');return end
+        if a.target then
+            local t=w.entities[a.target]
+            if not t or not t.alive or not Sim.visible(w,c.player,t) then reject(w,c,'invalid rally target');return end
+            e.rally={target=t.id}
+        else
+            if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid rally point');return end
+            e.rally={x=F.cell(a.x),y=F.cell(a.y)}
+        end
+        return
     end
     if e.category~='unit' then reject(w,c,'unit required'); return end
     if c.kind=='stop' or c.kind=='hold' then setOrder(w,e,{kind=c.kind},false);e.suppressAcquireUntil=w.tick;return end
-    if c.kind=='move' or c.kind=='attack_move' then
+    if destinationKinds[c.kind] then
         if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position'); return end
         local rx,ry=F.cell(a.x),F.cell(a.y)
-        -- Equivalent orders preserve their slot even after occupying it.
-        if not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry then
+        -- Equivalent orders preserve their slot even after occupying it. Patrol is
+        -- excluded: reissuing it must be able to reset the beat to the current position.
+        if c.kind~='patrol' and not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry then
             e.orders={};w.commandClaims[Path.key(w.map,e.order.x,e.order.y)]=true;return
         end
         -- A 240-unit group move applies 240 of these commands in one tick. Allocating
@@ -499,14 +523,42 @@ local function apply(w,c)
         end
         local x,y=nearest(w,rx,ry,e.id,claims)
         if not x then reject(w,c,'no destination');return end
-        setOrder(w,e,{kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group},a.append)
+        local order={kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group}
+        -- A patrol beat runs between where the unit was standing when ordered and the
+        -- point clicked. Both ends are stored on the order so the route survives
+        -- snapshots and replays without any extra per-entity state.
+        if c.kind=='patrol' then order.originX,order.originY=F.cell(e.x),F.cell(e.y) end
+        setOrder(w,e,order,a.append)
         w.commandClaims[Path.key(w.map,x,y)]=true;return
     end
     local target=F.integer(a.target,1) and w.entities[a.target] or nil
     if not target or not target.alive or not Sim.visible(w,c.player,target) then reject(w,c,'target unavailable'); return end
     if c.kind=='attack' and (target.owner==e.owner or target.category=='node') then reject(w,c,'invalid enemy'); return end
     if c.kind=='harvest' and (not d.worker or target.category~='node') then reject(w,c,'invalid resource'); return end
+    -- Follow keeps station on another of your own units and never picks a fight of its
+    -- own; a unit cannot be ordered to follow itself.
+    if c.kind=='follow' and (target.owner~=e.owner or target.category~='unit' or target.id==e.id) then reject(w,c,'invalid follow target'); return end
     setOrder(w,e,{kind=c.kind,target=target.id},a.append)
+end
+-- Send a freshly produced unit to its building's rally point. A rally onto a resource
+-- node is a harvest order for a worker and a move for anyone else, which is what makes
+-- rallying to a mine the useful default it is in the genre.
+function Sim.applyRally(w,e,unit)
+    local rally=e.rally
+    if not rally then return end
+    if rally.target then
+        local t=w.entities[rally.target]
+        if not t or not t.alive then e.rally=nil;return end
+        if t.category=='node' and w.content.units[unit.kind].worker then
+            Sim.setOrder(w,unit,{kind='harvest',target=t.id},false)
+        else
+            Sim.setOrder(w,unit,{kind='move',x=F.cell(t.x),y=F.cell(t.y),requestX=F.cell(t.x),requestY=F.cell(t.y)},false)
+        end
+        return
+    end
+    -- A free cell near the point, so successive units spread out instead of stacking.
+    local x,y=nearest(w,rally.x,rally.y,unit.id)
+    if x then Sim.setOrder(w,unit,{kind='move',x=x,y=y,requestX=rally.x,requestY=rally.y},false) end
 end
 local function hq(w,p) return w.entities[w.players[p].hq] end
 local function economy(w)
@@ -522,6 +574,14 @@ local function economy(w)
         end
         if e.alive then
             if e.order.kind=='build' then local site=w.entities[e.order.target];if not site or not site.alive or site.remaining==0 then nextOrder(w,e) end end
+            -- Keep station on the followed unit. approachTarget already halts once inside
+            -- the gap and re-routes after the target has moved out of it, which is exactly
+            -- follow behaviour; the order ends when the target does.
+            if e.order.kind=='follow' then
+                local lead=w.entities[e.order.target]
+                if not lead or not lead.alive then nextOrder(w,e)
+                else approachTarget(w,e,lead,G.radius(w,e)+G.radius(w,lead)+96) end
+            end
             local d=def(w,e)
             if e.category=='building' then
                 if e.researchRemaining then e.researchRemaining=e.researchRemaining-1;if e.researchRemaining==0 then e.researchRemaining=nil;w.players[e.owner].tech=true;emit(w,'researched',{entity=e.id}) end end
@@ -532,18 +592,24 @@ local function economy(w)
                     local q=e.queue[1]; q.remaining=math.max(0,q.remaining-1)
                     if q.remaining==0 then
                         local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,nil,w.content.units[q.kind].radius)
-                        if x then local unit=spawn(w,q.kind,e.owner,x,y);e.produced=(e.produced or 0)+1;table.remove(e.queue,1);e.productionBlocked=nil;emit(w,'recruited',{entity=unit.id}) elseif not e.productionBlocked then e.productionBlocked=true;emit(w,'production_blocked',{entity=e.id}) end
+                        if x then
+                            local unit=spawn(w,q.kind,e.owner,x,y);e.produced=(e.produced or 0)+1;table.remove(e.queue,1);e.productionBlocked=nil
+                            Sim.applyRally(w,e,unit)
+                            emit(w,'recruited',{entity=unit.id})
+                        elseif not e.productionBlocked then e.productionBlocked=true;emit(w,'production_blocked',{entity=e.id}) end
                     end
                 end
             elseif d and d.worker and e.order.kind=='harvest' and w.content.rules.profile then
-                Harvest.step(w,e,approachTarget,route,nextOrder,rebuild)
+                Harvest.step(w,e,approachTarget,route,nextOrder,rebuild,emit)
             elseif d and d.worker and e.order.kind=='harvest' then
                 local node=w.entities[e.order.target]
                 if (e.cargo or 0)>0 then
                     local home=hq(w,e.owner)
                     if home.alive and approachTarget(w,e,home,400) then
                         local ledger=w.players[e.owner].resources
-                        ledger[e.cargoType]=(ledger[e.cargoType] or 0)+e.cargo; e.cargo=0; e.harvestRemaining=nil
+                        local amount,resource=e.cargo,e.cargoType
+                        ledger[resource]=(ledger[resource] or 0)+amount; e.cargo=0; e.harvestRemaining=nil
+                        emit(w,'delivered',{entity=e.id,amount=amount,resource=resource})
                     end
                 elseif node and node.alive then
                     if approachTarget(w,e,node,380) then
@@ -558,12 +624,62 @@ local function economy(w)
         end
     end
 end
-local function movement(w) Movement.step(w,halt,route) end
+-- Formation pacing. A group move arrives together only if its members travel together,
+-- so every unit under a shared group id walks at the slowest member's speed while that
+-- order stands. Recomputed each tick from the orders currently held: membership is
+-- whatever still carries the id, so casualties and new orders re-pace the group
+-- immediately, and nothing has to be cleaned up when a unit leaves it. Derived from
+-- content speeds and order state alone, so it is identical on every peer.
+local groupPace={}
+local function formation(w)
+    if not w.content.rules.formationPacing then return end
+    for key in pairs(groupPace) do groupPace[key]=nil end
+    local units=w.content.units
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.alive and e.category=='unit' then
+            local order=e.order
+            local group=order.group
+            if group and destinationKinds[order.kind] then
+                local pace=units[e.kind].speed
+                local slowest=groupPace[group]
+                if not slowest or pace<slowest then groupPace[group]=pace end
+            end
+        end
+    end
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.alive and e.category=='unit' then
+            local order=e.order
+            local group=order.group
+            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[group] or nil
+        end
+    end
+end
+local function movement(w) formation(w);Movement.step(w,halt,route) end
+-- Turn a patrol around: the beat's two ends swap, so the unit walks back the way it
+-- came. Both ends live on the order itself, so a patrolling unit survives a snapshot,
+-- a replay and a rejoin with its beat intact.
+local function reversePatrol(w,e)
+    local o=e.order
+    local x,y=o.originX,o.originY
+    o.originX,o.originY=o.x,o.y
+    o.x,o.y=x,y
+    o.requestX,o.requestY=x,y
+    halt(w,e);e.navigation='idle';e.blockedReason=nil
+    route(w,e,o.x,o.y)
+end
 local function finishOrders(w)
     for _,id in ipairs(ids(w)) do local e=w.entities[id]
-        if e.alive and (e.order.kind=='move' or e.order.kind=='attack_move') and not e.goal and not w.searches[id] and not e.combatTarget then
-            if e.blockedReason then emit(w,'blocked',{entity=e.id,reason=e.blockedReason});nextOrder(w,e)
-            elseif e.x==F.center(e.order.x) and e.y==F.center(e.order.y) or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,F.center(e.order.x),F.center(e.order.y))<=F.sq(G.radius(w,e)+32) then nextOrder(w,e)
+        local kind=e.order.kind
+        if e.alive and (kind=='move' or kind=='attack_move' or kind=='patrol') and not e.goal and not w.searches[id] and not e.combatTarget then
+            local arrived=e.x==F.center(e.order.x) and e.y==F.center(e.order.y) or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,F.center(e.order.x),F.center(e.order.y))<=F.sq(G.radius(w,e)+32)
+            if kind=='patrol' then
+                -- A patrol that cannot reach one end turns around rather than stopping:
+                -- the point of the order is that it does not need attention.
+                if e.blockedReason then emit(w,'blocked',{entity=e.id,reason=e.blockedReason});reversePatrol(w,e)
+                elseif arrived then reversePatrol(w,e)
+                else route(w,e,e.order.x,e.order.y) end
+            elseif e.blockedReason then emit(w,'blocked',{entity=e.id,reason=e.blockedReason});nextOrder(w,e)
+            elseif arrived then nextOrder(w,e)
             else route(w,e,e.order.x,e.order.y) end
         end
     end
@@ -627,7 +743,7 @@ local function combatOrders(w)
             if kind=='attack' then
                 target=w.entities[e.order.target]
                 if not validTarget(w,e,target) then nextOrder(w,e);target=nil end
-            elseif kind~='move' and kind~='build' and kind~='harvest' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
+            elseif kind~='move' and kind~='build' and kind~='harvest' and kind~='follow' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
                 target=w.entities[e.combatTarget]
                 if not validTarget(w,e,target) or (kind=='hold' and not G.weaponRange(w,e,target)) or (e.engagement and not G.weaponRange(w,e,target) and (F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768) or F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768))) then target=nil end
                 if not target then target=enemyTarget(w,e,candidates[e.owner]) end
@@ -646,7 +762,7 @@ local function combatOrders(w)
                 if G.weaponRange(w,e,target) then halt(w,e);e.retryAt=nil;e.rangeLatch=target.id;e.rangeLostAt=nil
                 elseif e.rangeLatch==target.id and G.weaponRange(w,e,target,32) and w.tick-(e.rangeLostAt or w.tick)<2 then e.rangeLostAt=e.rangeLostAt or w.tick;halt(w,e)
                 elseif e.category=='unit' and kind~='hold' then e.rangeLatch=nil;e.rangeLostAt=nil;approachWeapon(w,e,target) end
-            elseif kind=='attack_move' and not e.returning then
+            elseif (kind=='attack_move' or kind=='patrol') and not e.returning then
                 if not e.goal and not w.searches[id] then route(w,e,e.order.x,e.order.y) end
                 -- Keep the leash until the unit has advanced a cell along its order.
                 if e.engagement and F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>256*256 then e.engagement=nil end
@@ -712,10 +828,12 @@ local function combat(w)
             end
         end
     end
-    local killers={}
+    local killers={};local killerSource={}
     for _,hit in ipairs(hits) do
         local e=w.entities[hit.target];e.hp=e.hp-hit.damage;if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end;e.lastCombat=w.tick
-        if not killers[e.id] then killers[e.id]=w.entities[hit.source].owner end
+        -- First attacker to land a blow this tick takes credit, matching the existing
+        -- bounty and experience rule.
+        if not killers[e.id] then killers[e.id]=w.entities[hit.source].owner;killerSource[e.id]=hit.source end
     end
     local navChanged,deathChanged=false,false
     for _,id in ipairs(ids(w)) do
@@ -725,6 +843,19 @@ local function combat(w)
             emit(w,'death',{entity=id})
             if e.category=='building' then navChanged=true end
             local killer=killers[id]
+            -- Authoritative tallies. The interface previously counted these from the
+            -- events it happened to observe, which under-reports a kill made out of
+            -- sight; these are part of the world and agree between peers.
+            if e.owner>0 then
+                local owner=w.players[e.owner]
+                if e.category=='unit' then owner.unitsLost=(owner.unitsLost or 0)+1
+                else owner.buildingsLost=(owner.buildingsLost or 0)+1 end
+            end
+            if killer and killer>0 and killer~=e.owner then
+                w.players[killer].kills=(w.players[killer].kills or 0)+1
+                local source=w.entities[killerSource[id] or 0]
+                if source then source.kills=(source.kills or 0)+1 end
+            end
             if e.category=='unit' and not def(w,e).worker and killer and killer>0 and killer~=e.owner then
                 local bounty=def(w,e).bounty;if bounty then w.players[killer].resources.gold=w.players[killer].resources.gold+bounty end
                 local hero=w.entities[w.players[killer].hero]
@@ -798,6 +929,7 @@ function Sim.serializeAuthoritative(w)
         local player=w.players[p]
         players[p]={faction=player.faction,resources=player.resources,sequence=player.sequence,
             defeated=player.defeated,hq=player.hq,hero=player.hero,tech=player.tech,
+            kills=player.kills,unitsLost=player.unitsLost,buildingsLost=player.buildingsLost,
             visible=player.visible,knownResources=player.knownResources}
     end
     local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,rng=w.rng,

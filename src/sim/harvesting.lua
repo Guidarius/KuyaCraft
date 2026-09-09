@@ -53,7 +53,7 @@ function H.prepare(w)
   local n=w.entities[e.order.target];if n and n.alive and n.resource=='gold' and #n.slots<w.content.rules.mineWorkers then n.slots[#n.slots+1]=id end
  end end
 end
-function H.step(w,e,approach,route,nextOrder,rebuild)
+function H.step(w,e,approach,route,nextOrder,rebuild,emit)
  local node=w.entities[e.order.target]
  if (e.cargo or 0)>0 then
   local home=e.dropoff and w.entities[e.dropoff]
@@ -64,7 +64,14 @@ function H.step(w,e,approach,route,nextOrder,rebuild)
    if not choice then return end
    e.dropoff=choice.id;e.dropoffVersion=w.navVersion;home=w.entities[choice.id];route(w,e,choice.x,choice.y)
   end
-  if approach(w,e,home,256) then local ledger=w.players[e.owner].resources;ledger[e.cargoType]=(ledger[e.cargoType] or 0)+e.cargo;e.cargo=0;e.harvestRemaining=nil;e.dropoff=nil;e.economySearch=nil end
+  if approach(w,e,home,256) then
+   local ledger=w.players[e.owner].resources;local amount,resource=e.cargo,e.cargoType
+   ledger[resource]=(ledger[resource] or 0)+amount
+   e.cargo=0;e.harvestRemaining=nil;e.dropoff=nil;e.economySearch=nil
+   -- The exact delivery, so the interface can report income without inferring it from
+   -- a ledger delta that a refund or a bounty would also produce.
+   emit(w,'delivered',{entity=e.id,amount=amount,resource=resource})
+  end
  elseif node and node.alive then
   if node.resource=='gold' then local slotted=false;for _,id in ipairs(node.slots) do if id==e.id then slotted=true end end;if not slotted then e.harvestStatus='Waiting for mine slot';return end end
   e.harvestStatus=nil

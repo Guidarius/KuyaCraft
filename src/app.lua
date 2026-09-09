@@ -37,7 +37,7 @@ function App.create(options)
     self.widgets=require('src.ui.widgets').create();self.observation=require('src.ui.observation').create()
     self.alerts=require('src.ui.alerts').create();self.audio=require('src.ui.audio').create(self.settings)
     self.clock=0;self.pending={};self.replaySpeed=1;self.healthTrails={}
-    self.stats={built=0,lost=0,kills=0,buildings=0}
+    self.stats={built=0,buildings=0}
     if options['audio-disabled'] then self.audio.templates={} end
     self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
     self.feedback=require('src.feedback').create()
@@ -183,8 +183,6 @@ function App:update(dt)
             else previous[e.id]={x=e.x,y=e.y,stamp=stamp} end
         end
         if stamp%150==0 then for id,record in pairs(previous) do if record.stamp~=stamp then previous[id]=nil end end end
-        local previousResources=self.view.player.resources
-        local beforeGold,beforeLumber=previousResources.gold,previousResources.lumber
         local perf=self.perf;if not perf then perf={};self.perf=perf end
         local mark=love.timer.getTime()
         local events=Sim.step(self.world,commands)
@@ -192,7 +190,6 @@ function App:update(dt)
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
         perf.view=(love.timer.getTime()-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
-        self:announceIncome(beforeGold,beforeLumber)
         self.alerts:observe(events,self)
         if self.sprites then self.sprites:observe(events,self.view,self.world.tick) end
         self.feedback:observe(events,self.view,self.world.tick)
@@ -206,6 +203,7 @@ function App:update(dt)
             elseif event.kind=='healed' then self.audio:play('heal',self,event.x,event.y)
             elseif event.kind=='attack' or event.kind=='death' then self.audio:play(event.kind,self,event.x,event.y)
             elseif event.kind=='constructed' or event.kind=='recruited' or event.kind=='upgraded' or event.kind=='revived' then self.audio:play('ready',self,event.x,event.y) end
+            if event.kind=='delivered' and event.owner==self.player then self:announceDelivery(event) end
             self:recordStat(event)
         end
         for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.harvestRemaining or unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
@@ -219,10 +217,11 @@ function App:update(dt)
         self.accumulator=self.accumulator-0.05;steps=steps+1
         if self.world.result and not self.banner then
             local won=self.world.result.winner==self.player
+            local built,lost,kills=self:matchStats()
             self.banner={won=won,age=0,
                 detail=string.format('%02d:%02d   %d units built   %d lost   %d kills',
                     math.floor(self.world.tick/1200),math.floor(self.world.tick/20)%60,
-                    self.stats.built,self.stats.lost,self.stats.kills)}
+                    built,lost,kills)}
             self.feedback.banner=self.banner
         end
     end
@@ -246,27 +245,30 @@ local function selected(self,id) return self.selectedSet and self.selectedSet[id
 -- delivery event, because the simulation does not currently emit one. That means a
 -- refund or a bounty is announced the same way a drop-off is; the amount is always
 -- correct, only the attribution is approximate. Phase 6's `delivered` event replaces it.
--- Match statistics are accumulated from the events this player was allowed to see.
--- They are presentation only: nothing reads them back into the simulation, and a
--- player cannot be credited with a kill they never observed. Phase 6 moves kills and
--- losses into the simulation so the numbers become authoritative rather than observed.
+-- Units and buildings produced are counted from the player's own events, which is exact
+-- because you always observe your own production. Kills and losses are read from the
+-- simulation's tallies instead: counting deaths from observed events silently
+-- under-reports a kill made outside your sight.
 function App:recordStat(event)
     local stats=self.stats
     if event.kind=='recruited' and event.owner==self.player then stats.built=stats.built+1
-    elseif event.kind=='constructed' and event.owner==self.player then stats.buildings=stats.buildings+1
-    elseif event.kind=='death' then
-        if event.owner==self.player then stats.lost=stats.lost+1
-        elseif event.owner and event.owner>0 then stats.kills=stats.kills+1 end
-    end
+    elseif event.kind=='constructed' and event.owner==self.player then stats.buildings=stats.buildings+1 end
 end
-function App:announceIncome(beforeGold,beforeLumber)
-    local resources=self.view.player.resources
-    local hq=self.view.byId[self.view.player.hq]
-    if not hq then return end
-    local gold=resources.gold-beforeGold
-    local lumber=resources.lumber-beforeLumber
-    if gold>0 then self.feedback:text('income','+'..gold..' gold',hq.x,hq.y,{.96,.82,.36}) end
-    if lumber>0 then self.feedback:text('income','+'..lumber..' lumber',hq.x,hq.y-140,{.62,.86,.55}) end
+function App:matchStats()
+    local player=self.view.player
+    local stats=self.stats
+    return stats.built,player.unitsLost or 0,player.kills or 0,stats.buildings,player.buildingsLost or 0
+end
+-- Income is announced from the simulation's `delivered` event, so the figure and the
+-- place it appears are both exact: the text rises over the worker that actually made the
+-- delivery, and a refund or a kill bounty is never mistaken for one.
+local RESOURCE_COLOURS={gold={.96,.82,.36},lumber={.62,.86,.55}}
+function App:announceDelivery(event)
+    local worker=self.view.byId[event.entity]
+    local x,y=event.x,event.y
+    if worker then x,y=worker.x,worker.y end
+    if not x or not event.amount then return end
+    self.feedback:text('income','+'..event.amount..' '..tostring(event.resource),x,y,RESOURCE_COLOURS[event.resource])
 end
 function App:drawEntity(e)
     local g=love.graphics
@@ -410,10 +412,32 @@ function App:draw()
     end
     for _,id in ipairs(self.selected) do local e=self:entity(id);if e then
         local px,py=self:screen(e.x,e.y)
+        -- A selected building shows where its production is being sent.
+        if e.rally then
+            local rx,ry
+            if e.rally.target then local t=self:entity(e.rally.target);if t then rx,ry=t.x,t.y end
+            else rx,ry=e.rally.x*256+128,e.rally.y*256+128 end
+            if rx then
+                local x,y=self:screen(rx,ry)
+                g.setColor(.95,.85,.4,.5);g.setLineWidth(1);g.line(px,py,x,y)
+                g.setColor(.95,.85,.4)
+                g.line(x,y,x,y-16*z);g.polygon('fill',x,y-16*z,x+11*z,y-12*z,x,y-8*z)
+            end
+        end
         local orders={e.order};for _,order in ipairs(e.orders or {}) do orders[#orders+1]=order end
         for _,order in ipairs(orders) do local wx,wy
             if order.x then wx=order.x*256+128;wy=order.y*256+128 elseif order.target then local t=self:entity(order.target);if t then wx=t.x;wy=t.y end end
-            if wx then local x,y=self:screen(wx,wy);g.setColor(.5,.8,.6,.5);g.line(px,py,x,y);g.circle('line',x,y,4);px,py=x,y end
+            if wx then
+                local x,y=self:screen(wx,wy)
+                -- A patrol is a beat, not a destination: draw the whole run.
+                if order.kind=='patrol' and order.originX then
+                    local ox,oy=self:screen(order.originX*256+128,order.originY*256+128)
+                    g.setColor(.45,.8,.95,.6);g.setLineWidth(2*z);g.line(ox,oy,x,y)
+                    g.circle('line',ox,oy,5*z);g.circle('line',x,y,5*z)
+                    g.setLineWidth(1)
+                end
+                g.setColor(.5,.8,.6,.5);g.line(px,py,x,y);g.circle('line',x,y,4);px,py=x,y
+            end
         end
     end end
     if shakeX~=0 or shakeY~=0 then g.pop() end

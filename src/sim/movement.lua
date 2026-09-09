@@ -53,6 +53,11 @@ local function speed(w,e)
     local n=w.content.units[e.kind].speed
     if e.kind=='beastkeeper' and e.stance==2 then n=n+(w.content.rules.pursuitSpeed or 8) end
     if e.sprintUntil and w.tick<e.sprintUntil then n=n+(w.content.rules.sprintSpeed or 12) end
+    -- Formation pacing caps the result, not the base: a unit that has been sped up is
+    -- still holding formation, and letting a bonus break the group would defeat the
+    -- point of the cap. A unit whose own speed is already slower keeps it.
+    local pace=e.groupSpeed
+    if pace and pace<n then n=pace end
     return n
 end
 local function choices(w,e,tx,ty)

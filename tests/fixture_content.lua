@@ -2,7 +2,10 @@
 local C = {
     version = 2,
     rules = { tickRate = 20, population = 60, pathBudget = 64, directPathBudget = 16384, harvestTicks = 20, carry = 10,
-        reviveTicks = 200, reviveCost = 120, xpRange = 1536, xpThresholds = { 60, 160, 320 } },
+        reviveTicks = 200, reviveCost = 120, xpRange = 1536, xpThresholds = { 60, 160, 320 },
+        -- Matches the shipping rule, so the crowd fixtures exercise formation pacing
+        -- rather than silently skipping it.
+        formationPacing = true },
     units = {
         worker = { label = 'Worker', radius = 80, windup = 4, hp = 70, damage = 3, range = 300, cooldown = 25, speed = 30, sight = 5, cost = { gold = 40 }, buildTicks = 60, worker = true },
         shield = { label = 'Shieldguard', radius = 80, windup = 4, hp = 180, damage = 13, range = 320, cooldown = 20, speed = 27, sight = 6, cost = { gold = 70, lumber = 10 }, buildTicks = 80 },

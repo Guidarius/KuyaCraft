@@ -162,6 +162,34 @@ frame-delta clamp introduced here changed the documented backlog contract, which
 **`scripts/test.ps1` does not exercise any rendered code**, so `scripts/test-ui.ps1`
 has to be run alongside it after presentation changes.
 
+## Orders revision — simulation version 6
+
+Rally points, patrol, follow, formation pacing, authoritative kill/loss tallies and a
+`delivered` event carrying the exact amount and resource. This is a deliberate,
+versioned break: replays recorded under version 5 are rejected by `Replay.read` rather
+than misreported as divergence. Six regression scenarios were added
+(`tests/order_scenarios.lua`), including one that drives all three new orders through a
+recorded replay and re-verifies every checkpoint.
+
+Formation pacing caps every member of a group move to the slowest member's speed while
+that order stands. It is `rules.formationPacing` in content, on by default, and it
+produced an unexpected second effect: in the 20-unit mixed-speed chokepoint fixture,
+arrival improved from **1,900 to 868 ticks**. Capping the group stops fast units racing
+ahead and jamming the choke against their own slower allies, so the whole group flows
+through in order. Uniform-speed crowds are unaffected, as the cap is then a no-op:
+open arrivals with 1/10/50/100 units remain **348/419/658/932**, chokepoints with
+5/20/100 remain **407/1015/1640**, and 50-versus-50 counterflow remains **4079**.
+
+Kills and losses are now counted by the simulation on both the player and the killing
+entity. The interface previously inferred them from the events it happened to observe,
+which under-reports a kill made outside your own sight.
+
+The bot does not yet benefit from formation pacing: `src/bot.lua` issues its attack-moves
+without a shared `group` id, so its armies still travel at each unit's own speed and
+arrive piecemeal. Both bot match outcomes are therefore unchanged at 660.85 s and
+634.55 s. Grouping the bot's attack orders is the cheapest available improvement to how
+its armies fight and belongs with the wider bot work.
+
 ## Milestone gates
 
 

@@ -37,6 +37,9 @@ No public services, NAT traversal, reconnect or host migration were added.
 | Double click | Visible friendly units of the same type within the battlefield |
 | Right click | Move, attack visible enemy, harvest or resume construction |
 | A then left click | Attack-move, including minimap |
+| P then left click | Patrol between here and there |
+| Right click own unit | Follow it |
+| Right click with buildings selected | Set rally point |
 | S | Stop and clear orders |
 | Shift order | Append a task; maximum 32 pending tasks per unit |
 | Ctrl+1–9 | Assign groups |

@@ -11,6 +11,7 @@ function A.list(app)
   add('attack','Attack move',app.settings.bindings.attack,function() app.targetMode='attack_move' end,dead,'Active: engage enemies on the way.')
   add('stop','Stop',app.settings.bindings.stop,function() for _,id in ipairs(app.selected) do app:command('stop',id) end end,dead,'Active: stop and clear the order queue.')
   add('hold','Hold',app.settings.bindings.hold,function() for _,id in ipairs(app.selected) do app:command('hold',id) end end,dead,'Stand still and fire at enemies in range. Never chase or yield.')
+  add('patrol','Patrol','p',function() app.targetMode='patrol' end,dead,'Active: click the far end. The unit walks between here and there and engages on the way.')
  end
  if e.kind=='worker' then
   for i,kind in ipairs({'barracks','tower','outpost','depot'}) do local d=C.buildings[kind]

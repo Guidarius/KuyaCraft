@@ -43,6 +43,10 @@ The game opens a main menu. Choose Skirmish to select your map and factions. All
 
 - Left click/drag selects; Shift adds/removes; double click selects a visible unit type.
 - Right click moves, attacks, harvests or resumes construction. A then **left click** issues attack-move. Shift appends; S stops and clears orders; H holds position without chasing or yielding.
+- Right click on one of your own units to follow it; the follower keeps station and never starts a fight of its own, and the order ends when its target dies.
+- P then **left click** sets a patrol beat between where the unit stands and the point clicked. It engages on the way and turns around at each end, including when an end is unreachable.
+- Right click with only production buildings selected sets their rally point; new units walk there, or harvest it if it is a resource node and they are workers. The flag and its line are drawn while the building is selected.
+- Units moved together as one group travel at the slowest member's pace so a mixed army arrives together. This is `rules.formationPacing` in content and can be turned off.
 - Ctrl+1–9 assigns groups; 1–9 recalls; double tap centers. Number keys never recruit.
 - F1 selects the hero; double tap centers. Q/W/E/R use contextual commands.
 - B/T/O/L arm war hall, watchtower, outpost and lumber-depot placement. Select the HQ and use T to advance technology, unlocking support and heavy troops. Preview explains invalid footprints. Shift repeats queued placement.

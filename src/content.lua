@@ -10,7 +10,11 @@ local C = {
         constructionHealth=true, tech={cost={gold=400,lumber=200},ticks=2000},
         heroHealth={warden=240,beastkeeper=200}, heroDamage=6, quickTicks=4,
         auraRadius=1536, auraWide=2048, auraExtra=512, auraDeep=2, offensiveDamage=4,
-        recovery=8, recoveryUpgrade=14, pursuitSpeed=4, pursuitPenalty=4, sprintSpeed=4 },
+        recovery=8, recoveryUpgrade=14, pursuitSpeed=4, pursuitPenalty=4, sprintSpeed=4,
+        -- Units moved together as one group walk at the slowest member's pace, so a
+        -- mixed army arrives as an army instead of arriving piecemeal. Set false to
+        -- return to every unit moving at its own speed.
+        formationPacing=true },
     units = {},
     buildings = {
         hq={label='Headquarters',hp=2800,size=5,sight=14,cost={},buildTicks=1,dropoff={gold=true,lumber=true},damage=30,range=2048,cooldown=30,windup=6,baseHeal=10},

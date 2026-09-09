@@ -10,6 +10,19 @@ local function shift() return love.keyboard.isDown('lshift','rshift') end
 function I.intent(app,x,y,target,kind)
  if app.playback then return end
  local count=0;app.commandGroup=(app.commandGroup or 0)+1
+ -- A right click with only buildings selected sets their rally point instead: the
+ -- selection says what the click can possibly mean.
+ if not kind then
+  local buildings=0
+  for _,id in ipairs(app.selected) do
+   local e=app:entity(id)
+   if e and e.alive then
+    if e.category=='building' and e.queue then buildings=buildings+1
+    elseif e.category=='unit' then buildings=-1000 end
+   end
+  end
+  if buildings>0 then return I.rally(app,x,y,target) end
+ end
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
   if e and e.alive and e.category=='unit' then
@@ -18,13 +31,31 @@ function I.intent(app,x,y,target,kind)
     if target and target.category=='node' and e.kind=='worker' then command='harvest'
     elseif target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
     elseif target and target.owner~=app.player and target.category~='node' then command='attack'
+    -- Right-clicking one of your own live units falls in behind it.
+    elseif target and target.owner==app.player and target.category=='unit' and target.id~=id then command='follow'
     else command='move' end
    end
-   if command=='harvest' or command=='attack' or command=='build' then args.target=target and target.id else args.x=x;args.y=y end
+   if command=='harvest' or command=='attack' or command=='build' or command=='follow' then args.target=target and target.id else args.x=x;args.y=y end
    app:command(command,id,args);count=count+1
   end
  end
  if count>0 then app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=kind or 'move'};app.audio:play('click');app.message='Order issued' end
+end
+-- Set the rally point of every selected production building at once.
+function I.rally(app,x,y,target)
+ local count=0
+ for _,id in ipairs(app.selected) do
+  local e=app:entity(id)
+  if e and e.alive and e.category=='building' and e.queue then
+   if target and target.id~=id then app:command('rally',id,{target=target.id})
+   else app:command('rally',id,{x=x,y=y}) end
+   count=count+1
+  end
+ end
+ if count>0 then
+  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind='move'}
+  app.audio:play('click');app.message=count==1 and 'Rally point set' or (count..' rally points set')
+ end
 end
 function I.mousepressed(app,x,y,button,presses)
  if button==2 and (app.building or app.targetMode or app.attackMove) then app.building=nil;app.targetMode=nil;app.attackMove=nil;return end
@@ -83,7 +114,7 @@ function I.updateHover(app,x,y)
   local valid=Sim.placement(app.view,Content,app.building,math.floor(wx/256),math.floor(wy/256))
   shape=valid and 'build' or 'invalid'
  elseif app.targetMode=='harvest' then shape=(hit and hit.category=='node') and 'harvest' or 'invalid'
- elseif app.targetMode=='attack_move' or app.attackMode then shape='attack'
+ elseif app.targetMode=='attack_move' or app.targetMode=='patrol' or app.attackMode then shape='attack'
  elseif app.targetMode=='move' then shape='move'
  elseif hit and hit.owner~=app.player and hit.owner~=0 and hit.category~='node' then shape='attack'
  elseif hit and hit.category=='node' then shape='harvest' end

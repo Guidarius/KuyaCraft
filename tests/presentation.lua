@@ -140,13 +140,21 @@ function T.gamefeel(app)
   assert(#app.selected==1 and app.selected[1]==army[1],'shift-click did not drop the unit')
  end
 
- -- Floating text and the rejection notice are driven by real command outcomes.
+ -- Income text comes from the simulation's delivered event, so it reports the exact
+ -- amount at the worker that delivered it.
  app.feedback:reset()
- app:announceIncome(app.view.player.resources.gold-25,app.view.player.resources.lumber)
- assert(#app.feedback.texts==1 and app.feedback.texts[1].label=='+25 gold','income text not raised')
+ local hauler=Input.idleWorkers(app)[1] or app.selected[1]
+ app:announceDelivery({kind='delivered',entity=hauler,amount=25,resource='gold',owner=app.player})
+ assert(#app.feedback.texts==1,'delivery text not raised')
+ assert(app.feedback.texts[1].label=='+25 gold','delivery text read '..app.feedback.texts[1].label)
  app.feedback:reset()
- app:announceIncome(app.view.player.resources.gold,app.view.player.resources.lumber)
- assert(#app.feedback.texts==0,'income text raised without income')
+ app:announceDelivery({kind='delivered',entity=hauler,owner=app.player})
+ assert(#app.feedback.texts==0,'a delivery with no amount raised text')
+ -- Match statistics read the simulation's tallies, not observed deaths.
+ local built,lost,kills=app:matchStats()
+ assert(built>=0 and lost>=0 and kills>=0,'match statistics unavailable')
+ assert(lost==(app.view.player.unitsLost or 0),'losses did not come from the simulation')
+ assert(kills==(app.view.player.kills or 0),'kills did not come from the simulation')
 
  -- Health-bar policy is a setting, not a constant.
  for _,mode in ipairs({'always','selected','damaged'}) do
@@ -157,6 +165,35 @@ function T.gamefeel(app)
  app.perfOverlay=false;app.hotkeyHelp=false
  app.banner={won=true,age=0.2,detail='test'};app:draw();app.banner=nil
  app:draw()
- print('PASS gamefeel: idle workers, army select, bookmarks, eased camera, game speed, unit tiles, floating text, overlays')
+ -- Version 6 orders reach the simulation through the same clicks a player uses.
+ local Sim2=require('src.sim')
+ app.selected={app.view.player.hq}
+ Input.intent(app,11*256+128,11*256+128,nil)
+ app:update(.05)
+ local base=app.world.entities[app.view.player.hq]
+ assert(base.rally and base.rally.x==11 and base.rally.y==11,'right click with a building selected did not set a rally point')
+ -- With a unit in the selection the same click is a move, not a rally.
+ local mover=Input.army(app)[1] or Input.idleWorkers(app)[1]
+ app.selected={mover}
+ Input.intent(app,9*256+128,9*256+128,nil)
+ app:update(.05)
+ assert(app.world.entities[mover].order.kind=='move','a unit selection turned a right click into a rally')
+ -- Patrol arms a target mode and then issues a patrol order.
+ app:keypressed('p');assert(app.targetMode=='patrol','P did not arm patrol targeting')
+ Input.intent(app,14*256+128,9*256+128,nil,'patrol');app.targetMode=nil
+ app:update(.05)
+ assert(app.world.entities[mover].order.kind=='patrol','patrol order was not issued')
+ assert(app.world.entities[mover].order.originX,'patrol order carries no beat origin')
+ -- Right-clicking one of your own units falls in behind it.
+ local other=Input.army(app)[2]
+ if other and other~=mover then
+  app.selected={mover}
+  Input.intent(app,0,0,app:entity(other))
+  app:update(.05)
+  assert(app.world.entities[mover].order.kind=='follow','right click on an own unit did not follow')
+  assert(app.world.entities[mover].order.target==other)
+ end
+ app:draw()
+ print('PASS gamefeel: idle workers, army select, bookmarks, eased camera, game speed, unit tiles, floating text, overlays, rally, patrol, follow')
 end
 return T
