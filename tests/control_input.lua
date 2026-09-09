@@ -22,8 +22,20 @@ function T.run()
             app:close()
         end
     end
+    -- Backlog contract. A frame delta is clamped to 0.25 s before it reaches the fixed
+    -- 20 Hz accumulator, so a stall -- an asset upload, a window drag, a GC pause --
+    -- cannot turn into a catch-up spiral that stalls the next frame in turn. Time beyond
+    -- the clamp is deliberately lost: in offline play a cosmetic gap is preferable to a
+    -- freeze. Ticks themselves are never skipped or reordered, only produced more slowly.
     local app=App.create({map='open_fields'});app.noAutoSave=true
-    app:update(.5);assert(app.world.tick==8 and app.accumulator>=.099,'long frame discarded backlog')
-    app:update(.000001);assert(app.world.tick==10,'retained backlog did not drain');app:close()
+    app:update(.5)
+    assert(app.world.tick==5,'a 0.5 s frame must clamp to 0.25 s of simulation, got tick '..app.world.tick)
+    assert(app.accumulator<.05,'clamped frame left a backlog: '..app.accumulator)
+    -- Under the clamp, a frame still drains completely and leaves its remainder queued.
+    app:update(.17)
+    assert(app.world.tick==8,'sub-clamp frame did not drain, got tick '..app.world.tick)
+    assert(app.accumulator>=.019 and app.accumulator<.05,'remainder not retained: '..app.accumulator)
+    app:update(.031)
+    assert(app.world.tick==9,'retained backlog did not drain');app:close()
 end
 return T

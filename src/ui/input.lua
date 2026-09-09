@@ -24,7 +24,7 @@ function I.intent(app,x,y,target,kind)
    app:command(command,id,args);count=count+1
   end
  end
- if count>0 then app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick};app.audio:play('click');app.message='Order issued' end
+ if count>0 then app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=kind or 'move'};app.audio:play('click');app.message='Order issued' end
 end
 function I.mousepressed(app,x,y,button,presses)
  if button==2 and (app.building or app.targetMode or app.attackMove) then app.building=nil;app.targetMode=nil;app.attackMove=nil;return end
@@ -67,7 +67,68 @@ function I.mousepressed(app,x,y,button,presses)
 end
 function I.mousemoved(app,x,y,dx,dy)
  if app.capture=='minimap' then local s=app.settings.scale/100;local wx,wy=Mini.position(app.view.map,app.minimap,x/s,y/s,true);Camera.center(app,wx,wy)
- elseif app.capture=='pan' then app.camera.x=app.camera.x+dx;app.camera.y=app.camera.y+dy;Camera.clamp(app) end
+ elseif app.capture=='pan' then app.camera.x=app.camera.x+dx;app.camera.y=app.camera.y+dy;app.cameraGlide=nil;Camera.clamp(app) end
+ I.updateHover(app,x,y)
+end
+-- What the pointer is over, and what the pointer should look like there. Recomputed on
+-- motion rather than per frame, and only inside the world viewport.
+function I.updateHover(app,x,y)
+ if app.overlay or not Camera.contains(app,x,y) then app.hoverId=nil;I.setCursor(app,'arrow');return end
+ local hit=app:pick(x,y)
+ app.hoverId=hit and hit.id or nil
+ app.hoverAt=app.clock
+ local shape='arrow'
+ if app.building then
+  local wx,wy=app:position(x,y)
+  local valid=Sim.placement(app.view,Content,app.building,math.floor(wx/256),math.floor(wy/256))
+  shape=valid and 'build' or 'invalid'
+ elseif app.targetMode=='harvest' then shape=(hit and hit.category=='node') and 'harvest' or 'invalid'
+ elseif app.targetMode=='attack_move' or app.attackMode then shape='attack'
+ elseif app.targetMode=='move' then shape='move'
+ elseif hit and hit.owner~=app.player and hit.owner~=0 and hit.category~='node' then shape='attack'
+ elseif hit and hit.category=='node' then shape='harvest' end
+ I.setCursor(app,shape)
+end
+-- Cursors are generated at runtime so the shape set works with no art in the tree; a
+-- real cursor image can be dropped into app.cursorImages later and will be used instead.
+local cursorCache={}
+function I.setCursor(app,shape)
+ if app.cursorShape==shape then return end
+ app.cursorShape=shape
+ if not (love.mouse and love.mouse.newCursor and love.image) then return end
+ local cursor=cursorCache[shape]
+ if cursor==nil then
+  local ok,made=pcall(I.buildCursor,shape)
+  cursor=ok and made or false;cursorCache[shape]=cursor
+ end
+ if cursor then pcall(love.mouse.setCursor,cursor) else pcall(love.mouse.setCursor) end
+end
+local CURSOR_COLORS={arrow={.92,.94,.9},move={.55,.95,.6},attack={1,.35,.3},harvest={.96,.82,.36},build={.6,.8,1},invalid={1,.3,.3}}
+function I.buildCursor(shape)
+ local size=24
+ local data=love.image.newImageData(size,size)
+ local c=CURSOR_COLORS[shape] or CURSOR_COLORS.arrow
+ local mid=size/2
+ local function put(px,py,a)
+  if px>=0 and py>=0 and px<size and py<size then data:setPixel(px,py,c[1],c[2],c[3],a) end
+ end
+ if shape=='arrow' then
+  for i=0,15 do for j=0,math.floor(i/2) do put(i,j+i,1) end;put(i,i,1) end
+ elseif shape=='invalid' then
+  for i=-8,8 do put(mid+i,mid+i,1);put(mid+i,mid-i,1) end
+ elseif shape=='attack' then
+  for i=-10,10 do if math.abs(i)>2 then put(mid+i,mid,1);put(mid,mid+i,1) end end
+  for a=0,63 do local r=7;put(mid+math.floor(r*math.cos(a/32*math.pi)),mid+math.floor(r*math.sin(a/32*math.pi)),1) end
+ elseif shape=='harvest' then
+  for i=-8,8 do put(mid+i,mid+math.floor(math.abs(i)/2)-4,1) end
+  for j=0,9 do put(mid,mid+j,1) end
+ elseif shape=='build' then
+  for i=-8,8 do put(mid+i,mid-5,1);put(mid+i,mid-3,1) end
+  for j=-3,9 do put(mid,mid+j,1) end
+ else
+  for i=-8,8 do put(mid+i,mid,1);put(mid,mid+i,1) end
+ end
+ return love.mouse.newCursor(data,mid,shape=='arrow' and 0 or mid)
 end
 function I.mousereleased(app,x,y,button)
  if app.capture=='pan' and button==3 or app.capture=='minimap' and button==1 then app.capture=nil;return end
@@ -80,9 +141,48 @@ function I.mousereleased(app,x,y,button)
  end end end
  table.sort(app.selected);app.audio:play('click')
 end
+-- Keys the match loop owns and that rebinding must not be able to take away.
+local RESERVED={escape=true,tab=true,f2=true,f3=true,f4=true,f5=true,f6=true,f7=true,f8=true,f10=true,q=true,w=true,e=true,r=true}
+local function ctrl() return love.keyboard.isDown('lctrl','rctrl') end
+-- Own combat units: everything alive that is not a worker and not a building.
+function I.army(app)
+ local ids={}
+ for _,e in ipairs(app.view.entities) do
+  if e.alive and e.owner==app.player and e.category=='unit' then
+   local d=Content.units[e.kind]
+   if d and not d.worker then ids[#ids+1]=e.id end
+  end
+ end
+ table.sort(ids);return ids
+end
+-- A worker counts as idle when it has no order and nothing to deliver. Workers that are
+-- constructing hold a 'build' order, and workers carrying cargo are still on a delivery
+-- trip even while standing still, so neither is offered.
+function I.idleWorkers(app)
+ local ids={}
+ for _,e in ipairs(app.view.entities) do
+  if e.alive and e.owner==app.player and e.kind=='worker' and e.order and e.order.kind=='stop' and (e.cargo or 0)==0 then
+   ids[#ids+1]=e.id
+  end
+ end
+ table.sort(ids);return ids
+end
+-- Cycles rather than always selecting the first, so repeated presses walk the whole set.
+function I.selectIdleWorker(app)
+ local ids=I.idleWorkers(app)
+ if #ids==0 then app.message='No idle workers';return false end
+ local index=1
+ if app.lastIdleWorker then
+  for i,id in ipairs(ids) do if id==app.lastIdleWorker then index=i%#ids+1;break end end
+ end
+ local id=ids[index];app.lastIdleWorker=id;app.selected={id}
+ local e=app:entity(id);if e then Camera.glide(app,e.x,e.y) end
+ app.audio:play('click');app.message='Idle worker '..index..' / '..#ids
+ return true
+end
 function I.keypressed(app,key)
  if app.rebind then
-  if key~='escape' and key~='f3' and key~='f5' and not tonumber(key) and key~='q' and key~='w' and key~='e' and key~='r' then
+  if not RESERVED[key] and not tonumber(key) then
    for action,binding in pairs(app.settings.bindings) do if binding==key then app.settings.bindings[action]=app.settings.bindings[app.rebind] end end
    app.settings.bindings[app.rebind]=key;require('src.ui.settings').save(app.settings)
   end;app.rebind=nil;return
@@ -94,8 +194,20 @@ function I.keypressed(app,key)
  if app.overlay then return end
  local bindings=app.settings.bindings
  if key==bindings.hero then
-  app.selected={app.view.player.hero};local e=app:entity(app.view.player.hero);if app.lastHero and app.clock-app.lastHero<.35 and e then Camera.center(app,e.x,e.y) end;app.lastHero=app.clock
- elseif key==bindings.alert then local a=app.alerts.items[1];if a and a.x then Camera.center(app,a.x,a.y) end
+  if ctrl() then app.followHero=not app.followHero;app.message=app.followHero and 'Following hero' or 'Hero follow off';return end
+  app.selected={app.view.player.hero};local e=app:entity(app.view.player.hero);if app.lastHero and app.clock-app.lastHero<.35 and e then Camera.glide(app,e.x,e.y) end;app.lastHero=app.clock
+ elseif key==bindings.alert then local a=app.alerts.items[1];if a and a.x then Camera.glide(app,a.x,a.y) end
+ elseif key==bindings.idle then I.selectIdleWorker(app)
+ elseif key=='f2' then
+  local ids=I.army(app)
+  if #ids>0 then app.selected=ids;app.audio:play('click');app.message=#ids..' combat units selected' else app.message='No combat units' end
+ elseif key=='f4' then app.perfOverlay=not app.perfOverlay
+ elseif key=='f10' then app.hotkeyHelp=not app.hotkeyHelp
+ elseif key=='f5' or key=='f6' or key=='f7' or key=='f8' then
+  local slot=tonumber(key:sub(2))
+  if ctrl() then Camera.setBookmark(app,slot);app.message='Camera bookmark '..slot..' set'
+  elseif not Camera.recallBookmark(app,slot) then app.message='Camera bookmark '..slot..' is empty' end
+ elseif key=='s' and ctrl() then app:save()
  elseif key=='tab' then
   if not app.subgroups or app.clock-(app.lastTab or -100)>2 then app.subgroups=Selection.groups(app);app.subgroupIndex=0 end
   if #app.subgroups>0 then app.subgroupIndex=app.subgroupIndex%#app.subgroups+1;app.selected=app.subgroups[app.subgroupIndex].ids end;app.lastTab=app.clock
@@ -103,11 +215,10 @@ function I.keypressed(app,key)
   local n=tonumber(key)
   if love.keyboard.isDown('lctrl','rctrl') then app.groups[n]=Codec.copy(app.selected)
   elseif app.groups[n] then app.selected={};for _,id in ipairs(app.groups[n]) do local e=app:entity(id);if e and e.alive then app.selected[#app.selected+1]=id end end
-   if app.lastGroup==n and app.clock-(app.lastGroupTime or -100)<.35 then local e=app:entity(app.selected[1]);if e then Camera.center(app,e.x,e.y) end end
+   if app.lastGroup==n and app.clock-(app.lastGroupTime or -100)<.35 then local e=app:entity(app.selected[1]);if e then Camera.glide(app,e.x,e.y) end end
    app.lastGroup=n;app.lastGroupTime=app.clock
   end
  elseif key=='f3' then app.debugOrders=not app.debugOrders
- elseif key=='f5' then app:save()
  else for _,a in ipairs(Actions.list(app)) do if a.key==key then if not a.reason then a.run() else app.message=a.reason end;break end end end
 end
 return I

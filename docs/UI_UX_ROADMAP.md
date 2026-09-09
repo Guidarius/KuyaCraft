@@ -48,11 +48,17 @@ No public services, NAT traversal, reconnect or host migration were added.
 | Scroll | Cursor-anchored zoom, subject to map bounds |
 | Escape / right click while targeting | Cancel targeting |
 | B / T | Worker war hall / watchtower placement |
-| F5 | Save replay |
+| F2 | Select all combat units |
+| F9 | Select and centre the next idle worker (cycles; rebindable) |
+| F5–F8 / Ctrl+F5–F8 | Recall / set camera bookmark |
+| Ctrl+F1 | Toggle follow hero |
+| Alt held | Show every health bar |
+| F4 / F10 | Performance overlay / hotkey help |
+| Ctrl+S | Save replay |
 
 Actions have mouse buttons, icons, labels, hotkeys and explanatory tooltips. Disabled controls explain costs, capacity, selection or unfinished construction. Passive actions remain visible. Number keys never recruit.
 
-Selection tiles show type counts; click selects a subgroup and Tab cycles subgroups. Production exposes remaining time, order and individual cancellation with full resource refund. Site cancellation keeps the existing 50% construction refund.
+Selection tiles show type counts; click selects a subgroup and Tab cycles subgroups. Below them, a selection of more than one unit shows a tile per unit with its own health bar: click keeps only that unit, shift-click drops it, and pages appear beyond twelve. Production exposes remaining time, order and individual cancellation with full resource refund. Site cancellation keeps the existing 50% construction refund.
 
 The hero dock shows health, XP, stance, revival and pending upgrades without replacing selection when using hero actions. Upgrade alternatives show exact numerical effects. An option click previews; **Choose Upgrade** sends the irreversible choice command. Closing retains pending milestones.
 

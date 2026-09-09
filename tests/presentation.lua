@@ -33,6 +33,7 @@ function T.run(app)
  local state=Sim.serializeCanonical(app.world);for _=1,4 do app:draw() end;assert(Sim.serializeCanonical(app.world)==state,'render mutated sim')
  app.overlay='pause';app.network={poll=function() end,ready=false,status='Lobby'}
  local polls=0;app.network.poll=function() polls=polls+1 end;app:update(.1);assert(polls==1,'multiplayer menu blocked network');app.network=nil;app.overlay=nil
+ T.gamefeel(app)
  require('tests.control_input').run()
  local clean=require('src.app').create({map='open_fields'})
  for _=1,120 do clean:update(.05) end
@@ -56,5 +57,106 @@ function T.run(app)
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  canvas:release();shell:close();app:draw()
  print('PASS rendered UI: scales, capture, minimap drag, transforms, pause, commands, upgrades, recruitment, replay seek')
+end
+-- WC3-style control and feedback that only exists in the presentation layer. Every check
+-- here must be able to fail loudly: these are the features a player notices missing.
+function T.gamefeel(app)
+ local Camera=require('src.ui.camera');local Input=require('src.ui.input');local Settings=require('src.ui.settings')
+ local Selection=require('src.ui.selection')
+ app.overlay=nil;app.building=nil;app.targetMode=nil
+
+ -- Idle workers: counted, selected, and cycled rather than always returning the first.
+ local idle=Input.idleWorkers(app)
+ assert(#idle>0,'fixture has no idle workers to exercise the control')
+ for _,id in ipairs(idle) do
+  local e=app:entity(id)
+  assert(e.kind=='worker' and e.order.kind=='stop' and (e.cargo or 0)==0,'a busy worker was reported idle')
+ end
+ assert(Input.selectIdleWorker(app),'idle worker selection failed')
+ local first=app.selected[1]
+ assert(#app.selected==1 and first==idle[1],'idle worker selection picked the wrong unit')
+ if #idle>1 then
+  Input.selectIdleWorker(app)
+  assert(app.selected[1]~=first,'repeated idle-worker presses must cycle')
+ end
+ -- A worker carrying cargo is on a delivery trip and is not offered even while stopped.
+ local carrier=app.world.entities[idle[1]];local restore=carrier.cargo
+ carrier.cargo=5;app.view=require('src.sim').view(app.world,app.player)
+ for _,id in ipairs(Input.idleWorkers(app)) do assert(id~=idle[1],'a loaded worker was offered as idle') end
+ carrier.cargo=restore;app.view=require('src.sim').view(app.world,app.player)
+
+ -- Select-all-army takes combat units and excludes workers and buildings.
+ app:keypressed('f2')
+ assert(#app.selected>0,'F2 selected nothing')
+ for _,id in ipairs(app.selected) do
+  local e=app:entity(id)
+  assert(e.category=='unit' and not require('src.content').units[e.kind].worker,'F2 selected a non-combat unit')
+ end
+
+ -- Camera bookmarks store ground, not a camera offset, so they survive a zoom change.
+ Camera.center(app,12*256,9*256)
+ local markX,markY=app:position(Camera.rect(app).w/2,Camera.rect(app).y+Camera.rect(app).h/2)
+ assert(Camera.setBookmark(app,5))
+ Camera.center(app,30*256,20*256)
+ assert(Camera.recallBookmark(app,5),'bookmark recall failed')
+ for _=1,40 do Camera.update(app,1/60) end
+ local backX,backY=app:position(Camera.rect(app).w/2,Camera.rect(app).y+Camera.rect(app).h/2)
+ assert(math.abs(backX-markX)<=512 and math.abs(backY-markY)<=512,'bookmark did not return to its ground')
+ assert(not Camera.recallBookmark(app,7),'an unset bookmark must report failure')
+ -- The ease has to actually take time, or it is just a cut with extra steps.
+ Camera.center(app,12*256,9*256);Camera.glide(app,60*256,40*256)
+ Camera.update(app,1/60)
+ assert(app.cameraGlide,'glide finished within a single frame')
+ for _=1,40 do Camera.update(app,1/60) end
+ assert(not app.cameraGlide,'glide never finished')
+
+ -- Game speed scales wall-clock pacing only; it must never change the tick rate.
+ local base=app.settings.gameSpeed
+ app.settings.gameSpeed=2;app.accumulator=0
+ local from=app.world.tick;app:update(0.2)
+ local normal=app.world.tick-from
+ app.settings.gameSpeed=3;app.accumulator=0
+ from=app.world.tick;app:update(0.2)
+ local faster=app.world.tick-from
+ assert(faster>normal,'faster speed did not advance more ticks per second: '..faster..' vs '..normal)
+ app.settings.gameSpeed=1;app.accumulator=0
+ from=app.world.tick;app:update(0.2)
+ assert(app.world.tick-from<normal,'slower speed did not advance fewer ticks')
+ app.settings.gameSpeed=base;app.accumulator=0
+ assert(Settings.SPEED_SCALE[2]==1,'normal speed must be exactly 1x')
+
+ -- Per-unit tiles: click selects one, shift-click removes it.
+ local army=Input.army(app)
+ if #army>=2 then
+  app.selected={army[1],army[2]}
+  app:draw()
+  local tile
+  for _,b in ipairs(app.widgets.items) do if b.id=='tile-'..army[2] then tile=b end end
+  assert(tile,'no per-unit tile for a multi-unit selection')
+  tile.action()
+  assert(#app.selected==1 and app.selected[1]==army[2],'tile click did not isolate that unit')
+  app.selected={army[1],army[2]}
+  Selection.toggle(app.selected,army[2])
+  assert(#app.selected==1 and app.selected[1]==army[1],'shift-click did not drop the unit')
+ end
+
+ -- Floating text and the rejection notice are driven by real command outcomes.
+ app.feedback:reset()
+ app:announceIncome(app.view.player.resources.gold-25,app.view.player.resources.lumber)
+ assert(#app.feedback.texts==1 and app.feedback.texts[1].label=='+25 gold','income text not raised')
+ app.feedback:reset()
+ app:announceIncome(app.view.player.resources.gold,app.view.player.resources.lumber)
+ assert(#app.feedback.texts==0,'income text raised without income')
+
+ -- Health-bar policy is a setting, not a constant.
+ for _,mode in ipairs({'always','selected','damaged'}) do
+  app.settings.healthBars=mode;app:draw()
+ end
+ app.settings.healthBars='damaged'
+ app.selected={app.view.player.hero};app.perfOverlay=true;app.hotkeyHelp=true;app:draw()
+ app.perfOverlay=false;app.hotkeyHelp=false
+ app.banner={won=true,age=0.2,detail='test'};app:draw();app.banner=nil
+ app:draw()
+ print('PASS gamefeel: idle workers, army select, bookmarks, eased camera, game speed, unit tiles, floating text, overlays')
 end
 return T

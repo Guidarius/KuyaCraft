@@ -50,10 +50,16 @@ The game opens a main menu. Choose Skirmish to select your map and factions. All
 - Minimap left drag pans, right click orders, A-left attack-moves; Alt-left adds a local marker. Space centers an important alert.
 - Middle drag/arrows pan; wheel zooms. Edge scroll is optional in Settings.
 - Escape cancels targeting, closes a panel, then opens the match menu. Use Leave Match to exit. Offline menus pause; multiplayer continues.
+- F2 selects every combat unit you own. F9 selects and centres on the next idle worker, cycling through them; the top bar always shows how many there are.
+- Selecting more than one unit adds a tile per unit with its own health. Click a tile to keep only that unit, shift-click to drop it, and page when the selection exceeds twelve.
+- Hold Alt to show every health bar. By default bars appear on selected and damaged units only; Settings offers always/selected/damaged.
+- F5–F8 recall camera bookmarks and Ctrl+F5–F8 set them. Jumps to a group, the hero or an alert ease over about 150 ms rather than cutting. Ctrl+F1 toggles following the hero.
 - F3 toggles the selected own-unit order inspector, including paths, attack timing, blocking and command acknowledgement latency.
-- F5 / Save Replay writes under artifacts. Replays menu provides pause/speed/timeline/perspective.
+- F4 shows an FPS/simulation/draw-call overlay. F10 lists every hotkey, generated from the live action list and your bindings.
+- Ctrl+S / Save Replay writes under artifacts. Replays menu provides pause/speed/timeline/perspective.
+- Offline matches can run slower/normal/faster from Settings. Speed changes only how fast wall-clock time is fed to the fixed 20 Hz simulation, so replays and checkpoints are identical at every speed; network matches always run at 1x.
 
-UI scale (80–125%), volume buses, edge scroll and common hotkey bindings are in Settings. The implementation and acceptance checklist are in [docs/UI_UX_ROADMAP.md](docs/UI_UX_ROADMAP.md).
+UI scale (80–125%), volume buses, edge scroll, health-bar policy, screen shake, game speed and common hotkey bindings are in Settings. The implementation and acceptance checklist are in [docs/UI_UX_ROADMAP.md](docs/UI_UX_ROADMAP.md).
 
 The movement lab is selectable in Skirmish or with `scripts/run.ps1 -Map movement_lab`. It contains flat chokepoints, a U-shaped obstacle, a concave wall, a corridor, and forest clutter. Its purpose is navigation testing, not a balanced economic match. See [the control and movement verification record](docs/CONTROL_MOVEMENT.md).
 

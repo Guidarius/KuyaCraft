@@ -105,10 +105,62 @@ JIT cache); real ENet host and client agree at every 100-tick checkpoint through
 ticks; mirror and asymmetric bot matches finished at **660.85 s** and **634.55 s**,
 identical to before the work.
 
-Two harness defects were fixed to get there. `scripts/test-network.ps1` always failed on
+### Simulation step work
+
+A line profile chose the targets rather than intuition. `visibility()` was the largest
+single cost in the step at roughly 22% of samples, because it rebuilt its row tables
+every tick and prefix-summed the **entire map width** for every covered row: about
+14,000 iterations per player per tick on a 128x112 map regardless of how little was
+visible. It now tracks which rows are covered and the span of each. Per-phase p50 inside
+`Sim.step`, measured with `--profile-sim phases` before and after on this machine:
+
+| Phase | before | after |
+|---|---|---|
+| movement | 4.74 ms | 3.18 ms |
+| combatOrders | 2.09 ms | 1.59 ms |
+| visibility | 1.90 ms | 1.04 ms |
+| combat | 0.38 ms | 0.33 ms |
+| economy | 0.11 ms | 0.06 ms |
+| finishOrders | 0.05 ms | 0.04 ms |
+| **total** | **9.28 ms** | **6.24 ms** |
+
+Also: the local-movement spatial index is built once per tick instead of twice; `nearest()`
+walks ring perimeters instead of whole squares (it was cubic in the radius for a quadratic
+number of candidates); and group-move command application no longer allocates a claims
+table per command and a closure per entity. The remaining worst tick in a match is still a
+240-unit group move, because each unit's destination search must not see its own
+reservations and the reservation set changes as earlier commands in the same tick are
+applied; making that incremental is the next available win and is not done.
+
+### Presentation and game feel
+
+Viewport culling and a hoisted depth comparator were added to the draw path. **Sprite
+batching was not done and could not be**: `assets/generated/` is absent in this clone, so
+every unit renders through the procedural placeholder path and there are no atlases to
+batch, no masks to convert and nothing to measure. That work needs the Blender export to
+be run first, and the 483 draw calls per frame reported above are placeholder geometry,
+not the shipping sprite renderer.
+
+WC3-style control and feedback added, all presentation-only and all covered by a new
+`PASS gamefeel` rendered test: floating resource/rejection text, hit flash and screen
+shake, runtime-generated cursor states, hover and ally/enemy ring colours, control-group
+badges, an Alt-to-reveal health-bar policy, per-unit selection tiles with individual
+health, an idle-worker counter and cycling hotkey, select-all-army, eased camera
+centring, camera bookmarks, follow-hero, hero XP bar and level, production progress,
+a unit stat card, an F4 performance overlay, an F10 generated hotkey list, a
+victory/defeat banner with match statistics, and offline game speed. Game speed scales
+only the wall-clock feed to the fixed 20 Hz accumulator, so replays and checkpoints are
+identical at every speed and network play is pinned to 1x.
+
+Three harness defects were fixed to get there. `scripts/test-network.ps1` always failed on
 this machine because Windows PowerShell 5.1 returns `$null` from `Process.ExitCode`
 unless the handle is cached first, so `$null -ne 0` failed the check even when both
-peers reported success. The two p95 performance gates were hard-coded to 10 ms.
+peers reported success. The two p95 performance gates were hard-coded to 10 ms. And the
+frame-delta clamp introduced here changed the documented backlog contract, which
+`scripts/test.ps1` cannot catch at all: `tests/control_input.lua` only runs under
+`--ui-test`. That test now asserts the new contract, but the coverage gap is real —
+**`scripts/test.ps1` does not exercise any rendered code**, so `scripts/test-ui.ps1`
+has to be run alongside it after presentation changes.
 
 ## Milestone gates
 

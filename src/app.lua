@@ -13,6 +13,7 @@ local Minimap=require('src.ui.minimap')
 local Hud=require('src.ui.hud')
 local Input=require('src.ui.input')
 local Frames=require('src.asset_frames')
+local Settings=require('src.ui.settings')
 local App={}
 local CELL_Y=26*math.sin(math.pi/3)
 local colors={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.67,0.47,0.95},{0.92,0.78,0.32}}
@@ -32,10 +33,11 @@ function App.create(options)
     if options.host or options.join then
         self.network=require('src.net.session').create(options,config,Content,map);self.player=self.network.player
     end
-    self.settings=options.settings or require('src.ui.settings').load()
+    self.settings=options.settings or Settings.load()
     self.widgets=require('src.ui.widgets').create();self.observation=require('src.ui.observation').create()
     self.alerts=require('src.ui.alerts').create();self.audio=require('src.ui.audio').create(self.settings)
     self.clock=0;self.pending={};self.replaySpeed=1;self.healthTrails={}
+    self.stats={built=0,lost=0,kills=0,buildings=0}
     if options['audio-disabled'] then self.audio.templates={} end
     self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
     self.feedback=require('src.feedback').create()
@@ -67,6 +69,13 @@ function App:command(kind,id,args)
 end
 function App:update(dt)
     self.clock=self.clock+dt;self.audio:update(dt);self.alerts:update(dt)
+    Camera.update(self,dt)
+    if self.banner then self.banner.age=self.banner.age+dt end
+    self.showAllBars=love.keyboard.isDown('lalt','ralt')
+    if self.followHero then
+        local hero=self.view.byId[self.view.player.hero]
+        if hero and hero.alive then Camera.center(self,hero.x,hero.y) end
+    end
     for _,e in ipairs(self.view.entities) do
         local trail=self.healthTrails[e.id] or {value=e.hp};self.healthTrails[e.id]=trail
         if e.hp<trail.value then trail.value=math.max(e.hp,trail.value-dt*e.maxHp*1.5) else trail.value=e.hp end
@@ -125,6 +134,13 @@ function App:update(dt)
     -- catch-up spiral. Clamp the frame delta, then, offline only, discard backlog
     -- beyond half a second: dropping cosmetic catch-up is preferable to a freeze.
     -- Network play keeps every tick because lockstep peers must agree tick for tick.
+    -- Offline pacing scales the wall-clock time handed to the fixed-rate accumulator.
+    -- The tick rate, the simulation and its hashes are untouched, so a replay recorded
+    -- at any speed replays identically. Network play is pinned to 1x: peers must agree
+    -- on how fast ticks are consumed.
+    if not self.network and not self.playback then
+        dt=dt*(Settings.SPEED_SCALE[self.settings.gameSpeed or 2] or 1)
+    end
     self.accumulator=self.accumulator+math.min(dt,0.25)
     if not self.network and self.accumulator>0.5 then
         self.discardedTicks=(self.discardedTicks or 0)+math.floor((self.accumulator-0.5)/0.05)
@@ -167,9 +183,16 @@ function App:update(dt)
             else previous[e.id]={x=e.x,y=e.y,stamp=stamp} end
         end
         if stamp%150==0 then for id,record in pairs(previous) do if record.stamp~=stamp then previous[id]=nil end end end
+        local previousResources=self.view.player.resources
+        local beforeGold,beforeLumber=previousResources.gold,previousResources.lumber
+        local perf=self.perf;if not perf then perf={};self.perf=perf end
+        local mark=love.timer.getTime()
         local events=Sim.step(self.world,commands)
+        local afterStep=love.timer.getTime();perf.step=(afterStep-mark)*1000
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
+        perf.view=(love.timer.getTime()-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
+        self:announceIncome(beforeGold,beforeLumber)
         self.alerts:observe(events,self)
         if self.sprites then self.sprites:observe(events,self.view,self.world.tick) end
         self.feedback:observe(events,self.view,self.world.tick)
@@ -178,11 +201,12 @@ function App:update(dt)
             if (event.kind=='rejected' or event.kind=='accepted') and event.player==self.player then
                 local pending=self.pending[event.sequence];self.pending[event.sequence]=nil
                 if pending then self.lastCommandTiming={ticks=self.world.tick-pending.issuedTick,milliseconds=math.floor((self.clock-pending.issuedTime)*1000+.5)} end
-                if event.kind=='rejected' then rejectedCount=rejectedCount+1;firstReason=firstReason or event.reason;self.audio:play('rejected');if pending and pending.kind=='build' then self.building=self.awaitingPlacement;self.awaitingPlacement=nil end
+                if event.kind=='rejected' then rejectedCount=rejectedCount+1;firstReason=firstReason or event.reason;self.audio:play('rejected');self.feedback:error(event.reason or 'Order rejected');if pending and pending.kind=='build' then self.building=self.awaitingPlacement;self.awaitingPlacement=nil end
                 elseif pending then acceptedCount=acceptedCount+1;self.audio:play('accepted');if pending.kind=='build' then self.awaitingPlacement=nil end end
             elseif event.kind=='healed' then self.audio:play('heal',self,event.x,event.y)
             elseif event.kind=='attack' or event.kind=='death' then self.audio:play(event.kind,self,event.x,event.y)
             elseif event.kind=='constructed' or event.kind=='recruited' or event.kind=='upgraded' or event.kind=='revived' then self.audio:play('ready',self,event.x,event.y) end
+            self:recordStat(event)
         end
         for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.harvestRemaining or unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
         self.audio:play('ambience')
@@ -193,7 +217,22 @@ function App:update(dt)
         end
         if self.network and tick%100==0 then local bytes=Sim.serializeAuthoritative(self.world);self.network:checksum(tick,Hash.bytes(bytes),bytes) end
         self.accumulator=self.accumulator-0.05;steps=steps+1
+        if self.world.result and not self.banner then
+            local won=self.world.result.winner==self.player
+            self.banner={won=won,age=0,
+                detail=string.format('%02d:%02d   %d units built   %d lost   %d kills',
+                    math.floor(self.world.tick/1200),math.floor(self.world.tick/20)%60,
+                    self.stats.built,self.stats.lost,self.stats.kills)}
+            self.feedback.banner=self.banner
+        end
     end
+end
+-- Painter's order: feet first, entity id to break ties. Defined once instead of as a
+-- fresh closure every frame.
+local function byDepth(a,b)
+    local ay=a.y+(a.size-1)*256;local by=b.y+(b.size-1)*256
+    if ay~=by then return ay<by end
+    return a.id<b.id
 end
 -- Rebuilt once per frame rather than scanned per drawn entity.
 local function selectionSet(self)
@@ -203,6 +242,32 @@ local function selectionSet(self)
     return set
 end
 local function selected(self,id) return self.selectedSet and self.selectedSet[id] or false end
+-- Resource gains are announced from the observed ledger delta rather than from a
+-- delivery event, because the simulation does not currently emit one. That means a
+-- refund or a bounty is announced the same way a drop-off is; the amount is always
+-- correct, only the attribution is approximate. Phase 6's `delivered` event replaces it.
+-- Match statistics are accumulated from the events this player was allowed to see.
+-- They are presentation only: nothing reads them back into the simulation, and a
+-- player cannot be credited with a kill they never observed. Phase 6 moves kills and
+-- losses into the simulation so the numbers become authoritative rather than observed.
+function App:recordStat(event)
+    local stats=self.stats
+    if event.kind=='recruited' and event.owner==self.player then stats.built=stats.built+1
+    elseif event.kind=='constructed' and event.owner==self.player then stats.buildings=stats.buildings+1
+    elseif event.kind=='death' then
+        if event.owner==self.player then stats.lost=stats.lost+1
+        elseif event.owner and event.owner>0 then stats.kills=stats.kills+1 end
+    end
+end
+function App:announceIncome(beforeGold,beforeLumber)
+    local resources=self.view.player.resources
+    local hq=self.view.byId[self.view.player.hq]
+    if not hq then return end
+    local gold=resources.gold-beforeGold
+    local lumber=resources.lumber-beforeLumber
+    if gold>0 then self.feedback:text('income','+'..gold..' gold',hq.x,hq.y,{.96,.82,.36}) end
+    if lumber>0 then self.feedback:text('income','+'..lumber..' lumber',hq.x,hq.y-140,{.62,.86,.55}) end
+end
 function App:drawEntity(e)
     local g=love.graphics
     local x,y=e.x,e.y;local prev=self.previous[e.id]
@@ -218,11 +283,20 @@ function App:drawEntity(e)
         color(team,0.5);g.ellipse('fill',x,y,15*z,5*z);return
     end
     g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*z,5*z)
-    if selected(self,e.id) then g.setColor(0.55,0.93,0.73);g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z) end
+    -- Ring colour states what the unit is to the viewer, which is the fastest read in
+    -- a fight: own selection, hovered, ally, or enemy.
+    local isSelected=selected(self,e.id)
+    if isSelected then g.setColor(0.55,0.93,0.73);g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+    elseif self.hoverId==e.id then
+        if e.owner==self.player then g.setColor(.55,.93,.73,.7)
+        elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
+        else g.setColor(1,.4,.32,.8) end
+        g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+    end
     if e.category=='building' then
         local w,h=e.size*26*z,e.size*CELL_Y*z
         x=x-13*z;y=y-(CELL_Y/2)*z
-        if selected(self,e.id) then g.setColor(.55,.93,.73);g.rectangle('line',x,y,w,h) end
+        if isSelected then g.setColor(.55,.93,.73);g.rectangle('line',x,y,w,h) end
         color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
         color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
         g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
@@ -245,10 +319,28 @@ function App:drawEntity(e)
             if d.hero then g.setColor(1,0.85,0.38);g.polygon('fill',x-7*z,y-37*z,x-8*z,y-46*z,x,y-40*z,x+8*z,y-46*z,x+7*z,y-37*z) end
             if e.kind=='worker' then g.setColor(0.74,0.63,0.44);g.setLineWidth(3*z);g.line(x+10*z,y-30*z,x+10*z,y-4*z) end
         end
-        local barY=y-(d.hero and 53 or 40)*z
-        g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,barY,28*z,4*z)
-        local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
-        color(team);g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
+        -- A white wash for two ticks after an impact. It reads at a glance in a mass
+        -- fight where individual health bars are too small to follow.
+        if self.feedback:flashing(e.id,self.world.tick) then
+            g.setColor(1,1,1,.55);g.ellipse('fill',x,y-(height/2)*z,11*z,(height/2+3)*z)
+        end
+        -- Bars for the selected, the damaged, and everything while Alt is held. Drawing
+        -- one over every unit at all times turns a battle into a wall of bars.
+        local damaged=e.hp<e.maxHp
+        local bars=self.settings.healthBars or 'damaged'
+        if bars=='always' or self.showAllBars or isSelected or (bars~='selected' and damaged) then
+            local barY=y-(d.hero and 53 or 40)*z
+            g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,barY,28*z,4*z)
+            local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
+            color(team);g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
+        end
+        -- Control-group number above a selected member, as a place to look after Tab.
+        local badge=isSelected and self.groupBadges and self.groupBadges[e.id]
+        if badge then
+            g.setFont(self.fonts.small);g.setColor(.08,.1,.12,.8)
+            g.rectangle('fill',x-6*z,y-(d.hero and 66 or 53)*z,12*z,11*z,2)
+            g.setColor(.92,.94,.7);g.printf(badge,x-6*z,y-(d.hero and 65 or 52)*z,12*z,'center')
+        end
     end
 end
 function App:draw()
@@ -258,20 +350,51 @@ function App:draw()
     local cameraRect=Camera.rect(self);if self.camera.viewportHeight and self.camera.viewportHeight~=cameraRect.h then local cx,cy=self:position(cameraRect.w/2,cameraRect.y+cameraRect.h/2);Camera.normalize(self);Camera.center(self,cx,cy) end;self.camera.viewportHeight=cameraRect.h
     local viewport=cameraRect;g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
     local m=self.world.map;local z=self.camera.zoom
+    -- Screen shake is applied as a draw-time translate on the world pass only, so it
+    -- never moves the HUD, never feeds back into camera clamping, and never reaches
+    -- the coordinate transforms that turn clicks into orders.
+    local shakeX,shakeY=0,0
+    if self.settings.screenShake~=false then shakeX,shakeY=self.feedback.shakeX or 0,self.feedback.shakeY or 0 end
+    if shakeX~=0 or shakeY~=0 then g.push();g.translate(shakeX,shakeY) end
+    self.groupBadges=self:controlGroupBadges()
     local terrain=Minimap.cache(self)
     g.setColor(1,1,1);g.draw(terrain.terrain,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
     g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
     selectionSet(self)
-    local entities={}
-    for _,e in ipairs(self.view.entities) do if e.alive or (e.category=='unit' and e.deathTick and self.world.tick-e.deathTick<40) then entities[#entities+1]=e end end
-    table.sort(entities,function(a,b) local ay=a.y+(a.size-1)*256;local by=b.y+(b.size-1)*256;if ay~=by then return ay<by end return a.id<b.id end)
-    for _,e in ipairs(entities) do self:drawEntity(e) end
+    -- Cull to the viewport before sorting. On the shipping 128x112 map most of the
+    -- army is off-screen at normal zoom, and every off-screen entity previously paid a
+    -- depth-sort comparison and a full drawEntity of shadow, body, rings and health bar
+    -- that the scissor then threw away. The pad covers sprites drawn well above their
+    -- feet and multi-cell building footprints.
+    local entities=self.drawList
+    if entities then for i=#entities,1,-1 do entities[i]=nil end else entities={};self.drawList=entities end
+    local left,top=self:position(cameraRect.x,cameraRect.y)
+    local right,bottom=self:position(cameraRect.x+cameraRect.w,cameraRect.y+cameraRect.h)
+    local pad=6*256
+    left=left-pad;top=top-pad;right=right+pad;bottom=bottom+pad
+    local tick=self.world.tick
+    local count=0
+    for _,e in ipairs(self.view.entities) do
+        if (e.alive or (e.category=='unit' and e.deathTick and tick-e.deathTick<40))
+            and e.x>=left and e.x<=right and e.y>=top and e.y<=bottom then
+            count=count+1;entities[count]=e
+        end
+    end
+    table.sort(entities,byDepth)
+    for i=1,count do self:drawEntity(entities[i]) end
     if not self.options['effects-disabled'] then self.feedback:draw(self) end
-    if self.orderMarker and self.clock-(self.orderMarker.time or 0)<.4 then
+    -- Target marker: green for a move, red for an attack, contracting rather than
+    -- expanding so the eye is pulled to the destination instead of away from it.
+    if self.orderMarker and self.clock-(self.orderMarker.time or 0)<.45 then
         local marker=self.orderMarker;local mx,my=self:screen(marker.x,marker.y)
-        local age=(self.clock-(marker.time or 0))*20
-        g.setColor(0.65,0.95,0.65,1-age/8);g.setLineWidth(2*z)
-        g.ellipse('line',mx,my,(7+age)*z,(4+age*0.5)*z)
+        local t=(self.clock-(marker.time or 0))/.45
+        local hostile=marker.kind=='attack' or marker.kind=='attack_move'
+        if hostile then g.setColor(1,.38,.32,1-t) else g.setColor(.55,.95,.6,1-t) end
+        g.setLineWidth(2*z)
+        for ring=0,1 do
+            local scale=(1-t)*(1+ring*0.55)
+            g.ellipse('line',mx,my,(4+14*scale)*z,(2+8*scale)*z)
+        end
     end
     if self.drag then
         local mx,my=love.mouse.getPosition();g.setColor(0.52,0.86,0.73,0.18);g.rectangle('fill',self.drag.x,self.drag.y,mx-self.drag.x,my-self.drag.y)
@@ -293,7 +416,20 @@ function App:draw()
             if wx then local x,y=self:screen(wx,wy);g.setColor(.5,.8,.6,.5);g.line(px,py,x,y);g.circle('line',x,y,4);px,py=x,y end
         end
     end end
+    if shakeX~=0 or shakeY~=0 then g.pop() end
     g.setScissor();Hud.draw(self)
+    self.feedback:drawText(self,width,height)
+end
+-- Which control group each selected unit belongs to, for the badge above it. Built once
+-- per frame; a unit in several groups shows the lowest, matching what the number keys do.
+function App:controlGroupBadges()
+    local badges=self.badgeScratch
+    if badges then for key in pairs(badges) do badges[key]=nil end else badges={};self.badgeScratch=badges end
+    for number=1,9 do
+        local group=self.groups[number]
+        if group then for _,id in ipairs(group) do if badges[id]==nil then badges[id]=number end end end
+    end
+    return badges
 end
 
 function App:unitVisualScale(e)

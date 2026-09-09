@@ -34,7 +34,7 @@ Simulation version 3 implements the accepted core-control plan. The existing 20 
 
 - Weapon definitions now express edge range. Values are unchanged: ordinary unit-to-unit center reach therefore increases by 160 subunits (0.625 cells); an ordinary attacker gains 80 subunits against a building footprint. Large-unit combinations use their actual radii. These intentional range changes require human balance review.
 
-- Incremental A* no longer freezes mobile occupancy into an impassable mask. It retains the 64-expansion tick budget, with a deterministic binary heap for the open set. A separately bounded 16,384-cell direct-route probe budget starts clear-terrain moves on their command tick; general searches remain incremental. Nearby congestion adds bounded reroute costs; search state remains in snapshots.
+- Incremental A* no longer freezes mobile occupancy into an impassable mask. It retains a per-tick expansion budget shared across all in-flight searches, with a deterministic binary heap for the open set. The budget is content, not code: shipping content (`src/content.lua`) sets `pathBudget=256`, while the small test fixture (`tests/fixture_content.lua`) sets 64 so its scenarios exercise the incremental path in a handful of ticks. A separately bounded 16,384-cell direct-route probe budget starts clear-terrain moves on their command tick; general searches remain incremental. Nearby congestion adds bounded reroute costs; search state remains in snapshots.
 
 - Local movement uses integer vectors, fixed candidate order, spatial bins, frozen candidate proposals and longest-wait/stable-ID conflict resolution. Directional sprites do not constrain motion.
 
