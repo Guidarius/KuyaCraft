@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "unitId": "worker_loaded",
+  "sourceId": "RTSAssets",
+  "sourceHash": "efb90208d845fd180917e2d59a8a30a2e86755cf1c030ae9211191ca20379308",
+  "rig": "Armature",
+  "slot": "OBArmature",
+  "profileId": "bastion_overhead_v1",
+  "scale": 1.0,
+  "canvasFamily": "worker",
+  "model": {"type": "worker_loaded", "cargo": true},
+  "clips": {
+    "idle": {"action": "Idle_Loop", "samples": 4, "durationMs": 1000, "loop": true},
+    "move": {"action": "Walk_Loop", "samples": 8, "durationMs": 1000, "loop": true, "removeRootMotion": true},
+    "attack": {"action": "Sword_Attack_Standing", "samples": 6, "durationMs": 700, "loop": false, "contactFrame": 3},
+    "death": {"action": "Death01", "samples": 8, "durationMs": 1000, "loop": false},
+    "work": {"action": "Idle_Loop", "derived": "standing_tool_v1", "samples": 8, "durationMs": 1000, "loop": true}
+  }
+}

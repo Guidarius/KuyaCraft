@@ -1,0 +1,64 @@
+-- Integer geometry shared by navigation, occupancy and weapons. No engine APIs.
+local F=require('src.sim.fixed')
+local G={}
+-- Rebuilt for each step and after spawn/revival. These derived buckets are
+-- discarded before step returns and are never snapshot/serialization state.
+function G.beginStep(w) w._geometryActive=true;w._geometry=nil end
+function G.endStep(w) w._geometryActive=nil;w._geometry=nil end
+function G.invalidate(w) w._geometry=nil end
+local function index(w)
+    if not w._geometry then
+        local bins={}
+        for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' then
+            local key=F.cell(e.y)*256+F.cell(e.x);bins[key]=bins[key] or {};bins[key][#bins[key]+1]=e
+        end end
+        w._geometry=bins
+    end
+    return w._geometry
+end
+function G.radius(w,e) return e.category=='unit' and w.content.units[e.kind].radius or 0 end
+function G.rectangleDistance2(x,y,left,top,right,bottom)
+    local tx=math.max(left,math.min(x,right));local ty=math.max(top,math.min(y,bottom))
+    return F.distance2Bounded(x,y,tx,ty)
+end
+function G.terrain(w,x,y,r)
+    if x-r<0 or y-r<0 or x+r>w.map.width*256 or y+r>w.map.height*256 then return false end
+    for cy=F.cell(y-r),F.cell(y+r) do for cx=F.cell(x-r),F.cell(x+r) do
+        if w.blocked[cy*w.map.width+cx+1] and G.rectangleDistance2(x,y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<r*r then return false end
+    end end
+    return true
+end
+function G.separation(w,a,b)
+    local r=G.radius(w,a)+G.radius(w,b)
+    return a.owner==b.owner and math.floor(r*3/4) or r
+end
+local function blocks(w,e,x,y,r,except)
+        if e.alive and e.category=='unit' and e.id~=except then
+            local gap=r+G.radius(w,e)
+            if math.abs(x-e.x)<gap and math.abs(y-e.y)<gap and F.distance2Bounded(x,y,e.x,e.y)<gap*gap then return true end
+        end
+        return false
+    end
+function G.free(w,x,y,r,except)
+    if not G.terrain(w,x,y,r) then return false end
+    if w._geometryActive then
+        local bins=index(w)
+        for cy=F.cell(y)-1,F.cell(y)+1 do for cx=F.cell(x)-1,F.cell(x)+1 do
+            for _,e in ipairs(bins[cy*256+cx] or {}) do if blocks(w,e,x,y,r,except) then return false end end
+        end end
+    else
+        for _,id in ipairs(w.order) do if blocks(w,w.entities[id],x,y,r,except) then return false end end
+    end
+    return true
+end
+function G.weaponRangeAt(w,e,x,y,t,extra)
+    local d=w.content.units[e.kind] or w.content.buildings[e.kind]
+    local range=d.range+G.radius(w,e)+(extra or 0)
+    if t.category=='building' then
+        return G.rectangleDistance2(x,y,t.x-128,t.y-128,t.x-128+t.size*256,t.y-128+t.size*256)<=range*range
+    end
+    range=range+G.radius(w,t)
+    return F.distance2Bounded(x,y,t.x,t.y)<=range*range
+end
+function G.weaponRange(w,e,t,extra) return G.weaponRangeAt(w,e,e.x,e.y,t,extra) end
+return G

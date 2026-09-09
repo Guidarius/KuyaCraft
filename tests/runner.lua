@@ -1,0 +1,223 @@
+local Sim=require('src.sim')
+local F=require('src.sim.fixed')
+local Rng=require('src.sim.rng')
+local Codec=require('src.sim.codec')
+local Content=require('tests.fixture_content')
+local Maps=require('src.maps')
+local Hash=require('src.hash')
+local Replay=require('src.replay')
+local Lock=require('src.net.lockstep')
+local T={}
+local function eq(a,b,message) assert(a==b,(message or 'values differ')..': '..tostring(a)..' != '..tostring(b)) end
+local function fails(fn) local ok=pcall(fn);assert(not ok,'expected failure') end
+local function world(size)
+    local m=Maps.create('test',size or 16);m.resources={};m.camps={}
+    return Sim.create({seed=12345,players={{faction='bastion'},{faction='wild'}}},Content,m)
+end
+local function step(w,n,commands) for i=1,n do Sim.step(w,i==1 and (commands or {}) or {}) end end
+local function command(w,p,kind,e,args,sequence)
+    args=args or {};args.entity=e
+    return {tick=w.tick+1,player=p,sequence=sequence or w.players[p].sequence+1,kind=kind,args=args}
+end
+local function find(w,p,kind) for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==p and e.kind==kind then return e end end end
+local tests={}
+local function test(suite,name,fn) tests[#tests+1]={suite=suite,name=name,fn=fn} end
+for _,case in ipairs({'queues','construction','combat','fog','minimap','lobby'}) do test(case=='lobby' and 'network' or 'simulation','UI contract: '..case,function() require('tests.ui_contracts')[case]() end) end
+require('tests.balance').register(test)
+require('tests.controls').register(test)
+require('tests.control_scenarios').register(test)
+test('balance','new-profile route report',function() require('tests.balance_scenarios').routes() end)
+test('balance','new-profile mirror match',function() require('tests.balance_scenarios').match(true) end)
+test('balance','new-profile asymmetric match',function() require('tests.balance_scenarios').match(false) end)
+test('balance','new-profile active performance',function() require('tests.balance_scenarios').performance() end)
+test('unit','filtered cosmetic feedback',function() require('tests.feedback').run() end)
+test('unit','PRNG golden sequence and seed bounds',function()
+    local r=Rng.create(1)
+    for _,n in ipairs({16807,282475249,1622650073,984943658,1144108930}) do eq(Rng.next(r),n) end
+    fails(function() Rng.create(0) end)
+    for _=1,1000 do local n=Rng.range(r,-3,8);assert(n>=-3 and n<=8) end
+end)
+test('unit','fixed arithmetic rounding and bounds',function()
+    eq(F.mulDiv(-5,3,2),-8);eq(F.mulDiv(7,3,2),10)
+    fails(function() F.mulDiv(F.MAX_EXACT,2,1) end)
+    fails(function() F.check(0/0) end);fails(function() F.check(1.1) end);eq(F.center(2),640)
+end)
+test('unit','codec canonical order and non-executable decoding',function()
+    local a={b=2,a={1,true,'x\0y'}};local b={};b.a={1,true,'x\0y'};b.b=2
+    eq(Codec.encode(a),Codec.encode(b));eq(Codec.encode(Codec.decode(Codec.encode(a))),Codec.encode(a))
+    fails(function() Codec.decode('return os.execute("bad")') end)
+    fails(function() Codec.decode('s99:x') end);fails(function() Codec.decode('d2:s1:an1:s1:an2:') end)
+    fails(function() Codec.encode({n=1.5}) end);fails(function() Codec.decode('n01:') end)
+    local cyclic={};cyclic.self=cyclic;fails(function() Codec.encode(cyclic) end)
+end)
+test('unit','content references and definition isolation',function()
+    assert(require('src.content_validate')(Content));local before=Codec.encode(Content)
+    local w=world();step(w,30);eq(Codec.encode(Content),before)
+end)
+test('simulation','command ownership, duplicates, invalid positions',function()
+    local w=world();local e=find(w,1,'worker');local enemy=find(w,2,'worker')
+    step(w,1,{command(w,1,'move',enemy.id,{x=0,y=0})});eq(w.events[1].kind,'rejected')
+    step(w,1,{command(w,1,'move',e.id,{x=-1,y=0})});eq(w.events[1].kind,'rejected')
+    step(w,1,{command(w,1,'toggle',w.players[1].hero,{},w.players[1].sequence)});eq(w.events[1].kind,'rejected')
+end)
+test('simulation','pathfinding obeys walls and expansion budget',function()
+    local w=world(20);local e=find(w,1,'worker');local Path=require('src.sim.path')
+    local sy=F.cell(e.y)
+    for y=0,8 do w.blocked[Path.key(w.map,8,y)]=true end
+    step(w,1,{command(w,1,'move',e.id,{x=F.center(10),y=F.center(sy)})})
+    for _=1,400 do step(w,1);assert(w.metrics.pathExpansions<=Content.rules.pathBudget);assert(not w.blocked[Path.key(w.map,F.cell(e.x),F.cell(e.y))]) end
+    eq(F.cell(e.x),10);eq(F.cell(e.y),sy)
+end)
+test('simulation','unreachable search terminates',function()
+    local w=world(20);local e=find(w,1,'worker');local Path=require('src.sim.path')
+    for y=0,w.map.height-1 do w.blocked[Path.key(w.map,8,y)]=true end
+    step(w,1,{command(w,1,'move',e.id,{x=F.center(10),y=F.center(5)})});step(w,500)
+    eq(e.lastOrderFailure,'unreachable');assert(not w.searches[e.id])
+end)
+test('simulation','harvest delivers resources and depletes node',function()
+    local m=Maps.create('harvest',20);m.resources={{x=6,y=6,resource='gold',amount=10}};m.camps={}
+    local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
+    local e=find(w,1,'worker');local node=find(w,0,'resource');local before=w.players[1].resources.gold
+    step(w,1,{command(w,1,'harvest',e.id,{target=node.id})});step(w,400)
+    eq(w.players[1].resources.gold,before+10);assert(not node.alive);eq(e.cargo,0)
+end)
+test('simulation','build, production, cancellation, population reservation',function()
+    local w=world(24);local worker=find(w,1,'worker')
+    step(w,1,{command(w,1,'build',worker.id,{building='barracks',x=7,y=4})})
+    local b=find(w,1,'barracks');assert(b,'building rejected')
+    assert(w.blocked[4*w.map.width+8]);step(w,400);eq(b.remaining,0)
+    step(w,1,{command(w,1,'recruit',b.id,{unit='shield'})});eq(#b.queue,1)
+    local pop=Sim.population(w,1);step(w,100);eq(#b.queue,0);eq(Sim.population(w,1),pop)
+    local gold=w.players[1].resources.gold
+    step(w,1,{command(w,1,'recruit',b.id,{unit='crossbow'})});step(w,1,{command(w,1,'cancel',b.id)})
+    eq(w.players[1].resources.gold,gold)
+end)
+test('simulation','exclusive upgrades and revival retention',function()
+    local w=world(24);local hero=w.entities[w.players[1].hero];hero.xp=400
+    step(w,1,{command(w,1,'upgrade',hero.id,{milestone=1,choice=2})});eq(hero.upgrades[1],2)
+    step(w,1,{command(w,1,'upgrade',hero.id,{milestone=1,choice=1})});eq(hero.upgrades[1],2)
+    step(w,1,{command(w,1,'upgrade',hero.id,{milestone=2,choice=2})});eq(hero.maxHp,780)
+    hero.alive=false;hero.hp=0;step(w,1,{command(w,1,'revive',hero.id)});step(w,200)
+    assert(hero.alive);eq(hero.hp,hero.maxHp);eq(hero.upgrades[1],2);eq(hero.upgrades[2],2)
+end)
+test('simulation','fog filters enemies and rejects hidden targeting',function()
+    local w=world(40);local enemy=w.entities[w.players[2].hero];assert(not Sim.visible(w,1,enemy))
+    for _,e in ipairs(Sim.view(w,1).entities) do assert(e.id~=enemy.id) end
+    step(w,1,{command(w,1,'attack',w.players[1].hero,{target=enemy.id})});eq(w.events[1].kind,'rejected')
+end)
+test('simulation','simultaneous combat and HQ draw',function()
+    local w=world(24);local a=w.entities[w.players[1].hero];local b=w.entities[w.players[2].hero]
+    a.x=2560;a.y=2560;b.x=2816;b.y=2560;step(w,1);a.attack=nil;b.attack=nil;a.nextCommitTick=nil;b.nextCommitTick=nil;a.hp=1;b.hp=1
+    step(w,5);assert(not a.alive and not b.alive,'both heroes should die')
+    w.entities[w.players[1].hq].hp=0;w.entities[w.players[2].hq].hp=0;step(w,1);eq(w.result.winner,0)
+end)
+test('determinism','snapshot preserves pending paths and continuation',function()
+    local w=world(24);w.content.rules.directPathBudget=0;local e=find(w,1,'worker');step(w,1,{command(w,1,'move',e.id,{x=4000,y=3500})})
+    local clone=Sim.restore(Codec.decode(Codec.encode(Sim.snapshot(w))))
+    for _=1,150 do step(w,1);step(clone,1);eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone)) end
+end)
+test('determinism','changed command changes canonical state',function()
+    local a,b=world(),world();local e=find(a,1,'worker')
+    step(a,1,{command(a,1,'move',e.id,{x=0,y=0})});step(b,1);assert(Hash.bytes(Sim.serializeCanonical(a))~=Hash.bytes(Sim.serializeCanonical(b)))
+end)
+test('determinism','replay round trip and incompatible header rejection',function()
+    local w=world(20);local r=Replay.create(w.config,Content,w.map)
+    for _=1,120 do Sim.step(w,{});Replay.record(r,w,{}) end
+    Replay.write('artifacts/fixture-sample.replay',r)
+    local loaded=Replay.read('artifacts/fixture-sample.replay',Content);local b=Sim.create(loaded.header.config,Content,loaded.header.map)
+    for _,frame in ipairs(loaded.frames) do Sim.step(b,frame.commands) end
+    eq(Sim.serializeCanonical(w),Sim.serializeCanonical(b))
+    loaded.header.runtime='wrong';Replay.write('artifacts/incompatible.replay',loaded);fails(function() Replay.read('artifacts/incompatible.replay',Content) end)
+end)
+test('network','lockstep waits for empty frames and checks ownership',function()
+    local l=Lock.create(2);assert(Lock.submit(l,1,1,{}));assert(not Lock.take(l));assert(Lock.submit(l,2,1,{}))
+    eq(Lock.take(l).tick,1);assert(not Lock.submit(l,1,1,{}))
+    local c={tick=2,player=1,sequence=1,kind='stop',args={entity=3}}
+    assert(not Lock.submit(l,2,2,{c}));assert(Lock.submit(l,1,2,{c}));assert(Lock.submit(l,1,2,{c}));assert(not Lock.submit(l,1,2,{}))
+end)
+test('network','delayed, reordered, duplicate packets preserve frames',function()
+    local l=Lock.create(2);local a,b=world(24),world(24);local packets={}
+    for tick=1,100 do for p=1,2 do packets[#packets+1]={p=p,tick=tick,commands={}} end end
+    for i=#packets,1,-1 do local q=packets[i];if q.tick%2==1 then assert(Lock.submit(l,q.p,q.tick,q.commands)) end end
+    for i=1,#packets do local q=packets[i];assert(Lock.submit(l,q.p,q.tick,q.commands)) end
+    for i=1,100 do local f=assert(Lock.take(l));eq(f.tick,i);Sim.step(a,f.commands);Sim.step(b,{}) end
+    eq(Sim.serializeCanonical(a),Sim.serializeCanonical(b))
+end)
+test('network','ENet reliable loopback',function()
+    local enet=require('enet');local server=assert(enet.host_create('127.0.0.1:*',1,1))
+    local address=server:get_socket_address();local client=assert(enet.host_create(nil,1,1));local peer=client:connect(address,1)
+    local deadline=love.timer.getTime()+5;local received=false
+    while love.timer.getTime()<deadline and not received do
+        local e=client:service(0);if e and e.type=='connect' then peer:send('LoveRTS-network-proof',0,'reliable') end
+        local s=server:service(0);if s and s.type=='receive' then eq(s.data,'LoveRTS-network-proof');received=true end
+        client:flush();server:flush();love.timer.sleep(0.001)
+    end
+    peer:disconnect_now();assert(received,'ENet loopback timed out')
+end)
+test('simulation','new obstacle cancels stale incremental destination',function()
+    local w=world(24);local e=find(w,1,'worker');local P=require('src.sim.path')
+    w.content.rules.pathBudget=1;w.content.rules.directPathBudget=0
+    step(w,1,{command(w,1,'move',e.id,{x=F.center(12),y=F.center(9)})})
+    assert(w.searches[e.id])
+    w.blocked[P.key(w.map,12,9)]=true;w.navVersion=w.navVersion+1
+    step(w,10);assert(not w.searches[e.id]);eq(e.lastOrderFailure,'destination blocked')
+end)
+test('simulation','construction completes and releases worker',function()
+    local w=world(24);local worker=find(w,1,'worker')
+    step(w,1,{command(w,1,'build',worker.id,{building='barracks',x=7,y=4})})
+    local clone=Sim.restore(Sim.snapshot(w))
+    step(w,400);step(clone,400)
+    eq(worker.order.kind,'stop');eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
+end)
+test('unit','state diagnostics identify subsystem paths',function()
+    local differences=require('src.diagnostics').diff({tick=5,players={{gold=10}}},{tick=5,players={{gold=9}}})
+    eq(#differences,1);eq(differences[1].path,'/players/1/gold')
+end)
+test('simulation','group destinations remain distinct and bodies respect clearance',function()
+    local w=world(24);local commands={}
+    for _,id in ipairs(w.order) do
+        local e=w.entities[id]
+        if e.owner==1 and e.category=='unit' then commands[#commands+1]=command(w,1,'move',id,{x=F.center(8),y=F.center(8)},#commands+1) end
+    end
+    step(w,1,commands)
+    local goals={}
+    for _,c in ipairs(commands) do local e=w.entities[c.args.entity];local key=e.order.x..','..e.order.y;assert(not goals[key]);goals[key]=true end
+    for _=1,600 do
+        step(w,1);require('tests.control_scenarios').clearance(w)
+    end
+    for _,c in ipairs(commands) do local e=w.entities[c.args.entity];eq(e.order.kind,'stop');assert(not e.lastOrderFailure) end
+end)
+test('scenario','mirror bot match and replay',function() require('tests.scenarios').match(true) end)
+test('scenario','asymmetric bot match and replay',function() require('tests.scenarios').match(false) end)
+test('performance','240-unit four-player stress',function() require('tests.scenarios').performance() end)
+test('unit','asset runtime catalog and frame selection',function() require('tests.asset_runtime').run() end)
+function T.worker(options)
+    local w=world(24);local worker=find(w,1,'worker');local output=assert(io.open(assert(options.output),'wb'))
+    local schedule=tonumber(options.schedule);local credit,tick=0,0
+    while tick<100000 do
+        credit=credit+20
+        while credit>=schedule and tick<100000 do
+            credit=credit-schedule;tick=tick+1
+            local commands={}
+            if tick%100==1 then commands={command(w,1,'move',worker.id,{x=F.center(3+math.floor(tick/100)%5),y=F.center(8)})} end
+            Sim.step(w,commands)
+            if tick%100==0 then output:write(tick..' '..Hash.bytes(Sim.serializeCanonical(w))..'\n') end
+        end
+    end
+    output:close();print('PASS worker: '..tick..' ticks at '..schedule..' FPS schedule');return 0
+end
+function T.run(options)
+    if options['compare-left'] then return require('src.diagnostics').compareFiles(options['compare-left'],options['compare-right'],options.output) end
+    if options['determinism-worker'] then return T.worker(options) end
+    require('tests.control_scenarios').benchmarkTicks=tonumber(options['benchmark-ticks'])
+    require('tests.control_scenarios').profile=options['profile-sim']
+    local suite=options.test or 'all';assert(({all=true,balance=true,unit=true,simulation=true,determinism=true,network=true,scenario=true,performance=true,crowd=true,soak=true})[suite],'unknown suite')
+    local passed,failed=0,0
+    for _,item in ipairs(tests) do if (suite=='all' or item.suite==suite) and (not options.filter or item.name:find(options.filter,1,true)) then
+        local ok,err=xpcall(item.fn,debug.traceback)
+        if ok then passed=passed+1;print('PASS '..item.name) else failed=failed+1;print('FAIL '..item.name..'\n'..err) end
+    end end
+    if options['self-test-failure'] then failed=failed+1;print('FAIL intentional runner failure') end
+    print(string.format('RESULT %d passed, %d failed',passed,failed));return failed==0 and 0 or 1
+end
+return T

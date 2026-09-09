@@ -1,0 +1,9 @@
+.tools/
+artifacts/
+dist/
+*.blend1
+__pycache__/
+
+assets/generated/
+art/source/rig-library/*.blend
+art/source/rig-library/*.blend1

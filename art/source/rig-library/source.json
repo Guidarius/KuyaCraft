@@ -1,0 +1,14 @@
+{
+  "sourceId": "rts-humanoid-library",
+  "file": "RTSAssets.blend",
+  "sha256": "efb90208d845fd180917e2d59a8a30a2e86755cf1c030ae9211191ca20379308",
+  "blender": "5.1.0",
+  "armature": "Armature",
+  "boneCount": 65,
+  "actionCount": 120,
+  "fps": 24,
+  "fpsBase": 1.0,
+  "origin": "User-supplied RTSAssets.blend; saved copy of live unsaved state",
+  "sourceDistribution": "Local only; source binary excluded from game and Git",
+  "originalPreserved": true
+}
