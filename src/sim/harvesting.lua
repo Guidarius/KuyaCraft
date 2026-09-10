@@ -73,8 +73,7 @@ function H.step(w,e,approach,route,nextOrder,rebuild,emit)
    emit(w,'delivered',{entity=e.id,amount=amount,resource=resource})
   end
  elseif node and node.alive then
-  if node.resource=='gold' then local slotted=false;for _,id in ipairs(node.slots) do if id==e.id then slotted=true end end;if not slotted then e.harvestStatus='Waiting for mine slot';return end end
-  e.harvestStatus=nil
+  if node.resource=='gold' then local slotted=false;for _,id in ipairs(node.slots) do if id==e.id then slotted=true end end;if not slotted then return end end
   if approach(w,e,node,256) then
    e.harvestRemaining=math.max(0,(e.harvestRemaining or (node.resource=='gold' and w.content.rules.harvestTicks or w.content.rules.lumberTicks))-1)
    if e.harvestRemaining==0 and (node.resource~='gold' or w.tick>=(node.nextExtractTick or 0)) then

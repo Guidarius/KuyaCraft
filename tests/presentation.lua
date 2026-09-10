@@ -35,7 +35,10 @@ function T.run(app)
  local polls=0;app.network.poll=function() polls=polls+1 end;app:update(.1);assert(polls==1,'multiplayer menu blocked network');app.network=nil;app.overlay=nil
  T.gamefeel(app)
  require('tests.control_input').run()
+ -- Pinned to normal pacing. This compares a live match against a replay seek tick for
+ -- tick, and App.create otherwise picks up whatever game speed is saved on this machine.
  local clean=require('src.app').create({map='open_fields'})
+ clean.settings.gameSpeed=2
  for _=1,120 do clean:update(.05) end
  clean:save('artifacts/ui-proof.replay')
  local replay=require('src.app').create({replay='artifacts/ui-proof.replay'});replay:seek(120)
@@ -57,6 +60,42 @@ function T.run(app)
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  canvas:release();shell:close();app:draw()
  print('PASS rendered UI: scales, capture, minimap drag, transforms, pause, commands, upgrades, recruitment, replay seek')
+end
+-- Every gameplay-presentation setting must be reachable from the settings screen and
+-- must persist. These four existed and worked before they had any control at all, which
+-- meant a player could not change them and the README described options that were not
+-- there. Run through T.gamefeel, which restores the stored settings afterwards.
+function T.settingsControls(app,Sim,Settings)
+ local function control(id)
+  app.overlay='settings';app:draw()
+  for _,b in ipairs(app.widgets.items) do if b.id==id then return b end end
+  error('settings screen has no control '..id)
+ end
+ local bars={}
+ for _=1,4 do local b=control('bars');bars[#bars+1]=app.settings.healthBars;b.action() end
+ assert(bars[1]~=bars[2] and bars[2]~=bars[3],'health bar control did not cycle')
+ assert(bars[1]==bars[4],'health bar control did not return to its first value')
+ local shakeBefore=app.settings.screenShake
+ control('shake').action();assert(app.settings.screenShake~=shakeBefore,'screen shake did not toggle')
+ control('shake').action();assert(app.settings.screenShake==shakeBefore,'screen shake did not toggle back')
+ local nightBefore=app.settings.dayNight
+ control('daynight').action();assert(app.settings.dayNight~=nightBefore,'day/night did not toggle')
+ -- The tint is cosmetic, so drawing with it on must not disturb the simulation.
+ app.overlay=nil
+ local guard=Sim.serializeCanonical(app.world);app:draw();app:draw()
+ assert(Sim.serializeCanonical(app.world)==guard,'the day/night tint mutated the simulation')
+ control('daynight').action();assert(app.settings.dayNight==nightBefore)
+ local speeds={}
+ for _=1,#Settings.SPEEDS+1 do local b=control('speed');speeds[#speeds+1]=app.settings.gameSpeed;b.action() end
+ assert(speeds[1]==speeds[#speeds],'game speed did not cycle back round')
+ for _,speed in ipairs(speeds) do assert(Settings.SPEED_SCALE[speed],'game speed reached an invalid value: '..tostring(speed)) end
+ -- Every binding the game reads must be rebindable, including the ones added later.
+ for _,key in ipairs({'attack','stop','hold','hero','alert','build','tower','idle'}) do
+  assert(control('bind-'..key),'binding '..key..' has no control')
+ end
+ -- And a setting has to survive the round trip through storage, not just the button.
+ app.settings.healthBars='always';Settings.save(app.settings)
+ assert(Settings.load().healthBars=='always','settings did not survive a save and load')
 end
 -- WC3-style control and feedback that only exists in the presentation layer. Every check
 -- here must be able to fail loudly: these are the features a player notices missing.
@@ -193,6 +232,24 @@ function T.gamefeel(app)
   assert(app.world.entities[mover].order.kind=='follow','right click on an own unit did not follow')
   assert(app.world.entities[mover].order.target==other)
  end
+ -- Every gameplay-presentation setting must actually be reachable and must persist.
+ -- These existed and worked before they had any control, which meant a player could
+ -- not change them and the README described options that were not there.
+ -- Driving the real controls writes the real settings file, because that is what the
+ -- buttons do. Capture the stored bytes first and put them back afterwards even if a
+ -- check fails, so the suite can never alter the settings of whoever ran it -- and, more
+ -- importantly, can never leak a changed value into a later test that creates an App.
+ local Settings=require('src.ui.settings')
+ -- Capture the effective settings rather than the stored bytes: on a machine that has
+ -- never saved any, there are no bytes to put back and the test would leave behind the
+ -- file it created. Writing these back guarantees a later Settings.load() sees exactly
+ -- what it would have seen, whether or not a file existed. Restored even on failure.
+ local before=Settings.load()
+ local ok,err=pcall(T.settingsControls,app,Sim2,Settings)
+ Settings.save(before)
+ for key,value in pairs(before) do app.settings[key]=value end
+ app.overlay=nil
+ if not ok then error(err,0) end
  -- Saving a replay must not be able to take the game down. This runs from love.quit, so
  -- in a packaged build sitting somewhere unwritable a hard failure here would turn
  -- "quit the game" into a crash. An unwritable path has to fall back, not throw.

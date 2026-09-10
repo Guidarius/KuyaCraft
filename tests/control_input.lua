@@ -27,7 +27,10 @@ function T.run()
     -- cannot turn into a catch-up spiral that stalls the next frame in turn. Time beyond
     -- the clamp is deliberately lost: in offline play a cosmetic gap is preferable to a
     -- freeze. Ticks themselves are never skipped or reordered, only produced more slowly.
+    -- Pinned to normal pacing: this asserts the fixed-rate accumulator's contract, and
+    -- App.create loads whatever speed happens to be saved on this machine.
     local app=App.create({map='open_fields'});app.noAutoSave=true
+    app.settings.gameSpeed=2
     app:update(.5)
     assert(app.world.tick==5,'a 0.5 s frame must clamp to 0.25 s of simulation, got tick '..app.world.tick)
     assert(app.accumulator<.05,'clamped frame left a backlog: '..app.accumulator)

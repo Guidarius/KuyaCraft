@@ -14,7 +14,7 @@ end
 function S.unit(w,kind,owner,x,y)
     local d=w.content.units[kind];local id=w.nextId;w.nextId=id+1
     local e={id=id,kind=kind,owner=owner,x=F.center(x),y=F.center(y),category='unit',alive=true,hp=d.hp,maxHp=d.hp,size=1,cooldown=0,
-        path={},pathIndex=1,order={kind='stop'},orders={},blockedTicks=0,lastCombat=-1000}
+        path={},pathIndex=1,order={kind='stop'},orders={},lastCombat=-1000}
     w.entities[id]=e;w.order[#w.order+1]=id;return e
 end
 function S.command(w,e,kind,args,sequence)

@@ -147,9 +147,6 @@ function M.step(w,halt,route)
                 local old=live[oldKey];for i,id in ipairs(old) do if id==e.id then table.remove(old,i);break end end
                 live[newKey]=live[newKey] or {};live[newKey][#live[newKey]+1]=e.id
             end
-            local dx,dy=e.x-oldX,e.y-oldY
-            if e.lastMove and dx*e.lastMove.x+dy*e.lastMove.y<0 then e.reversals=(e.reversals or 0)+1 end
-            e.lastMove={x=dx,y=dy}
             if not p.yielding then
                 local dist=F.distance2Bounded(e.x,e.y,p.tx,p.ty)
                 if not e.bestWaypointDistance or dist<e.bestWaypointDistance then e.waitTicks=0;e.bestWaypointDistance=dist else e.waitTicks=(e.waitTicks or 0)+1 end
@@ -163,14 +160,14 @@ function M.step(w,halt,route)
             halt(w,e);e.navigation='arrived'
         end
         if not p.yielding and (e.waitTicks or 0)>=10 then
-            e.blockedTicks=e.waitTicks;e.navigation='congested';e.maxWaitTicks=math.max(e.maxWaitTicks or 0,e.waitTicks)
+            e.navigation='congested'
             if w.tick>=(e.rerouteAt or 0) and e.goal then
                 local cells={}
                 for _,other in ipairs(neighbors) do if other.id~=e.id then cells[Path.key(w.map,F.cell(other.x),F.cell(other.y))]=true end end
                 e.detour={cells=cells,untilTick=w.tick+40};e.rerouteAt=w.tick+20
                 local goal=e.goal;Path.request(w,e,goal.x,goal.y);e.bestWaypointDistance=nil
             end
-        elseif not p.yielding and e.goal then e.navigation='moving';e.blockedTicks=0 end
+        elseif not p.yielding and e.goal then e.navigation='moving' end
         if e.detour and e.detour.untilTick<=w.tick then e.detour=nil end
     end
 end

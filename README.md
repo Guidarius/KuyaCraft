@@ -40,6 +40,7 @@ if they cannot be built.
 ```powershell
 .\scripts\run.ps1 -Smoke
 .\scripts\run.ps1 -AutoQuit 60
+.\scripts\test-all.ps1
 .\scripts\test.ps1
 .\scripts\test.ps1 -Suite simulation
 .\scripts\test.ps1 -Suite balance
@@ -53,6 +54,8 @@ if they cannot be built.
 .\scripts\test.ps1 -SelfTestFailure -Suite unit
 .\scripts\replay.ps1 -ReplayPath .\artifacts\sample.replay
 ```
+
+`test-all.ps1` runs the headless suites, the multi-process determinism and network proofs, and the rendered suites. Use it after any change to the frame loop, the draw path or input: `test.ps1` alone executes **no rendered code**, because `tests/control_input` and `tests/presentation` only run under `--ui-test`.
 
 The intentional-failure command must return exit code 1. Normal success is 0.
 The all/determinism suites compare fresh processes over 100,000 ticks using 30/60/144 FPS schedules.
@@ -84,7 +87,9 @@ The game opens a main menu. Choose Skirmish to select your map and factions. All
 - Ctrl+S / Save Replay writes under artifacts. Replays menu provides pause/speed/timeline/perspective.
 - Offline matches can run slower/normal/faster from Settings. Speed changes only how fast wall-clock time is fed to the fixed 20 Hz simulation, so replays and checkpoints are identical at every speed; network matches always run at 1x.
 
-UI scale (80–125%), volume buses, edge scroll, health-bar policy, screen shake, game speed and common hotkey bindings are in Settings. The implementation and acceptance checklist are in [docs/UI_UX_ROADMAP.md](docs/UI_UX_ROADMAP.md).
+Settings holds UI scale (80–125%), the volume buses, edge scroll, health-bar policy, screen shake, a cosmetic day/night tint, offline game speed, and every hotkey binding. The implementation and acceptance checklist are in [docs/UI_UX_ROADMAP.md](docs/UI_UX_ROADMAP.md).
+
+The simulation contains no randomness at all: no damage variance, no scatter, no rolls. Every outcome follows from orders and content, which is what lets a replay reproduce a match exactly. `src/sim/rng.lua` and its golden-sequence test are kept so randomness can be reintroduced as a deliberate change.
 
 The movement lab is selectable in Skirmish or with `scripts/run.ps1 -Map movement_lab`. It contains flat chokepoints, a U-shaped obstacle, a concave wall, a corridor, and forest clutter. Its purpose is navigation testing, not a balanced economic match. See [the control and movement verification record](docs/CONTROL_MOVEMENT.md).
 

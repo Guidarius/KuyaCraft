@@ -1,5 +1,5 @@
 local F = require('src.sim.fixed')
-local Rng = require('src.sim.rng')
+
 local Codec = require('src.sim.codec')
 local Path = require('src.sim.path')
 local G=require('src.sim.geometry')
@@ -10,7 +10,10 @@ local Harvest=require('src.sim.harvesting')
 -- divergence. See Sim.serializeAuthoritative.
 -- Version 6: rally points, patrol and follow orders; per-player and per-entity kill
 -- and loss tallies; a `delivered` event carrying the exact amount and resource.
-local Sim = { VERSION = 6 }
+-- Version 7: write-only entity state removed (reversals, maxWaitTicks, blockedTicks,
+-- harvestStatus, lastMove) along with the unused PRNG, so checkpoints stop hashing
+-- fields nothing reads. No rule changes.
+local Sim = { VERSION = 7 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -112,7 +115,7 @@ local function spawn(w,kind,owner,x,y,category)
     local id=w.nextId; w.nextId=id+1
     local e={id=id,kind=kind,owner=owner,x=F.center(x),y=F.center(y),category=category or 'unit',
         alive=true,hp=d and d.hp or 1,maxHp=d and d.hp or 1,size=d and d.size or 1,cooldown=0,
-        path={},pathIndex=1,order={kind='stop'},orders={},blockedTicks=0,lastCombat=-1000}
+        path={},pathIndex=1,order={kind='stop'},orders={},lastCombat=-1000}
     if d and d.hero then e.xp=0; e.upgrades={}; e.stance=1 end
     if category=='building' then e.queue={}; e.remaining=0 end
     w.entities[id]=e; w.order[#w.order+1]=id
@@ -127,7 +130,7 @@ local function inRange(e,t,range)
     return F.distance2Bounded(e.x,e.y,tx,ty)<=range*range
 end
 local function halt(w,e)
-    if #e.path>0 then e.path={} end;e.pathIndex=1;e.goal=nil;e.blockedTicks=0;e.waitTicks=0;e.bestWaypointDistance=nil;w.searches[e.id]=nil
+    if #e.path>0 then e.path={} end;e.pathIndex=1;e.goal=nil;e.waitTicks=0;e.bestWaypointDistance=nil;w.searches[e.id]=nil
 end
 local function route(w,e,x,y)
     if not e.goal or e.goal.x~=x or e.goal.y~=y then Path.request(w,e,x,y) end
@@ -305,7 +308,12 @@ function Sim.create(config,content,map)
     -- ever stops being true. Holding a reference avoids deep-copying the whole
     -- catalogue on every world creation, which replay seeking does repeatedly.
     -- The map is still copied, because callers do build worlds by editing a map.
-    local w={version=Sim.VERSION,tick=0,config=Codec.copy(config),content=Codec.copy(content),map=Codec.copy(map),rng=Rng.create(config.seed or 1),
+        -- The simulation is deliberately free of randomness: no damage variance, no
+    -- scatter, no rolls. Every outcome follows from orders and content alone, which is
+    -- what makes a replay reproduce exactly. src/sim/rng.lua and its golden-sequence
+    -- test are kept so randomness can be reintroduced as a considered change rather
+    -- than rebuilt from nothing; config.seed is retained as part of match identity.
+    local w={version=Sim.VERSION,tick=0,config=Codec.copy(config),content=Codec.copy(content),map=Codec.copy(map),
         players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0}}
     for p=1,#config.players do
         local faction=config.players[p].faction or 'bastion'
@@ -932,7 +940,7 @@ function Sim.serializeAuthoritative(w)
             kills=player.kills,unitsLost=player.unitsLost,buildingsLost=player.buildingsLost,
             visible=player.visible,knownResources=player.knownResources}
     end
-    local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,rng=w.rng,
+    local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,
         players=players,entities=w.entities,order=w.order,nextId=w.nextId,result=w.result,
         searches=w.searches,pathCursor=w.pathCursor,navVersion=w.navVersion})
     assert(ok,bytes);return bytes

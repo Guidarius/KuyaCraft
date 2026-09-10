@@ -16,6 +16,9 @@ local Frames=require('src.asset_frames')
 local Settings=require('src.ui.settings')
 local App={}
 local CELL_Y=26*math.sin(math.pi/3)
+-- Ticks for a full day/night cycle: eight minutes at 20 Hz, long enough that the
+-- change is never distracting during a fight.
+local DAY_LENGTH=9600
 local colors={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.67,0.47,0.95},{0.92,0.78,0.32}}
 local function color(c,a) love.graphics.setColor(c[1],c[2],c[3],a or 1) end
 function App.create(options)
@@ -440,6 +443,15 @@ function App:draw()
             end
         end
     end end
+    -- Cosmetic day/night wash over the world only, never the HUD, and never anything
+    -- the simulation can observe: sight radius and combat are unchanged by the hour.
+    -- Driven by the tick so it is identical in a replay and for every observer.
+    if self.settings.dayNight then
+        local phase=(self.world.tick%DAY_LENGTH)/DAY_LENGTH
+        local night=(1-math.cos(phase*2*math.pi))/2
+        g.setColor(0.10,0.13,0.32,night*0.34)
+        g.rectangle('fill',viewport.x,viewport.y,viewport.w,viewport.h)
+    end
     if shakeX~=0 or shakeY~=0 then g.pop() end
     g.setScissor();Hud.draw(self)
     self.feedback:drawText(self,width,height)
