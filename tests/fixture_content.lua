@@ -2,6 +2,9 @@
 local C = {
     version = 2,
     rules = { tickRate = 20, population = 60, pathBudget = 64, directPathBudget = 16384,
+        -- Small like the path budget, so the crowd fixtures exercise the smoother's
+        -- exhaustion path rather than always having room to finish.
+        smoothBudget = 2048,
         startingResources = { gold = 650 }, startingWorkers = 3,
         carrierPayload = 8, carrierEmitTicks = 16, carrierSlots = 9, carrierCorpseTicks = 40,
         reviveTicks = 200, reviveCost = 120, xpRange = 1536, xpThresholds = { 60, 160, 320 },

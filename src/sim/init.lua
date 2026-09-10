@@ -12,10 +12,15 @@ local Vision=require('src.sim.vision')
 -- divergence. See Sim.serializeAuthoritative.
 -- Version 6: rally points, patrol and follow orders; per-player and per-entity kill
 -- and loss tallies; a `delivered` event carrying the exact amount and resource.
+-- Version 9: paths are string-pulled, so a route bends only where terrain makes it
+-- bend instead of stepping cell centre to cell centre, and a finished path is
+-- re-validated when the navigation set changes rather than trusted until the unit
+-- walks into the new obstacle. Movement results change; replays before this are
+-- rejected. Adds `e.pathVersion` and `rules.smoothBudget`.
 -- Version 7: write-only entity state removed (reversals, maxWaitTicks, blockedTicks,
 -- harvestStatus, lastMove) along with the unused PRNG, so checkpoints stop hashing
 -- fields nothing reads. No rule changes.
-local Sim = { VERSION = 8 }
+local Sim = { VERSION = 9 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -329,7 +334,7 @@ function Sim.create(config,content,map)
     -- test are kept so randomness can be reintroduced as a considered change rather
     -- than rebuilt from nothing; config.seed is retained as part of match identity.
     local w={version=Sim.VERSION,tick=0,config=Codec.copy(config),content=Codec.copy(content),map=Codec.copy(map),
-        players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0}}
+        players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0,smoothChecks=0}}
     for p=1,#config.players do
         local faction=config.players[p].faction or 'bastion'
         assert(content.factions[faction],'unknown faction')
@@ -946,7 +951,7 @@ local function combat(w)
     if navChanged then w.navVersion=w.navVersion+1;rebuild(w) end;if w.content.rules.profile then require('src.sim.healing').step(w,emit) end; return deathChanged
 end
 function Sim.step(w,commands)
-    w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0
+    w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0;w.metrics.smoothChecks=0
     if w.result then return w.events end
     -- Both live only for the command-application part of the step and are removed
     -- before it returns, so neither reaches snapshots or canonical serialization.

@@ -88,6 +88,15 @@ function M.step(w,halt,route)
             local cx,cy=F.cell(e.x),F.cell(e.y);local lx,ly=e.laneX or 0,e.laneY or 0
             local laneArea=e.goal and (not Path.laneAllowed(w,cx,cy,lx,ly) or not Path.laneAllowed(w,cx+ly,cy-lx,lx,ly) or not Path.laneAllowed(w,cx-ly,cy+lx,lx,ly))
             e.opposed=laneArea and opposed(before,e) or nil
+            -- The navigation set changed since this path was made: something was built,
+            -- destroyed or depleted. Re-check the route once, here, rather than trusting
+            -- it until the unit walks into the new obstacle.
+            if e.pathVersion and e.pathVersion~=w.navVersion then
+                e.pathVersion=w.navVersion
+                if e.goal and not Path.pathClear(w,e) then
+                    local goal=e.goal;halt(w,e);route(w,e,goal.x,goal.y)
+                end
+            end
             local node=e.path[e.pathIndex]
             if node then
                 if not Path.walkable(w,node.x,node.y) then

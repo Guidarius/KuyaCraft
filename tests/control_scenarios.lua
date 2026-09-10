@@ -64,8 +64,75 @@ function S.crowd(n,choke,opposing,mixed)
     for _,e in ipairs(units) do local g=reached[e.id];if e.order.kind~='stop' or F.distance2(e.x,e.y,g.x,g.y)>256^2 then pending[#pending+1]=e.id..' at '..math.floor(e.x/256)..','..math.floor(e.y/256)..' goal '..math.floor(g.x/256)..','..math.floor(g.y/256)..' wait '..(e.waitTicks or 0) end end
     error('arrival timeout: '..table.concat(pending,'; '))
 end
+-- How far a unit actually walks, divided by the straight-line distance it needed to
+-- cover. Before path smoothing this was never measured, so a route could have regressed
+-- into a staircase of 45-degree hops and every crowd test would still have passed: they
+-- assert that everyone arrives, never that they walked anything like a sensible line.
+function S.travel(w,e,goalX,goalY)
+    local startX,startY=e.x,e.y
+    local walked=0
+    local last=w.tick
+    for _=1,4000 do
+        local px,py=e.x,e.y
+        Sim.step(w,{})
+        walked=walked+math.floor(math.sqrt((e.x-px)^2+(e.y-py)^2)+.5)
+        if e.order.kind=='stop' then break end
+        last=w.tick
+    end
+    local direct=math.floor(math.sqrt((goalX-startX)^2+(goalY-startY)^2)+.5)
+    return walked,direct,last
+end
 function S.register(test)
     for _,n in ipairs({1,10,50,100}) do test('crowd','open destination '..n,function() S.crowd(n,false) end) end
+    -- Open ground: one unit, nothing in the way, a diagonal that A* has to express as a
+    -- staircase of cell steps. Walking that staircase literally costs about 8% over the
+    -- straight line and, far worse, looks like it. Smoothing should put this within a
+    -- couple of percent of the direct distance.
+    test('crowd','a clear route is walked as a straight line',function()
+        local w=S.world(64)
+        local e=S.unit(w,'shield',1,10,10)
+        local gx,gy=F.center(40),F.center(28)
+        Sim.step(w,{S.command(w,e,'move',{x=gx,y=gy})})
+        local walked,direct=S.travel(w,e,gx,gy)
+        assert(e.order.kind=='stop','the unit never arrived')
+        local ratio=walked*100/direct
+        print('STRAIGHTNESS open diagonal: walked '..walked..' direct '..direct..' ratio '..string.format('%.3f',ratio/100))
+        assert(ratio<=104,'a clear diagonal was walked '..string.format('%.1f',ratio-100)..'% longer than the straight line')
+    end)
+    -- Around a real obstacle the route is allowed to be longer, but it must bend at the
+    -- obstacle rather than everywhere: a wall with a gap should cost well under a third
+    -- over the direct line.
+    test('crowd','a route around a wall bends only at the wall',function()
+        local w=S.world(64)
+        S.wall(w,26,0,26);S.wall(w,26,30,63)
+        local e=S.unit(w,'shield',1,12,28)
+        local gx,gy=F.center(44),F.center(28)
+        Sim.step(w,{S.command(w,e,'move',{x=gx,y=gy})})
+        local walked,direct=S.travel(w,e,gx,gy)
+        assert(e.order.kind=='stop','the unit never got past the wall')
+        local ratio=walked*100/direct
+        print('STRAIGHTNESS wall gap: walked '..walked..' direct '..direct..' ratio '..string.format('%.3f',ratio/100))
+        assert(ratio<=130,'a route through a wall gap was '..string.format('%.1f',ratio-100)..'% longer than the straight line')
+    end)
+    -- A building dropped across a route that is already under way. The next waypoint is
+    -- still walkable, so the old code noticed nothing until the unit reached the
+    -- obstacle and spent ten ticks stuck; the finished path is now re-checked when the
+    -- navigation set changes.
+    test('crowd','a wall built across a route in progress is noticed at once',function()
+        local w=S.world(64)
+        local e=S.unit(w,'shield',1,10,30)
+        local gx,gy=F.center(50),F.center(30)
+        Sim.step(w,{S.command(w,e,'move',{x=gx,y=gy})})
+        for _=1,20 do Sim.step(w,{}) end
+        local before=Codec.copy(e.path)
+        S.wall(w,30,20,40)
+        Sim.step(w,{})
+        local changed=#e.path~=#before or w.searches[e.id]~=nil
+        assert(changed,'the route was not re-planned on the tick the wall appeared')
+        local walked,direct=S.travel(w,e,gx,gy)
+        assert(e.order.kind=='stop','the unit never reached its destination past the new wall')
+        assert(walked>0 and direct>0)
+    end)
     for _,n in ipairs({5,20,100}) do test('crowd','chokepoint '..n,function() S.crowd(n,true) end) end
     test('crowd','20 mixed sizes and speeds',function() S.crowd(20,true,false,true) end)
     test('crowd','50 versus 50 counterflow',function() S.crowd(50,true,true) end)

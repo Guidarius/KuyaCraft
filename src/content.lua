@@ -1,7 +1,11 @@
 ﻿local T=require('src.content_time')
 local C = {
-    version = 4,
+    version = 5,
     rules = { profile='marches-v1', tickRate=20, population=80, pathBudget=256, directPathBudget=16384,
+        -- Terrain samples per tick the path smoother may spend across every route
+        -- completed that tick. A route that cannot be smoothed inside it is walked as
+        -- A* produced it, which is correct, just less straight.
+        smoothBudget=8192,
         startingResources={gold=650}, startingWorkers=3,
         -- Gold arrives as carriers walking from an extractor to the nearest drop-off.
         -- Income per extractor is payload * min(1/carrierEmitTicks, carrierSlots/tripTicks):
