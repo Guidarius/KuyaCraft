@@ -70,6 +70,30 @@ local function choices(w,e,tx,ty)
     end
     return out
 end
+-- Who may be asked to step aside. A unit that is going somewhere is not a bystander and
+-- is left alone; so is one holding position, one in the middle of a swing, one that has
+-- a target it is fighting, and a worker on a building site, which must stay in work
+-- range or construction stalls. Everything else is scenery that can shuffle.
+local function yieldable(w,e,other,yields)
+    if other.id==e.id or other.owner~=e.owner then return false end
+    if other.goal or other.attack or other.combatTarget then return false end
+    local kind=other.order.kind
+    if kind=='hold' or kind=='build' then return false end
+    if (other.suppressAcquireUntil or -1)>=w.tick then return false end
+    return not yields[other.id]
+end
+-- Which way a bystander steps: perpendicular to the mover's heading, on the side it is
+-- already standing. Always stepping the same way made a group part like a zip in one
+-- direction and pile up on that side; choosing by which side of the line the bystander
+-- sits makes a crowd open down the middle, which is both faster and what it looks like
+-- when people get out of the way.
+local function aside(e,other,tx,ty)
+    local ox,oy=tx-e.x,ty-e.y
+    local cross=ox*(other.y-e.y)-oy*(other.x-e.x)
+    local sx,sy
+    if cross<0 then sx,sy=F.vector(oy,-ox,256) else sx,sy=F.vector(-oy,ox,256) end
+    return {x=other.x+sx,y=other.y+sy}
+end
 -- The move loop holds its neighbour list across several clear() calls, so it uses a
 -- buffer of its own rather than the one the proposal scan reuses.
 local moveScratch={}
@@ -105,11 +129,22 @@ function M.step(w,halt,route)
                     local tx,ty=node.px or F.center(node.x),node.py or F.center(node.y)
                     local dx,dy=F.vector(tx-e.x,ty-e.y,speed(w,e))
                     proposals[#proposals+1]={e=e,fx=e.x+dx,fy=e.y+dy,tx=tx,ty=ty}
-                    if (e.waitTicks or 0)>=10 then
-                        for _,other in ipairs(nearby(w,before,e.x,e.y)) do
-                            if other.id~=id and other.owner==e.owner and other.order.kind=='stop' and not other.goal and not other.attack and (other.suppressAcquireUntil or -1)<w.tick and F.distance2Bounded(e.x,e.y,other.x,other.y)<F.sq(G.radius(w,e)+G.radius(w,other)+64) and not yields[other.id] then
-                                local dx,dy=tx-e.x,ty-e.y;local sx,sy=F.vector(-dy,dx,256)
-                                yields[other.id]={x=other.x+sx,y=other.y+sy}
+                    -- A bystander steps out of the road as soon as it is actually in the
+                    -- road. The old rule waited for the mover to be stuck for ten ticks
+                    -- -- half a second of visible shoving before anyone reacted -- and
+                    -- only ever moved units whose order was literally `stop`, so an
+                    -- army standing on a finished attack-move was immovable scenery.
+                    -- Warcraft 3 parts for a passing unit immediately, and that is most
+                    -- of why marching through your own camp there feels like walking
+                    -- rather than barging.
+                    local nudged=(e.waitTicks or 0)>=3
+                    local list,count=nearby(w,before,e.x,e.y)
+                    for i=1,count do
+                        local other=list[i]
+                        if yieldable(w,e,other,yields) then
+                            local gap=G.separation(w,e,other)
+                            if nudged or F.distance2Bounded(e.x+dx,e.y+dy,other.x,other.y)<gap*gap then
+                                yields[other.id]=aside(e,other,tx,ty)
                             end
                         end
                     end
