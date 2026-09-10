@@ -3,6 +3,9 @@ local F={}
 -- Hit flash, floating text and screen shake all read the same filtered event stream the
 -- rings and tracers already use, so nothing here can observe anything the player cannot.
 local FLASH_TICKS=2
+-- Long enough to see, short enough that it is gone before the shortest windup in the
+-- content (five ticks, the stalker) has landed its hit.
+local WINDUP_TICKS=4
 -- Settles from full amplitude in about a third of a second. Slower than that reads as
 -- the camera being broken rather than as an impact.
 local SHAKE_DECAY=24
@@ -72,6 +75,13 @@ function F:observe(events,view,tick)
                     add({kind=source.kind=='crossbow' and 'tracer' or 'hit',source=source.id,target=target.id,x=target.x,y=target.y,sx=source.x,sy=source.y,duration=3})
                     self:flash(target.id,tick)
                 end
+            -- The simulation has committed to a swing that has not landed yet. Drawing
+            -- the anticipation is what makes an attack read as thrown rather than as
+            -- damage appearing, and it is what makes a cancelled swing legible: the
+            -- arc simply stops. The event was emitted and consumed by nothing until now.
+            elseif event.kind=='windup' then
+                local source=visible[event.source]
+                if source then add({kind='windup',source=source.id,target=source.id,x=source.x,y=source.y,duration=WINDUP_TICKS}) end
             elseif event.kind=='death' or event.kind=='revived' or event.kind=='healed' or event.kind=='constructed' or event.kind=='upgraded' then
                 local e=visible[event.entity]
                 if e then add({kind=event.kind,target=e.id,x=e.x,y=e.y,duration=6}) end
@@ -91,11 +101,21 @@ function F:draw(app)
     local g=love.graphics;g.push('all');g.setShader();local z=app.camera.zoom
     for _,item in ipairs(self.items) do
         local age=math.max((self.clock-(item.time or self.clock))*20,app.world.tick-item.tick)
-        local alpha=math.max(0,1-age/item.duration);local x,y=app:screen(item.x,item.y)
+        local alpha=math.max(0,1-age/item.duration)
+        -- Anchored to the entity rather than to the coordinates the event carried, so an
+        -- effect over a moving unit glides with it instead of stuttering at 20 Hz. The
+        -- recorded coordinates remain the fallback for anything that has since died.
+        local x,y=app:anchorScreen(item.target,item.x,item.y)
         if item.kind=='hit' or item.kind=='tracer' then
             y=y-18*z;g.setColor(1,0.86,0.56,alpha);g.setLineWidth(1.5*z)
-            if item.kind=='tracer' then local sx,sy=app:screen(item.sx,item.sy);g.line(sx,sy-18*z,x,y) end
+            if item.kind=='tracer' then local sx,sy=app:anchorScreen(item.source,item.sx,item.sy);g.line(sx,sy-18*z,x,y) end
             g.line(x-4*z,y,x+4*z,y);g.line(x,y-4*z,x,y+4*z)
+        elseif item.kind=='windup' then
+            -- A tightening arc on the attacker's weapon side, drawn shrinking so the
+            -- eye reads it as gathering rather than as an impact that already happened.
+            local grow=1-math.min(1,age/item.duration)
+            g.setColor(1,0.92,0.72,alpha*0.55);g.setLineWidth(1.5*z)
+            g.ellipse('line',x,y-14*z,(9+7*grow)*z,(5+4*grow)*z)
         else
             g.setColor(item.kind=='death' and 0.8 or 0.55,item.kind=='death' and 0.58 or 0.95,0.6,alpha)
             g.setLineWidth(1.5*z);g.ellipse('line',x,y,(12+age*2)*z,(5+age)*z)

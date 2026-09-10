@@ -1,8 +1,9 @@
 local C=require('src.content')
+local Selection=require('src.ui.selection')
 local A={}
 local function costText(cost) return (cost.gold or 0)..' gold' end
 function A.list(app)
- local e=app:entity(app.selected[1]);local list={};if not e then return list end
+ local e=app:entity(Selection.primary(app));local list={};if not e then return list end
  local function add(id,label,key,fn,reason,tip) list[#list+1]={id=id,label=label,key=key,run=fn,reason=reason,tip=tip} end
  local function affordable(cost) for k,v in pairs(cost) do if (app.view.player.resources[k] or 0)<v then return 'Insufficient '..k end end end
  local dead=not e.alive and 'Unit is dead' or nil

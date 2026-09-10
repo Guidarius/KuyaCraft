@@ -10,6 +10,12 @@ local A={manifest={
  death={frequency=95,duration=.2,gain=.25,priority=2,cooldown=.12,bus='effects'},
  alert={frequency=880,duration=.18,gain=.3,priority=5,cooldown=1,bus='ui'},
  ready={frequency=740,duration=.12,gain=.22,priority=3,cooldown=.25,bus='effects'},
+ -- The order acknowledgement. In Warcraft 3 this is a voice line, and it is what makes
+ -- a command feel instant while the simulation has not run yet. A:ack picks the most
+ -- specific entry that exists, so dropping `ack-shield-attack`, then `ack-shield`, into
+ -- this manifest makes them play with no code change.
+ ack={frequency=600,duration=.06,gain=.16,priority=3,cooldown=.05,bus='ui'},
+ windup={frequency=300,duration=.05,gain=.07,priority=0,cooldown=.12,bus='effects'},
  victory={frequency=1040,duration=.4,gain=.25,priority=6,cooldown=2,bus='ui'}}}
 function A.create(settings)
  local self=setmetatable({settings=settings,pool={},last={},clock=0,templates={},variation=0}, {__index=A})
@@ -38,6 +44,17 @@ function A:play(name,app,x,y)
   if app and x then local sx,sy=app:screen(x,y);local w,h=love.graphics.getDimensions();local pan=(sx-w/2)/(w/2);gain=gain/(1+math.abs(pan));slot.source:setPosition(math.max(-1,math.min(1,pan)),0,-1) end
   self.variation=self.variation%3+1;slot.source:setPitch(({.96,1,1.04})[self.variation]);slot.source:setVolume(gain);slot.source:play();self.last[name]=self.clock
  end)
+end
+-- Most specific acknowledgement that exists: per unit kind and order, then per unit
+-- kind, then the generic cue. Faction voice lines slot in by naming alone.
+function A:ack(kind,order,app,x,y)
+ local names={}
+ if kind and order then names[#names+1]='ack-'..kind..'-'..order end
+ if kind then names[#names+1]='ack-'..kind end
+ names[#names+1]='ack'
+ for _,name in ipairs(names) do
+  if self.templates[name] then return self:play(name,app,x,y) end
+ end
 end
 function A:clear() for _,v in ipairs(self.pool) do v.source:stop() end end
 return A

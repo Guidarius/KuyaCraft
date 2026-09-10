@@ -1,6 +1,7 @@
 local F=require('src.sim.fixed')
 local G=require('src.sim.geometry')
 local Path=require('src.sim.path')
+local Stats=require('src.sim.stats')
 local M={}
 local rotations={{256,0},{229,114},{229,-114},{181,181},{181,-181},{0,256},{0,-256},{-181,181},{-181,-181}}
 local function scale(v) local n=math.floor(math.abs(v)/256);return v<0 and -n or n end
@@ -49,17 +50,9 @@ local function clear(w,e,x,y,neighbors)
     end end
     return true
 end
-local function speed(w,e)
-    local n=w.content.units[e.kind].speed
-    if e.kind=='beastkeeper' and e.stance==2 then n=n+(w.content.rules.pursuitSpeed or 8) end
-    if e.sprintUntil and w.tick<e.sprintUntil then n=n+(w.content.rules.sprintSpeed or 12) end
-    -- Formation pacing caps the result, not the base: a unit that has been sped up is
-    -- still holding formation, and letting a bonus break the group would defeat the
-    -- point of the cap. A unit whose own speed is already slower keeps it.
-    local pace=e.groupSpeed
-    if pace and pace<n then n=pace end
-    return n
-end
+-- Resolved centrally so a slow, a haste or a root reaches movement the same way the
+-- hero stance bonuses already do. See src/sim/stats.lua.
+local speed=Stats.speed
 local function choices(w,e,tx,ty)
     local dx,dy=F.vector(tx-e.x,ty-e.y,speed(w,e))
     -- Integer rotation coefficients have length <= 256. Normalize once,

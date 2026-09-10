@@ -4,6 +4,7 @@ local Codec = require('src.sim.codec')
 local Path = require('src.sim.path')
 local G=require('src.sim.geometry')
 local Movement=require('src.sim.movement')
+local Stats=require('src.sim.stats')
 local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
@@ -179,14 +180,14 @@ local function visibility(w)
         -- because it is markedly cheaper with a large army on screen.
         if w.content.rules.lineOfSight then
             for _,id in ipairs(w.order) do local e=w.entities[id]
-                if e.alive and e.owner==p then Vision.field(w,e,def(w,e).sight,visible,explored) end
+                if e.alive and e.owner==p then Vision.field(w,e,Stats.sight(w,e),visible,explored) end
             end
             Sim.knownResources(w,p,player)
         else
         local rowCount=0
         for _,id in ipairs(w.order) do local e=w.entities[id]
             if e.alive and e.owner==p then
-                local sight=def(w,e).sight;local spans=sightSpans[sight]
+                local sight=Stats.sight(w,e);local spans=sightSpans[sight]
                 if not spans then spans={};for dy=-sight,sight do spans[dy]=F.isqrt(sight*sight-dy*dy) end;sightSpans[sight]=spans end
                 local cx,cy=F.cell(e.x),F.cell(e.y)
                 local top=cy-sight;if top<0 then top=0 end
@@ -732,7 +733,7 @@ local function formation(w)
             local order=e.order
             local group=order.group
             if group and destinationKinds[order.kind] then
-                local pace=units[e.kind].speed
+                local pace=Stats.baseSpeed(w,e)
                 local slowest=groupPace[group]
                 if not slowest or pace<slowest then groupPace[group]=pace end
             end
@@ -777,7 +778,7 @@ local function finishOrders(w)
     end
 end
 local function enemyTarget(w,e,candidates)
-    local best,distance;local d=def(w,e);local sight=d.sight*256;local ex,ey=e.x,e.y
+    local best,distance;local d=def(w,e);local sight=Stats.sight(w,e)*256;local ex,ey=e.x,e.y
     -- The phase's candidate lists contain only live, hostile, non-resource entities.
     for _,target in ipairs(candidates) do
         if math.abs(ex-target.x)<=sight and math.abs(ey-target.y)<=sight then
@@ -796,10 +797,10 @@ local function validTarget(w,e,t)
 end
 local function approachWeapon(w,e,t)
     if G.weaponRange(w,e,t) then halt(w,e);return end
-    local weapon=def(w,e)
-    local contact=w.content.rules.profile and weapon.range<256 and t.category=='unit'
+    local reach=Stats.range(w,e)
+    local contact=w.content.rules.profile and reach<256 and t.category=='unit'
     if contact then
-        local gap=G.radius(w,e)+G.radius(w,t)+weapon.range-16
+        local gap=G.radius(w,e)+G.radius(w,t)+reach-16
         if F.distance2Bounded(e.x,e.y,t.x,t.y)<=F.sq(gap+384) then
             local dx,dy=F.vector(e.x-t.x,e.y-t.y,gap);local x,y=t.x+dx,t.y+dy
             if G.free(w,x,y,G.radius(w,e),e.id) and G.terrain(w,math.floor((e.x+x)/2),math.floor((e.y+y)/2),G.radius(w,e)) then
@@ -810,13 +811,13 @@ local function approachWeapon(w,e,t)
     if (e.goal or w.searches[e.id]) and e.chaseTarget==t.id and e.chaseX==F.cell(t.x) and e.chaseY==F.cell(t.y) then return end
     if w.tick<(e.retryAt or 0) then return end
     e.chaseTarget=t.id;e.chaseX=F.cell(t.x);e.chaseY=F.cell(t.y)
-    local d=def(w,e);local radius=math.ceil((d.range+G.radius(w,e)+G.radius(w,t))/256)+1
+    local radius=math.ceil((reach+G.radius(w,e)+G.radius(w,t))/256)+1
     local best,score
     for y=math.max(0,F.cell(t.y)-radius),math.min(w.map.height-1,F.cell(t.y)+radius+(t.size or 1)) do
         for x=math.max(0,F.cell(t.x)-radius),math.min(w.map.width-1,F.cell(t.x)+radius+(t.size or 1)) do
             if Path.walkable(w,x,y) then
                 local px,py=F.center(x),F.center(y);local distance=F.distance2Bounded(e.x,e.y,px,py)
-                if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and d.range<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
             end
         end
     end
@@ -862,20 +863,8 @@ local function combatOrders(w)
         end
     end
 end
-local function protection(w,e,protectors)
-    local reduction=0
-    for _,hero in ipairs(protectors) do
-        if hero.alive and hero.owner==e.owner and hero.kind=='warden' then
-            local radius=hero.upgrades[1]==1 and (w.content.rules.auraWide or 1536) or (w.content.rules.auraRadius or 1024)
-            if hero.upgrades[3]==2 then radius=radius+(w.content.rules.auraExtra or 256) end
-            if inRange(e,hero,radius) then reduction=math.max(reduction,(hero.stance==1 and 3 or 1)+(hero.upgrades[1]==2 and (w.content.rules.auraDeep or 3) or 0)) end
-        end
-    end
-    return reduction
-end
 local function combat(w)
-    local hits={};local protectors={}
-    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.kind=='warden' then protectors[#protectors+1]=e end end
+    local hits={};local protectors=Stats.protectors(w)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]; local d=def(w,e)
         if e.alive and d then
@@ -886,12 +875,8 @@ local function combat(w)
                     local target=w.entities[phase.target]
                     if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                         phase.committed=true;e.nextCommitTick=w.tick+phase.period;e.cooldown=phase.period
-                        local damage=d.damage
-                        if e.upgrades and e.upgrades[2]==1 then damage=damage+(w.content.rules.heroDamage or 8) end
-                        if e.kind=='warden' and e.stance==2 then damage=damage+(w.content.rules.offensiveDamage or 6) end
-                        if e.kind=='beastkeeper' and e.stance==2 then damage=math.max(1,damage-(w.content.rules.pursuitPenalty or 5)) end
                         if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end
-                        hits[#hits+1]={source=e.id,target=target.id,damage=math.max(1,damage-protection(w,target,protectors))}
+                        hits[#hits+1]={source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e)-Stats.armor(w,target,protectors))}
                         e.lastCombat=w.tick;e.attackTick=w.tick;emit(w,'attack',{source=e.id,target=target.id})
                     end
                 end
@@ -910,8 +895,8 @@ local function combat(w)
                 local target=w.entities[e.combatTarget]
                 if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                     halt(w,e)
-                    local period=d.cooldown-(e.upgrades and e.upgrades[3]==1 and (w.content.rules.quickTicks or 5) or 0)
-                    local windup=d.windup
+                    local period=Stats.attackPeriod(w,e)
+                    local windup=Stats.windup(w,e)
                     if not e.attack and w.tick+windup>=(e.nextCommitTick or 0) then
                         e.attack={target=target.id,start=w.tick,impact=w.tick+windup,finish=w.tick+period,period=period,dx=target.x-e.x,dy=target.y-e.y}
                         emit(w,'windup',{source=e.id,target=target.id})

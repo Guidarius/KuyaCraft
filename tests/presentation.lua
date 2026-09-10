@@ -232,6 +232,7 @@ function T.gamefeel(app)
   assert(app.world.entities[mover].order.kind=='follow','right click on an own unit did not follow')
   assert(app.world.entities[mover].order.target==other)
  end
+ T.warcraftControls(app)
  -- Every gameplay-presentation setting must actually be reachable and must persist.
  -- These existed and worked before they had any control, which meant a player could
  -- not change them and the README described options that were not there.
@@ -264,5 +265,96 @@ function T.gamefeel(app)
  unwritable:close()
  app:draw()
  print('PASS gamefeel: idle workers, army select, bookmarks, eased camera, game speed, unit tiles, floating text, overlays, rally, patrol, follow, replay fallback')
+end
+-- The control rules a Warcraft 3 player has in their hands before they think about it.
+-- Each of these was wrong in a way that no existing test could see, because the suite
+-- checked that a command was issued and never checked that it was the right one.
+function T.warcraftControls(app)
+ local Input=require('src.ui.input')
+ local Selection=require('src.ui.selection')
+ local Camera=require('src.ui.camera')
+ local army=Input.army(app)
+ local mover=army[1] or Input.idleWorkers(app)[1]
+ -- Attack-move dropped on an enemy is a focused attack on that enemy, not a walk to
+ -- the ground under it. Previously the picked target was resolved and then discarded.
+ local enemy
+ for _,e in ipairs(app.view.entities) do
+  if e.alive and e.owner~=app.player and e.owner~=0 and e.category=='unit' then enemy=e;break end
+ end
+ if enemy then
+  app.selected={mover}
+  Input.intent(app,enemy.x,enemy.y,enemy,'attack_move')
+  app:update(.05)
+  local order=app.world.entities[mover].order
+  assert(order.kind=='attack','A-click on an enemy issued '..order.kind..' instead of a focused attack')
+  assert(order.target==enemy.id,'focused attack targeted the wrong entity')
+ end
+ -- Attack-move on empty ground stays an attack-move.
+ app.selected={mover}
+ Input.intent(app,9*256+128,9*256+128,nil,'attack_move')
+ app:update(.05)
+ assert(app.world.entities[mover].order.kind=='attack_move','A-click on open ground stopped being an attack-move')
+ -- Tab moves the command card between types and never shrinks the selection. The old
+ -- behaviour replaced the selection with one subgroup, so a player who pressed Tab to
+ -- look at one unit type lost the rest of their army with no way back.
+ local worker=Input.idleWorkers(app)[1]
+ if worker and mover and worker~=mover then
+  app.selected={mover,worker};table.sort(app.selected)
+  local size=#app.selected
+  app.subgroupKind=nil
+  local first=Selection.cycle(app)
+  assert(#app.selected==size,'Tab shrank the selection from '..size..' to '..#app.selected)
+  local second=Selection.cycle(app)
+  assert(#app.selected==size,'a second Tab shrank the selection')
+  assert(first and second and first~=second,'Tab did not move between unit types')
+  assert(Selection.cycle(app)==first,'Tab did not wrap back to the first type')
+  -- The card follows the active subgroup.
+  app.subgroupKind=app:entity(worker).kind
+  assert(Selection.primary(app)==worker,'the command card ignored the active subgroup')
+  -- And with no subgroup chosen it picks the most interesting member, not the lowest id.
+  app.subgroupKind=nil
+  local primary=app:entity(Selection.primary(app))
+  assert(Selection.rank(primary)<=Selection.rank(app:entity(worker)),'the card preferred a worker over a combat unit')
+ end
+ -- Box selection takes your own units over anything else in the same rectangle, and
+ -- never mixes a building into an army.
+ app.selected={}
+ local anchorUnit=app:entity(mover)
+ Camera.center(app,anchorUnit.x,anchorUnit.y);app:draw()
+ local wide=Input.boxSelect(app,-1e6,-1e6,1e6,1e6)
+ assert(#wide>0,'a box over the whole visible field selected nothing')
+ for _,id in ipairs(wide) do
+  local e=app:entity(id)
+  assert(e.owner==app.player,'box selection picked up an entity that is not yours')
+  assert(e.category=='unit','box selection mixed a '..e.category..' into a unit selection')
+ end
+ -- The acknowledgement is local and immediate: it must be set before any tick runs.
+ app.selected={mover};app.ackFlash=nil;app.ackFlashAt=nil
+ local tick=app.world.tick
+ Input.intent(app,9*256+128,9*256+128,nil,'move')
+ assert(app.world.tick==tick,'issuing an order advanced the simulation')
+ assert(app.ackFlash and app.ackFlash[mover],'the ordered unit was not acknowledged locally')
+ assert(app.ackFlashAt,'the acknowledgement carries no start time')
+ app:update(.05)
+ -- The hover state refreshes without the mouse moving, so a unit walking under a still
+ -- pointer updates the cursor.
+ Input.refreshHover(app)
+ -- Effects anchored to a live entity follow it; the recorded position is the fallback.
+ local unit=app:entity(mover)
+ local ax,ay=app:anchorScreen(mover,0,0)
+ local ex,ey=app:screen(app:interpolated(unit))
+ assert(math.abs(ax-ex)<1e-6 and math.abs(ay-ey)<1e-6,'an anchored effect did not follow its entity')
+ local fx,fy=app:anchorScreen(nil,1234,2345)
+ local sx,sy=app:screen(1234,2345)
+ assert(fx==sx and fy==sy,'an unanchored effect did not fall back to its recorded position')
+ -- A windup event raises an anticipation effect. It was emitted and consumed by nothing.
+ app.feedback:reset()
+ app.feedback:observe({{kind='windup',tick=app.world.tick,source=mover,target=mover,x=unit.x,y=unit.y}},app.view,app.world.tick)
+ local windups=0
+ for _,item in ipairs(app.feedback.items) do if item.kind=='windup' then windups=windups+1 end end
+ assert(windups==1,'the windup event raised no anticipation effect')
+ app.feedback:reset()
+ app.selected={mover};app.subgroupKind=nil;Camera.clamp(app)
+ print('PASS warcraft controls: focus fire, non-destructive Tab, card priority, box priority, acknowledgement, anchored effects, windup')
 end
 return T

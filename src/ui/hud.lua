@@ -53,11 +53,19 @@ function H.draw(app)
  app.widgets:button('idle-worker','Idle: '..#idle..' ['..(app.settings.bindings.idle or 'f9'):upper()..']',745,6,150,28,
   function() Input.selectIdleWorker(app) end,#idle==0 and 'No idle workers' or nil,
   'Select and centre on the next worker with no order and nothing to deliver.')
- local sx,sw=375,math.max(140,w-375-330);local e=app:entity(app.selected[1])
+ local sx,sw=375,math.max(140,w-375-330);local e=app:entity(Selection.primary(app))
  text(#app.selected..' selected',sx,y+12,sw)
  local groups=Selection.groups(app)
  for i,group in ipairs(groups) do local col=(i-1)%3;local row=math.floor((i-1)/3)
-  app.widgets:button('group-'..group.kind,(C.units[group.kind] or C.buildings[group.kind]).label..' x'..#group.ids,sx+col*(sw/3),y+35+row*30,sw/3-4,26,function() app.selected=group.ids end)
+  -- Clicking a type makes it the active subgroup, the same as Tab, and leaves the rest
+  -- of the army selected. Shift-click is the narrowing move, for when you actually want
+  -- to split the crossbows out. The active type is marked so the card has an owner.
+  local active=app.subgroupKind==group.kind
+  app.widgets:button('group-'..group.kind,(active and '> ' or '')..(C.units[group.kind] or C.buildings[group.kind]).label..' x'..#group.ids,
+   sx+col*(sw/3),y+35+row*30,sw/3-4,26,function()
+    if love.keyboard.isDown('lshift','rshift') then app.selected=group.ids;app.subgroupKind=nil
+    else app.subgroupKind=group.kind end
+   end,nil,'Click shows this type\'s commands and keeps the whole selection. Shift-click keeps only this type.')
  end
  -- One tile per selected unit with its own health, because a type-count row cannot show
  -- that three of twelve shieldguards are nearly dead. Click selects that one unit;

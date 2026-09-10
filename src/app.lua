@@ -19,8 +19,24 @@ local CELL_Y=26*math.sin(math.pi/3)
 -- Ticks for a full day/night cycle: eight minutes at 20 Hz, long enough that the
 -- change is never distracting during a fight.
 local DAY_LENGTH=9600
+-- How long an ordered unit's selection circle brightens for. Long enough to register
+-- as a reply, short enough that it has faded before the order visibly starts.
+local ACK_FLASH=0.2
 local colors={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.67,0.47,0.95},{0.92,0.78,0.32}}
 local function color(c,a) love.graphics.setColor(c[1],c[2],c[3],a or 1) end
+-- Warcraft 3 colours a health bar by relation, not by player colour: green is yours,
+-- red is hostile, amber is neutral. The bar used to carry the owner's player colour,
+-- which meant that in a fight the only question a four-pixel bar needs to answer --
+-- can I shoot this -- was the one it did not answer. Player colour is still on the
+-- body, the minimap dot and the selection tile.
+local BAR_OWN={0.42,0.87,0.46}
+local BAR_ENEMY={0.9,0.33,0.28}
+local BAR_NEUTRAL={0.88,0.74,0.32}
+local function barColor(app,e)
+    if e.owner==app.player then return BAR_OWN end
+    if e.owner==0 then return BAR_NEUTRAL end
+    return BAR_ENEMY
+end
 function App.create(options)
     assert(Content.factions[options.faction or 'bastion'],'unknown faction: use bastion or wild')
     local config={seed=12345,players={{faction=options.faction or 'bastion'},{faction=options.opponent or 'wild'}}}
@@ -193,6 +209,9 @@ function App:update(dt)
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
         perf.view=(love.timer.getTime()-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
+        -- Once a tick as well as on motion: with the pointer held still, units walking
+        -- under it must still update the cursor and the hover ring.
+        Input.refreshHover(self)
         self.alerts:observe(events,self)
         if self.sprites then self.sprites:observe(events,self.view,self.world.tick) end
         self.feedback:observe(events,self.view,self.world.tick)
@@ -205,6 +224,7 @@ function App:update(dt)
                 elseif pending then acceptedCount=acceptedCount+1;self.audio:play('accepted');if pending.kind=='build' then self.awaitingPlacement=nil end end
             elseif event.kind=='healed' then self.audio:play('heal',self,event.x,event.y)
             elseif event.kind=='attack' or event.kind=='death' then self.audio:play(event.kind,self,event.x,event.y)
+            elseif event.kind=='windup' then self.audio:play('windup',self,event.x,event.y)
             elseif event.kind=='constructed' or event.kind=='recruited' or event.kind=='upgraded' or event.kind=='revived' then self.audio:play('ready',self,event.x,event.y) end
             if event.kind=='delivered' and event.owner==self.player then self:announceDelivery(event) end
             self:recordStat(event)
@@ -273,14 +293,34 @@ function App:announceDelivery(event)
     if not x or not event.amount then return end
     self.feedback:text('income','+'..event.amount..' '..tostring(event.resource),x,y,RESOURCE_COLOURS[event.resource])
 end
-function App:drawEntity(e)
-    local g=love.graphics
+-- Where an entity is drawn: the authoritative position eased from where it stood at the
+-- previous tick, so the 20 Hz simulation reads as continuous motion. Returns the raw
+-- position for anything that does not move.
+function App:interpolated(e)
     local x,y=e.x,e.y;local prev=self.previous[e.id]
     if prev and prev.stamp~=self.previousStamp then prev=nil end
     if prev and (e.category=='unit' or e.category=='carrier') then
         local alpha=math.min(1,self.accumulator/0.05)
         x=prev.x+(x-prev.x)*alpha;y=prev.y+(y-prev.y)*alpha
     end
+    return x,y
+end
+-- Screen position for anything pinned to an entity: an effect, an order line, a tracer
+-- endpoint. These used to draw at the raw tick position, so a spark stuttered at 20 Hz
+-- over a unit gliding at the frame rate. Falls back to the supplied coordinates when
+-- the entity is gone, which is what keeps a death effect where the body fell.
+function App:anchorScreen(id,x,y)
+    local e=id and self.view.byId[id]
+    if e then x,y=self:interpolated(e) end
+    return self:screen(x,y)
+end
+function App:drawEntity(e)
+    local g=love.graphics
+    local x,y=self:interpolated(e)
+    -- The sprite layer reads the previous tick's position to pick a facing and to time
+    -- the walk cycle by distance travelled, so it needs the record, not the eased point.
+    local prev=self.previous[e.id]
+    if prev and prev.stamp~=self.previousStamp then prev=nil end
     x,y=self:screen(x,y)
     local z=self.camera.zoom
     local team=colors[e.owner] or {0.76,0.61,0.39}
@@ -291,7 +331,16 @@ function App:drawEntity(e)
     -- Ring colour states what the unit is to the viewer, which is the fastest read in
     -- a fight: own selection, hovered, ally, or enemy.
     local isSelected=selected(self,e.id)
-    if isSelected then g.setColor(0.55,0.93,0.73);g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+    -- The order acknowledgement: for a fifth of a second after a command the ordered
+    -- units' circles brighten and swell. Warcraft 3 answers a click before the
+    -- simulation has run, and this is the half of that answer you can see.
+    local ack=self.ackFlash and self.ackFlash[e.id] and self.ackFlashAt and (self.clock-self.ackFlashAt)<ACK_FLASH
+    if isSelected or ack then
+        if ack then
+            local swell=1+(1-(self.clock-self.ackFlashAt)/ACK_FLASH)*0.35
+            g.setColor(0.85,1,0.9);g.setLineWidth(2.5)
+            g.ellipse('line',x,y,15*z*swell,7*z*swell)
+        else g.setColor(0.55,0.93,0.73);g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z) end
     elseif self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
         elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
@@ -346,7 +395,7 @@ function App:drawEntity(e)
             local barY=y-(d.hero and 53 or 40)*z
             g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,barY,28*z,4*z)
             local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
-            color(team);g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
+            color(barColor(self,e));g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
         end
         -- Control-group number above a selected member, as a place to look after Tab.
         local badge=isSelected and self.groupBadges and self.groupBadges[e.id]
@@ -423,14 +472,14 @@ function App:draw()
         g.setColor(1,.9,.7);g.print(reason,mx+16,my+12)
     end
     for _,id in ipairs(self.selected) do local e=self:entity(id);if e then
-        local px,py=self:screen(e.x,e.y)
+        local px,py=self:anchorScreen(e.id,e.x,e.y)
         -- A selected building shows where its production is being sent.
         if e.rally then
-            local rx,ry
-            if e.rally.target then local t=self:entity(e.rally.target);if t then rx,ry=t.x,t.y end
+            local rx,ry,rallyAnchor
+            if e.rally.target then local t=self:entity(e.rally.target);if t then rx,ry=t.x,t.y;rallyAnchor=t.id end
             else rx,ry=e.rally.x*256+128,e.rally.y*256+128 end
             if rx then
-                local x,y=self:screen(rx,ry)
+                local x,y=self:anchorScreen(rallyAnchor,rx,ry)
                 g.setColor(.95,.85,.4,.5);g.setLineWidth(1);g.line(px,py,x,y)
                 g.setColor(.95,.85,.4)
                 g.line(x,y,x,y-16*z);g.polygon('fill',x,y-16*z,x+11*z,y-12*z,x,y-8*z)
@@ -438,9 +487,9 @@ function App:draw()
         end
         local orders={e.order};for _,order in ipairs(e.orders or {}) do orders[#orders+1]=order end
         for _,order in ipairs(orders) do local wx,wy
-            if order.x then wx=order.x*256+128;wy=order.y*256+128 elseif order.target then local t=self:entity(order.target);if t then wx=t.x;wy=t.y end end
+            local anchor;if order.x then wx=order.x*256+128;wy=order.y*256+128 elseif order.target then local t=self:entity(order.target);if t then wx,wy=t.x,t.y;anchor=t.id end end
             if wx then
-                local x,y=self:screen(wx,wy)
+                local x,y=self:anchorScreen(anchor,wx,wy)
                 -- A patrol is a beat, not a destination: draw the whole run.
                 if order.kind=='patrol' and order.originX then
                     local ox,oy=self:screen(order.originX*256+128,order.originY*256+128)

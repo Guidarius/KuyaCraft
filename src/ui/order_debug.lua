@@ -1,6 +1,6 @@
 local D={}
 function D.draw(app,w,h)
-    local e=app:entity(app.selected[1]);if not e or e.owner~=app.player then return end
+    local e=app:entity(require('src.ui.selection').primary(app));if not e or e.owner~=app.player then return end
     local g=love.graphics;local lines={'Order inspector [F3]  Unit '..e.id,
         'Order: '..e.order.kind..' | queued: '..#e.orders,
         'Combat target: '..tostring(e.combatTarget),
