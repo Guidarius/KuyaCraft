@@ -9,7 +9,7 @@ local S=require('tests.control_scenarios')
 local M={}
 local function eq(a,b,message) assert(a==b,(message or 'values differ')..': '..tostring(a)..' != '..tostring(b)) end
 local function world(size)
-    local m=Maps.create('test',size or 24);m.resources={{x=6,y=10,resource='gold',amount=5000}};m.camps={}
+    local m=Maps.create('test',size or 24);m.resources={{x=6,y=10,resource='gold',amount=5000,size=3}};m.camps={}
     return Sim.create({seed=12345,players={{faction='bastion'},{faction='wild'}}},Content,m)
 end
 local function step(w,n) for _=1,n do Sim.step(w,{}) end end
@@ -37,6 +37,15 @@ local function produced(w,from)
     for id=from,w.nextId-1 do local e=w.entities[id];if e and e.kind=='worker' then latest=e end end
     return latest
 end
+-- The order a rally point hands out is only observable at the moment of production: a
+-- short walk can be finished within the same window that produced the unit.
+local function producedNow(w,from,ticks)
+    for _=1,ticks or 200 do
+        Sim.step(w,{})
+        local e=produced(w,from)
+        if e then return e end
+    end
+end
 
 function M.rally()
     local w=world();local base=w.entities[w.players[1].hq]
@@ -62,16 +71,27 @@ function M.rally()
     assert(math.abs(F.cell(rallied.x)-11)<=3 and math.abs(F.cell(rallied.y)-11)<=3,
         'rallied unit stopped at '..F.cell(rallied.x)..','..F.cell(rallied.y))
 
-    -- Rallying onto a resource node puts a worker straight to work.
+    -- Nothing harvests any more, so rallying onto a mine is simply a walk to it.
     local mine=node(w)
     Sim.step(w,{command(w,1,'rally',base.id,{target=mine.id})});accepted(w,'rally to node')
     mark=w.nextId
     Sim.step(w,{command(w,1,'recruit',base.id,{unit='worker'})});accepted(w,'recruit')
-    step(w,120)
-    local harvester=produced(w,mark)
-    assert(harvester,'no worker was produced for the node rally')
-    eq(harvester.order.kind,'harvest','rally to a node did not order harvesting')
-    eq(harvester.order.target,mine.id)
+    local sent=producedNow(w,mark)
+    assert(sent,'no worker was produced for the node rally')
+    eq(sent.order.kind,'move','rally to a node did not order a walk')
+    eq(sent.order.requestX,F.cell(mine.x))
+
+    -- Rallying onto one of your own units follows it, which is the useful target case
+    -- that survives the loss of harvesting.
+    local lead=S.unit(w,'shield',1,9,9)
+    Sim.step(w,{command(w,1,'rally',base.id,{target=lead.id})});accepted(w,'rally to a unit')
+    mark=w.nextId
+    Sim.step(w,{command(w,1,'recruit',base.id,{unit='worker'})});accepted(w,'recruit')
+    local escort=producedNow(w,mark)
+    assert(escort,'no worker was produced for the unit rally')
+    eq(escort.order.kind,'follow','rally to a unit did not order a follow')
+    eq(escort.order.target,lead.id)
+    Sim.step(w,{command(w,1,'rally',base.id,{target=mine.id})});accepted(w,'rally back to the node')
 
     -- Refusals: a unit is not a production building, and the point must be on the map.
     local worker=find(w,1,'worker')
@@ -145,7 +165,8 @@ end
 function M.tallies()
     local w=world()
     local worker=find(w,1,'worker');local mine=node(w)
-    Sim.step(w,{command(w,1,'harvest',worker.id,{target=mine.id})});accepted(w,'harvest')
+    Sim.step(w,{command(w,1,'build',worker.id,{building='extractor',x=mine.x and F.cell(mine.x),y=F.cell(mine.y)})})
+    accepted(w,'build an extractor on the mine')
     local delivery
     for _=1,4000 do
         local events=Sim.step(w,{})
@@ -155,7 +176,8 @@ function M.tallies()
     assert(delivery,'no delivered event was emitted')
     assert(delivery.amount>0,'delivered event carried no amount')
     assert(delivery.resource=='gold','delivered event named '..tostring(delivery.resource))
-    eq(delivery.entity,worker.id,'delivered event named the wrong worker')
+    local carrier=w.entities[delivery.entity]
+    assert(carrier and carrier.category=='carrier','delivered event named '..tostring(delivery.entity))
 
     -- Kills and losses are counted by the simulation, on both sides and on the killer.
     local u=world()

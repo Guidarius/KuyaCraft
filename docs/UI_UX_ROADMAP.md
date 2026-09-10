@@ -35,7 +35,7 @@ No public services, NAT traversal, reconnect or host migration were added.
 | Left click / drag | Select / box-select |
 | Shift selection | Add or remove units |
 | Double click | Visible friendly units of the same type within the battlefield |
-| Right click | Move, attack visible enemy, harvest or resume construction |
+| Right click | Move, attack visible enemy, follow own unit, or resume construction |
 | A then left click | Attack-move, including minimap |
 | P then left click | Patrol between here and there |
 | Right click own unit | Follow it |
@@ -99,7 +99,7 @@ Replay seeking rebuilds memory from tick zero using filtered views. A bounded sa
 
 Simulation version is now **2**. Old replays intentionally fail strict version/source checks. No existing golden result was silently rewritten.
 
-- Move, attack-move, attack, harvest and construction share an explicit deterministic task queue.
+- Move, attack-move, attack, patrol, follow and construction share an explicit deterministic task queue.
 - Normal orders replace; Shift appends; Stop clears. Completed, depleted, invalidated or exhausted tasks advance.
 - Queued construction spends resources and blocks its footprint at command acceptance. Work starts only when the builder reaches that task.
 - Placement preview and authority share Sim.placement; authority also checks complete occupancy.

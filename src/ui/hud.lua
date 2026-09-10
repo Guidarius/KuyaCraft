@@ -17,7 +17,7 @@ function H.draw(app)
  g.setColor(.065,.09,.11,.98);g.rectangle('fill',0,0,w,40);g.rectangle('fill',0,y,w,180)
  g.setColor(.48,.4,.25);g.line(0,40,w,40);g.line(0,y,w,y)
  text('LoveRTS',16,13);local p=app.view.player
- text('Gold  '..p.resources.gold,135,13);text('Lumber  '..p.resources.lumber,270,13)
+ text('Gold  '..p.resources.gold,135,13)
  text('Food  '..Sim.population(app.world,app.player)..' / '..C.rules.population..'   Units '..Sim.unitCount(app.world,app.player),430,13,300)
  text(string.format('%02d:%02d',math.floor(app.world.tick/1200),math.floor(app.world.tick/20)%60),w-220,13,100)
  app.widgets:button('menu','Menu',w-98,6,86,28,function() app.overlay='pause' end)

@@ -26,7 +26,7 @@ function App.create(options)
     local config={seed=12345,players={{faction=options.faction or 'bastion'},{faction=options.opponent or 'wild'}}}
     local map=Maps.create(options.map)
     local self=setmetatable({options=options,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
-        camera={x=28,y=115,zoom=1},previous={},message='Select a worker and right-click gold or lumber to begin.',effects={},fonts={}}, {__index=App})
+        camera={x=28,y=115,zoom=1},previous={},message='Select a worker and build an extractor on a gold mine to begin.',effects={},fonts={}}, {__index=App})
     self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12)
     if options.replay then
         self.playback=Replay.read(options.replay,Content);config=self.playback.header.config;map=self.playback.header.map
@@ -209,7 +209,7 @@ function App:update(dt)
             if event.kind=='delivered' and event.owner==self.player then self:announceDelivery(event) end
             self:recordStat(event)
         end
-        for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.harvestRemaining or unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
+        for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
         self.audio:play('ambience')
         if rejectedCount>0 then self.message=acceptedCount>0 and (acceptedCount..' accepted, '..rejectedCount..' rejected: '..firstReason) or firstReason elseif acceptedCount>0 then self.message=acceptedCount..' order'..(acceptedCount==1 and '' or 's')..' accepted' end
         if not self.playback then Replay.record(self.recording,self.world,commands)
@@ -265,7 +265,7 @@ end
 -- Income is announced from the simulation's `delivered` event, so the figure and the
 -- place it appears are both exact: the text rises over the worker that actually made the
 -- delivery, and a refund or a kill bounty is never mistaken for one.
-local RESOURCE_COLOURS={gold={.96,.82,.36},lumber={.62,.86,.55}}
+local RESOURCE_COLOURS={gold={.96,.82,.36}}
 function App:announceDelivery(event)
     local worker=self.view.byId[event.entity]
     local x,y=event.x,event.y
@@ -277,7 +277,7 @@ function App:drawEntity(e)
     local g=love.graphics
     local x,y=e.x,e.y;local prev=self.previous[e.id]
     if prev and prev.stamp~=self.previousStamp then prev=nil end
-    if prev and e.category=='unit' then
+    if prev and (e.category=='unit' or e.category=='carrier') then
         local alpha=math.min(1,self.accumulator/0.05)
         x=prev.x+(x-prev.x)*alpha;y=prev.y+(y-prev.y)*alpha
     end
@@ -310,10 +310,19 @@ function App:drawEntity(e)
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
             g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/Content.buildings[e.kind].buildTicks),5*z)
         end
-        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',tower='T',barracks='WAR',depot='LUMBER',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
+        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
     elseif e.category=='node' then
         if e.resource=='gold' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;g.setColor(0.9,0.71,0.27);g.polygon('fill',x-12*z,y,x-5*z,y-20*z,x+8*z,y-17*z,x+14*z,y)
         else g.setColor(0.32,0.24,0.13);g.rectangle('fill',x-3*z,y-22*z,6*z,22*z);g.setColor(0.21,0.48,0.33);g.polygon('fill',x-16*z,y-12*z,x,y-44*z,x+16*z,y-12*z) end
+    -- Carriers are drawn small and stooped, with the gold they are holding above them, so
+    -- a stream of them reads at a glance as income crossing the map -- and so an enemy
+    -- can see what it is worth cutting.
+    elseif e.category=='carrier' then
+        z=z*0.66
+        color(team);g.rectangle('fill',x-6*z,y-16*z,12*z,12*z,3*z)
+        g.setColor(0.9,0.82,0.66);g.circle('fill',x,y-19*z,4*z)
+        if (e.payload or 0)>0 then g.setColor(0.96,0.82,0.36);g.polygon('fill',x-6*z,y-24*z,x,y-30*z,x+6*z,y-24*z,x,y-21*z) end
+        if self.feedback:flashing(e.id,self.world.tick) then g.setColor(1,1,1,.55);g.ellipse('fill',x,y-10*z,8*z,10*z) end
     else
         local d=Content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
         local drawn=self.sprites and self.sprites:draw(e,x,y,z,team,prev,self.world.tick,self.view)

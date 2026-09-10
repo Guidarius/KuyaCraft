@@ -26,13 +26,24 @@ return function()
  end
  resource(14,8,'gold',12000,3)
  resource(39,18,'gold',9000,3);resource(27,68,'gold',9000,3)
- -- Full paired rows: 60 trees/main, 30/natural and contested site.
- for y=8,13 do for x=5,14 do resource(x,y,'lumber',100) end end
- -- Do not overlap the starting mine; move its overlapping column to the south woodlot.
- for _,n in ipairs(m.resources) do if n.resource=='lumber' and n.x>=14 and n.x<=16 and n.y>=8 and n.y<=10 then n.x=6;n.y=n.y+12 end end
- -- Regenerate symmetry after the small main-woodlot adjustment.
- for i=1,#m.resources,2 do local a,b=m.resources[i],m.resources[i+1];b.x=128-a.x-(a.size or 1);b.y=112-a.y-(a.size or 1) end
- for _,p in ipairs({{46,13},{20,74}}) do for y=0,4 do for x=0,5 do resource(p[1]+x,p[2]+y,'lumber',100) end end end
+ -- Forests are terrain, not a resource. They block movement and, since sight is cast
+ -- rather than radial, they block sight too, so they are cover for a raid on a carrier
+ -- route. Marking the cells directly rather than spawning a node for each one keeps
+ -- about 180 entities out of every match, which every per-entity loop in the step pays
+ -- for. A tree is never placed over a mine footprint.
+ local function forest(x0,y0,x1,y1)
+  for y=y0,y1 do for x=x0,x1 do
+   local blocked=false
+   for _,n in ipairs(m.resources) do
+    if x>=n.x and x<n.x+(n.size or 1) and y>=n.y and y<n.y+(n.size or 1) then blocked=true end
+   end
+   if not blocked then
+    m.blocked[y*128+x+1]=true;m.blocked[(111-y)*128+(127-x)+1]=true
+   end
+  end end
+ end
+ forest(5,8,14,13)
+ forest(46,13,51,17);forest(20,74,25,78)
  local function camp(x,y,tier)
   local kinds=tier=='easy' and {'scout','scout'} or tier=='hard' and {'leader','neutral','neutral'} or {'neutral','neutral','neutral'}
   for i,kind in ipairs(kinds) do local cx,cy=x+(i-2)*2,y;carve(cx,cy,1)

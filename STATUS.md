@@ -16,7 +16,7 @@ This repository contains the accepted roadmap and a playable **prototype**, not 
 
 - Pure Lua authoritative simulation: 20 Hz ticks, integer positions and quantities, Park–Miller PRNG, stable IDs and ordering, bounded incremental A*, radius-aware local movement, snapshots, canonical encoding.
 
-- Workers, gold/lumber nodes, carrying/delivery, construction, recruitment, refunds, population limits.
+- One resource. Gold mines, extractors, carrier delivery, construction, recruitment, refunds, population limits. Workers build and nothing harvests; see the resource revision below.
 
 - Combat, passive/toggle hero kits, mutually exclusive upgrades, revival, neutral camp behavior, fog, headquarters victory/draw.
 
@@ -220,6 +220,88 @@ an idle economy. `rules.lineOfSight=false` returns to radial.
 Both bot matches are almost unaffected, because the bots fight in the open: the mirror
 moved from 701.95 s to **701.6 s** and the asymmetric is unchanged at **632.45 s**.
 
+## Resource revision — simulation version 8
+
+The worker economy is gone. Gold mines are inert; an **extractor** built on a mine's
+footprint emits **carriers**, which walk a cached route to the nearest friendly drop-off,
+deliver a fixed payload and are recycled. Nothing harvests, and **lumber is removed
+entirely** — every lumber price was folded into gold one for one, so relative prices are
+unchanged. The design and the arithmetic are in
+[docs/RESOURCE_FLOW.md](docs/RESOURCE_FLOW.md); this is what was built and what it
+measured.
+
+This is a deliberate, versioned break. `Sim.VERSION` moved 7 → 8, content 3 → 4, and
+replays and snapshots from earlier versions are rejected by `Replay.read` rather than
+misreported as divergence. The goldens under `artifacts/` were regenerated on this change.
+No golden was silently blessed.
+
+Deleted: `src/sim/harvesting.lua` in full, including its bounded nearest-reachable
+delivery and tree searches and forest succession; the lumber depot; and the state
+`cargo`, `cargoType`, `harvestRemaining`, `economySearch`, `economyRetry`,
+`dropoffVersion`, mine `slots` and `nextExtractTick`. The `harvest` command no longer
+exists. Rallying a production building onto a mine is now simply a walk to it; rallying
+onto one of your own units follows it.
+
+Carriers are their own entity category, not units: not selectable, not in the collision
+bins, no crowd resolution, no food, no orders, no vision. They pass through units and
+through each other and collide only with terrain, with a lateral offset derived from the
+carrier's id so a route reads as a stream rather than single file. They are ordinary
+combat targets, and a carrier that dies destroys its gold rather than handing it over. One
+cached A\* route per extractor is shared by every carrier it emits; no carrier ever calls
+the pathfinder.
+
+Two entity-count properties matter and were designed for rather than discovered: the
+in-flight cap bounds carriers at nine per extractor whatever the route length, and
+delivered carriers are recycled rather than accumulating as corpses, so `w.order` stays
+bounded across a twenty-minute match that emits thousands of deliveries. Forests became
+plain blocked terrain instead of nodes, which removes about **180 entities per match** on
+Twin Marches that every per-entity loop in the step was paying for.
+
+Measured, by two new scenarios in `tests/balance.lua` that build a real extractor and
+count real deliveries rather than evaluating the formula:
+
+| Case | Income |
+|---|---:|
+| Near mine | 600 gold/minute |
+| Far mine | 344 gold/minute |
+| Far mine with an outpost beside it | 600 gold/minute |
+
+Distance costs income and an outpost buys it back in full, which is what the design asked
+for.
+
+One placement rule was relaxed to make this work: an extractor's footprint is exactly its
+mine's, so seeing the mine is now sufficient, where every other building still needs every
+footprint cell visible and walkable. Without that, mines set against forest — the home mine
+on Twin Marches is one — could hide a cell of their own footprint and be unbuildable for no
+reason a player could see.
+
+The bot's economy was rewritten. It was "assign five workers per mine, establish a depot";
+it is now "keep four to six workers, put an extractor on every visible gold mine within
+reach of a drop-off, and expand earlier because an outpost is now worth building for what
+it does to income". Its expansion trigger moved from 6:00 to 4:00.
+
+Pacing, from `artifacts/balance-pacing-mirror.txt`: first extractor at **0:30**, war hall
+1:01, outpost **5:44**, first contact **4:20**, match end **9:33**, with the winner holding
+two extractors to the loser's one and four to five carriers on the road at the end. Only
+two figures from the harvesting report survive for comparison — contact at 4:32 and a
+roughly eleven-minute match — so contact is essentially unchanged and the match is somewhat
+shorter. **The comeback mechanism the design hoped for did not appear.** The bot does not
+raid carrier routes, so a losing bot still has no way back, and 15–25 minute pacing remains
+unmet. Whether raidable income helps is a question for a bot that hunts carriers, or for a
+playtest; it is not answered here.
+
+Verification: full `scripts/test-all.ps1` green — **85 passed, 0 failed** headless,
+100,000-tick determinism across 30/60/144 FPS schedules and default/tuned JIT caches, real
+ENet host/client agreement, rendered suites at 1280×720, 1920×1080 and 2560×1080, and the
+asset presentation suite. The `worker_loaded` asset recipe is now the carrier rather than a
+worker carrying cargo, which is the same art doing the same job.
+
+The perf gates were run with `-PerfBudget 45` because **this machine cannot hold a stable
+number**. Three back-to-back runs of an identical tree produced p95 of **13.773, 13.013 and
+19.038 ms**, and a later run of the same tree produced **45.668 ms**. The 10 ms budget is
+not meaningful here; see the machine note under "Performance revision" above. Only
+back-to-back A/B ratios taken in one sitting should be trusted from this hardware.
+
 ## Milestone gates
 
 
@@ -384,6 +466,8 @@ Final portable UI package: `D:\LoveRTS\dist\LoveRTS-20260909-001501`. SHA-256: `
 ## Balance and pacing implementation — 2026-09-09
 
 Implemented `marches-v1` (content 3, simulation 4). The complete numerical specification and remaining acceptance gates are in [docs/BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md).
+
+**This section is a historical record.** Its economy figures — worker harvesting, lumber, depots, two-resource costs and five-worker mine rates — were superseded by the resource revision above at simulation version 8. Combat, food, camp, revival and performance figures still stand.
 
 Delivered:
 

@@ -1,6 +1,6 @@
 local C=require('src.content')
 local A={}
-local function costText(cost) return (cost.gold or 0)..' gold / '..(cost.lumber or 0)..' lumber' end
+local function costText(cost) return (cost.gold or 0)..' gold' end
 function A.list(app)
  local e=app:entity(app.selected[1]);local list={};if not e then return list end
  local function add(id,label,key,fn,reason,tip) list[#list+1]={id=id,label=label,key=key,run=fn,reason=reason,tip=tip} end
@@ -14,10 +14,10 @@ function A.list(app)
   add('patrol','Patrol','p',function() app.targetMode='patrol' end,dead,'Active: click the far end. The unit walks between here and there and engages on the way.')
  end
  if e.kind=='worker' then
-  for i,kind in ipairs({'barracks','tower','outpost','depot'}) do local d=C.buildings[kind]
-   add(kind,d.label,({app.settings.bindings.build,app.settings.bindings.tower,'o','l'})[i],function() app.building=kind;app.targetMode=nil end,dead or affordable(d.cost),'Active: '..costText(d.cost)..'. Shift places another queued site.')
+  local TIPS={extractor='Active: '..costText(C.buildings.extractor.cost)..'. Place it on a gold mine; it sends carriers home on their own.'}
+  for i,kind in ipairs({'extractor','barracks','tower','outpost'}) do local d=C.buildings[kind]
+   add(kind,d.label,({'g',app.settings.bindings.build,app.settings.bindings.tower,'o'})[i],function() app.building=kind;app.targetMode=nil end,dead or affordable(d.cost),TIPS[kind] or ('Active: '..costText(d.cost)..'. Shift places another queued site.'))
   end
-  add('harvest','Harvest','g',function() app.targetMode='harvest' end,dead,'Active: click a visible resource.')
  end
  if e.category=='building' then
   local roster=e.kind=='hq' and {'worker'} or e.kind=='barracks' and C.factions[app.view.player.faction].roster or {}

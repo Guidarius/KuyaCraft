@@ -47,7 +47,7 @@ function M.match(mirror,ticks)
    if food>(peakFood[p] or 0) then peakFood[p]=food;peakFoodTick[p]=tick end
   end
   if tick%1200==0 then
-   local line=string.format('%ds: P1 food=%d units=%d gold=%d lumber=%d | P2 food=%d units=%d gold=%d lumber=%d',tick/20,Sim.population(w,1),Sim.unitCount(w,1),w.players[1].resources.gold,w.players[1].resources.lumber,Sim.population(w,2),Sim.unitCount(w,2),w.players[2].resources.gold,w.players[2].resources.lumber)
+   local line=string.format('%ds: P1 food=%d units=%d gold=%d | P2 food=%d units=%d gold=%d',tick/20,Sim.population(w,1),Sim.unitCount(w,1),w.players[1].resources.gold,Sim.population(w,2),Sim.unitCount(w,2),w.players[2].resources.gold)
    lines[#lines+1]=line;print(line)
   end
   if w.result then break end
@@ -82,7 +82,7 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
         {'first extra worker',milestones[1]['recruited:worker']},
         {'war hall',milestones[1]['constructed:barracks']},
         {'first combat unit',milestones[1]['recruited:shield'] or milestones[1]['recruited:stalker']},
-        {'lumber depot',milestones[1]['constructed:depot']},
+        {'first extractor',milestones[1]['constructed:extractor']},
         {'headquarters advance',milestones[1]['researched:hq']},
         {'outpost',milestones[1]['constructed:outpost']},
         {'first contact between players',firstContact},
@@ -94,6 +94,18 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
     out[#out+1]='Milestones are player 1 unless stated. Times are mm:ss of simulated match time.'
     for _,row in ipairs(rows) do out[#out+1]=string.format('  %-32s %s',row[1],clock(row[2])) end
     out[#out+1]=string.format('  peak food                        P1 %d, P2 %d of %d',peakFood[1] or 0,peakFood[2] or 0,C.rules.population)
+    -- Income is the match now, so the report says how much of it each side actually
+    -- held: extractors standing at the end, and carriers on the road.
+    local sites,carriers={0,0},{0,0}
+    for _,id in ipairs(w.order) do
+        local e=w.entities[id]
+        if e.alive and e.owner>0 then
+            if e.kind=='extractor' then sites[e.owner]=sites[e.owner]+1
+            elseif e.category=='carrier' then carriers[e.owner]=carriers[e.owner]+1 end
+        end
+    end
+    out[#out+1]=string.format('  extractors at the end            P1 %d, P2 %d',sites[1],sites[2])
+    out[#out+1]=string.format('  carriers on the road             P1 %d, P2 %d',carriers[1],carriers[2])
     local minutes=duration/1200
     local verdict
     if minutes<M.TARGET_MINUTES[1] then verdict=string.format('%.1f minutes SHORT of the %d minute floor',M.TARGET_MINUTES[1]-minutes,M.TARGET_MINUTES[1])
@@ -132,7 +144,7 @@ function M.performance()
   local old=units[1].x;local start=love.timer.getTime();Sim.step(w,commands);times[#times+1]=(love.timer.getTime()-start)*1000
   if old~=units[1].x then moved=moved+1 end
   for _,ev in ipairs(w.events) do if ev.kind=='attack' then attacks=attacks+1 end end
-  assert(w.metrics.pathExpansions<=C.rules.pathBudget and w.metrics.economyExpansions<=C.rules.pathBudget)
+  assert(w.metrics.pathExpansions<=C.rules.pathBudget)
  end
  if stopProfile then stopProfile() end
  table.sort(times);write('balance-performance.txt',string.format('128x112 map, 240 live mobiles, 2000 active ticks, new combat/sight profile. Clearings widened for fixture deployment.\nSim.step p95 %.3fms; max %.3fms; attacks %d; lead moving ticks %d. Excludes bot/replay/rendering.\n',times[1900],times[2000],attacks,moved))

@@ -109,7 +109,7 @@ function T.gamefeel(app)
  assert(#idle>0,'fixture has no idle workers to exercise the control')
  for _,id in ipairs(idle) do
   local e=app:entity(id)
-  assert(e.kind=='worker' and e.order.kind=='stop' and (e.cargo or 0)==0,'a busy worker was reported idle')
+  assert(e.kind=='worker' and e.order.kind=='stop','a busy worker was reported idle')
  end
  assert(Input.selectIdleWorker(app),'idle worker selection failed')
  local first=app.selected[1]
@@ -118,11 +118,11 @@ function T.gamefeel(app)
   Input.selectIdleWorker(app)
   assert(app.selected[1]~=first,'repeated idle-worker presses must cycle')
  end
- -- A worker carrying cargo is on a delivery trip and is not offered even while stopped.
- local carrier=app.world.entities[idle[1]];local restore=carrier.cargo
- carrier.cargo=5;app.view=require('src.sim').view(app.world,app.player)
- for _,id in ipairs(Input.idleWorkers(app)) do assert(id~=idle[1],'a loaded worker was offered as idle') end
- carrier.cargo=restore;app.view=require('src.sim').view(app.world,app.player)
+ -- A worker on its way to a build site holds a 'build' order and is not offered.
+ local busy=app.world.entities[idle[1]];local restore=busy.order
+ busy.order={kind='build',target=app.view.player.hq};app.view=require('src.sim').view(app.world,app.player)
+ for _,id in ipairs(Input.idleWorkers(app)) do assert(id~=idle[1],'a building worker was offered as idle') end
+ busy.order=restore;app.view=require('src.sim').view(app.world,app.player)
 
  -- Select-all-army takes combat units and excludes workers and buildings.
  app:keypressed('f2')

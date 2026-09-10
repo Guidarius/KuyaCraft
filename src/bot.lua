@@ -7,7 +7,9 @@ function B.commands(view,C)
  local owner,hq,hero;local workers,army,halls,nodes,outposts={},{},{},{},{}
  for _,e in ipairs(view.entities) do if e.id==view.player.hq then hq=e;owner=e.owner end end
  if not hq or not hq.alive then return out end
- local ledger={gold=view.player.resources.gold,lumber=view.player.resources.lumber};local food=0;local queuedWorkers=0
+ local ledger={gold=view.player.resources.gold};local food=0;local queuedWorkers=0
+ -- Mines already carrying an extractor, whoever owns it. A mine takes one.
+ local covered={}
  for _,e in ipairs(view.entities) do
   if e.owner==owner then
    local d=C.units[e.kind]
@@ -17,12 +19,14 @@ function B.commands(view,C)
     if e.kind=='worker' then workers[#workers+1]=e elseif e.category=='unit' and not d.hero then army[#army+1]=e end
     if e.kind=='barracks' then halls[#halls+1]=e end
     if e.kind=='outpost' then outposts[#outposts+1]=e end
+    if e.mine then covered[e.mine]=true end
     for _,q in ipairs(e.queue or {}) do food=food+C.units[q.kind].food;if q.kind=='worker' then queuedWorkers=queuedWorkers+1 end end
    end
-  elseif e.alive and e.category=='node' then nodes[#nodes+1]=e end
+  elseif e.alive and e.category=='node' then nodes[#nodes+1]=e
+  elseif e.alive and e.mine then covered[e.mine]=true end
  end
- local function afford(cost) return ledger.gold>=(cost.gold or 0) and ledger.lumber>=(cost.lumber or 0) end
- local function spend(cost) ledger.gold=ledger.gold-(cost.gold or 0);ledger.lumber=ledger.lumber-(cost.lumber or 0) end
+ local function afford(cost) return ledger.gold>=(cost.gold or 0) end
+ local function spend(cost) ledger.gold=ledger.gold-(cost.gold or 0) end
  local function add(kind,e,args) args=args or {};args.entity=e.id;out[#out+1]={kind=kind,args=args} end
  local function recruit(b,kind) local d=C.units[kind];if b.remaining==0 and #b.queue<2 and food+d.food<=C.rules.population and afford(d.cost) and (not d.tech or view.player.tech) then spend(d.cost);food=food+d.food;add('recruit',b,{unit=kind});return true end end
  local used={};local function build(kind,cx,cy)
@@ -33,7 +37,7 @@ function B.commands(view,C)
   -- everything but its edge made this cubic in the radius for a quadratic result,
   -- and each rejected cell still paid a full footprint scan.
   local footprints={}
-  for _,e in ipairs(view.entities) do if e.alive and e.category~='unit' and e.resource~='lumber' then
+  for _,e in ipairs(view.entities) do if e.alive and e.category~='unit' and e.category~='carrier' then
    footprints[#footprints+1]={x=math.floor(e.x/256),y=math.floor(e.y/256),size=e.size}
   end end
   local maxX,maxY=view.map.width-d.size,view.map.height-d.size
@@ -59,7 +63,9 @@ function B.commands(view,C)
  end
  local hx,hy=math.floor(hq.x/256),math.floor(hq.y/256)
  local wantTech=view.tick>=4800 and not view.player.tech and not hq.researchRemaining
- local wantExpansion=view.tick>=7200 and #outposts==0
+ -- Earlier than it used to be: an outpost is no longer just ground, it shortens a
+ -- carrier route and is the only way to make a distant mine pay full rate.
+ local wantExpansion=view.tick>=4800 and #outposts==0
  if #halls==0 then build('barracks',hx,hy)
  elseif wantTech and afford(C.rules.tech.cost) then spend(C.rules.tech.cost);add('research',hq)
  elseif wantExpansion and afford(C.buildings.outpost.cost) then
@@ -68,22 +74,30 @@ function B.commands(view,C)
    if not build('outpost',anchor.x,anchor.y) and hero and hero.alive and view.tick%200==0 then add('attack_move',hero,{x=anchor.x*256,y=anchor.y*256}) end
   end
  elseif view.tick>=3600 and #halls<(view.tick>=8400 and 3 or 2) and view.tick%100==0 and not wantTech and not wantExpansion then build('barracks',hx,hy) end
- local depot=false;for _,e in ipairs(view.entities) do if e.alive and e.owner==owner and e.kind=='depot' then depot=true end end
- if not depot and #workers>=8 and view.tick%100==0 then build('depot',hx-6,hy) end
- if #workers+queuedWorkers<(view.tick<3600 and 12 or 16) then recruit(hq,'worker') end
- -- Five workers per operating mine; remaining workers chop the nearest observed forest.
- local mines={};for _,n in ipairs(nodes) do if n.resource=='gold' then
-  local close=F.sq(n.x-hq.x)+F.sq(n.y-hq.y)<F.sq(16*256)
-  for _,b in ipairs(outposts) do if b.remaining==0 and F.sq(n.x-b.x)+F.sq(n.y-b.y)<F.sq(16*256) then close=true end end
-  if close then mines[#mines+1]=n end
- end end
+ -- Workers are engineers, not income: enough to raise buildings and replace what raids
+ -- destroy, and no more. Every extra one is food and gold spent on nothing.
+ if #workers+queuedWorkers<(view.tick<3600 and 4 or 6) then recruit(hq,'worker') end
+ -- The whole economy: put an extractor on every gold mine it can see and reach, nearest
+ -- first, since a near mine pays more than a far one for the same 120 gold.
+ local mines={};for _,n in ipairs(nodes) do
+  if n.resource=='gold' and not covered[n.id] and (n.amount or 1)>0 then mines[#mines+1]=n end
+ end
  table.sort(mines,function(a,b) local da=F.sq(a.x-hq.x)+F.sq(a.y-hq.y);local db=F.sq(b.x-hq.x)+F.sq(b.y-hq.y);return da<db or da==db and a.id<b.id end)
- local assigned=0
- for _,e in ipairs(workers) do if not used[e.id] and e.order.kind~='build' then
-  assigned=assigned+1;local mine=mines[math.floor((assigned-1)/5)+1];local target=mine
-  if not target then local best;for _,n in ipairs(nodes) do if n.resource=='lumber' then local dist=F.sq(n.x-e.x)+F.sq(n.y-e.y);if not best or dist<best then best=dist;target=n end end end end
-  if target and (e.order.kind~='harvest' or e.order.target~=target.id and mine) then add('harvest',e,{target=target.id}) end
- end end
+ for _,n in ipairs(mines) do
+  -- Only mines on its own half of the map. Anything further is a fight, not an economy
+  -- decision, and the outpost push below is what opens that ground up.
+  local reach=F.sq(30*256);for _,b in ipairs(outposts) do if b.remaining==0 then reach=F.sq(44*256) end end
+  if F.sq(n.x-hq.x)+F.sq(n.y-hq.y)<=reach then
+   local d=C.buildings.extractor
+   if afford(d.cost) then
+    local builder;for _,e in ipairs(workers) do if e.order.kind~='build' and not used[e.id] then builder=e;break end end
+    local x,y=math.floor(n.x/256),math.floor(n.y/256)
+    if builder and Sim.placement(view,C,'extractor',x,y) then
+     spend(d.cost);used[builder.id]=true;add('build',builder,{building='extractor',x=x,y=y})
+    end
+   end
+  end
+ end
  if not wantTech and not wantExpansion then
   local roster=C.factions[view.player.faction].roster
   for _,b in ipairs(halls) do local pattern=view.player.tech and {1,2,1,3,2,4} or {1,2,1};local index=pattern[1+(b.produced or 0)%#pattern];recruit(b,roster[index]) end

@@ -28,14 +28,13 @@ function I.intent(app,x,y,target,kind)
   if e and e.alive and e.category=='unit' then
    local command=kind;local args={append=shift(),group=app.commandGroup}
    if not command then
-    if target and target.category=='node' and e.kind=='worker' then command='harvest'
-    elseif target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
+    if target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
     elseif target and target.owner~=app.player and target.category~='node' then command='attack'
     -- Right-clicking one of your own live units falls in behind it.
     elseif target and target.owner==app.player and target.category=='unit' and target.id~=id then command='follow'
     else command='move' end
    end
-   if command=='harvest' or command=='attack' or command=='build' or command=='follow' then args.target=target and target.id else args.x=x;args.y=y end
+   if command=='attack' or command=='build' or command=='follow' then args.target=target and target.id else args.x=x;args.y=y end
    app:command(command,id,args);count=count+1
   end
  end
@@ -113,11 +112,11 @@ function I.updateHover(app,x,y)
   local wx,wy=app:position(x,y)
   local valid=Sim.placement(app.view,Content,app.building,math.floor(wx/256),math.floor(wy/256))
   shape=valid and 'build' or 'invalid'
- elseif app.targetMode=='harvest' then shape=(hit and hit.category=='node') and 'harvest' or 'invalid'
  elseif app.targetMode=='attack_move' or app.targetMode=='patrol' or app.attackMode then shape='attack'
  elseif app.targetMode=='move' then shape='move'
  elseif hit and hit.owner~=app.player and hit.owner~=0 and hit.category~='node' then shape='attack'
- elseif hit and hit.category=='node' then shape='harvest' end
+ -- A mine is inert: it reads as a place to build on, not a thing to click.
+ elseif hit and hit.category=='node' then shape='build' end
  I.setCursor(app,shape)
 end
 -- Cursors are generated at runtime so the shape set works with no art in the tree; a
@@ -134,7 +133,7 @@ function I.setCursor(app,shape)
  end
  if cursor then pcall(love.mouse.setCursor,cursor) else pcall(love.mouse.setCursor) end
 end
-local CURSOR_COLORS={arrow={.92,.94,.9},move={.55,.95,.6},attack={1,.35,.3},harvest={.96,.82,.36},build={.6,.8,1},invalid={1,.3,.3}}
+local CURSOR_COLORS={arrow={.92,.94,.9},move={.55,.95,.6},attack={1,.35,.3},build={.6,.8,1},invalid={1,.3,.3}}
 function I.buildCursor(shape)
  local size=24
  local data=love.image.newImageData(size,size)
@@ -150,9 +149,6 @@ function I.buildCursor(shape)
  elseif shape=='attack' then
   for i=-10,10 do if math.abs(i)>2 then put(mid+i,mid,1);put(mid,mid+i,1) end end
   for a=0,63 do local r=7;put(mid+math.floor(r*math.cos(a/32*math.pi)),mid+math.floor(r*math.sin(a/32*math.pi)),1) end
- elseif shape=='harvest' then
-  for i=-8,8 do put(mid+i,mid+math.floor(math.abs(i)/2)-4,1) end
-  for j=0,9 do put(mid,mid+j,1) end
  elseif shape=='build' then
   for i=-8,8 do put(mid+i,mid-5,1);put(mid+i,mid-3,1) end
   for j=-3,9 do put(mid,mid+j,1) end
@@ -186,13 +182,12 @@ function I.army(app)
  end
  table.sort(ids);return ids
 end
--- A worker counts as idle when it has no order and nothing to deliver. Workers that are
--- constructing hold a 'build' order, and workers carrying cargo are still on a delivery
--- trip even while standing still, so neither is offered.
+-- A worker counts as idle when it has no order. Workers that are constructing hold a
+-- 'build' order, so they are not offered.
 function I.idleWorkers(app)
  local ids={}
  for _,e in ipairs(app.view.entities) do
-  if e.alive and e.owner==app.player and e.kind=='worker' and e.order and e.order.kind=='stop' and (e.cargo or 0)==0 then
+  if e.alive and e.owner==app.player and e.kind=='worker' and e.order and e.order.kind=='stop' then
    ids[#ids+1]=e.id
   end
  end

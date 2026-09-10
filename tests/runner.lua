@@ -74,12 +74,20 @@ test('simulation','unreachable search terminates',function()
     step(w,1,{command(w,1,'move',e.id,{x=F.center(10),y=F.center(5)})});step(w,500)
     eq(e.lastOrderFailure,'unreachable');assert(not w.searches[e.id])
 end)
-test('simulation','harvest delivers resources and depletes node',function()
-    local m=Maps.create('harvest',20);m.resources={{x=6,y=6,resource='gold',amount=10}};m.camps={}
+test('simulation','an extractor delivers a mine and then depletes it',function()
+    local m=Maps.create('extract',20);m.resources={{x=6,y=6,resource='gold',amount=16,size=3}};m.camps={}
     local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
     local e=find(w,1,'worker');local node=find(w,0,'resource');local before=w.players[1].resources.gold
-    step(w,1,{command(w,1,'harvest',e.id,{target=node.id})});step(w,400)
-    eq(w.players[1].resources.gold,before+10);assert(not node.alive);eq(e.cargo,0)
+    local cost=Content.buildings.extractor.cost.gold
+    step(w,1,{command(w,1,'build',e.id,{building='extractor',x=6,y=6})})
+    local site=find(w,1,'extractor');assert(site,'extractor rejected on a mine')
+    -- Sixteen gold is two payloads: the mine empties, both are delivered, and the
+    -- carriers that were paid for are the only ones ever emitted.
+    local depleted=false
+    for _=1,1200 do for _,ev in ipairs(Sim.step(w,{})) do if ev.kind=='depleted' then depleted=true end end end
+    assert(depleted,'mine never depleted');assert(not node.alive)
+    eq(w.players[1].resources.gold,before-cost+16)
+    for _,id in ipairs(w.order) do assert(w.entities[id].category~='carrier' or not w.entities[id].alive) end
 end)
 test('simulation','build, production, cancellation, population reservation',function()
     local w=world(24);local worker=find(w,1,'worker')
