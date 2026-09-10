@@ -62,7 +62,16 @@ function M.draw(app,panel)
   if Selection.has(app.selected,e.id) then g.setColor(.7,1,.7);g.circle('line',x,y,4) end
  end
  for _,item in ipairs(app.alerts.items) do if item.x then g.setColor(1,.65,.2,.8);g.circle('line',r.x+item.x/256*r.cell,r.y+item.y/256*r.cell,5+(app.alerts.clock-item.time)%1*6) end end
- if app.localPing and app.clock-app.localPing.time<4 then g.setColor(.8,1,.6);g.circle('line',r.x+app.localPing.x/256*r.cell,r.y+app.localPing.y/256*r.cell,7) end
+ -- A ping, from either player: it arrives as a simulation event, so both sides see the
+ -- same marker at the same tick. Pulses so it catches the eye on a busy minimap.
+ if app.localPing and app.clock-app.localPing.time<4 then
+  local age=app.clock-app.localPing.time
+  local own=app.localPing.player==app.player
+  g.setColor(own and .8 or 1,own and 1 or .85,own and .6 or .4,1-age/4)
+  g.setLineWidth(2)
+  for ring=0,1 do g.circle('line',r.x+app.localPing.x/256*r.cell,r.y+app.localPing.y/256*r.cell,4+ring*4+(age%1)*5) end
+  g.setLineWidth(1)
+ end
  if app.orderMarker and app.clock-(app.orderMarker.time or 0)<.6 then local o=app.orderMarker;g.setColor(.65,1,.6);g.circle('line',r.x+o.x/256*r.cell,r.y+o.y/256*r.cell,4) end
  local vp=Camera.rect(app);local x1,y1=app:position(vp.x,vp.y);local x2,y2=app:position(vp.x+vp.w,vp.y+vp.h)
  x1=math.max(0,x1);y1=math.max(0,y1);x2=math.min(map.width*256,x2);y2=math.min(map.height*256,y2)

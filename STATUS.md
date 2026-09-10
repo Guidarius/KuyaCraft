@@ -525,3 +525,76 @@ Evidence: `artifacts/balance-release-tests.log`, `balance-current-simulation.log
 Portable balance build: `D:\LoveRTS\dist\LoveRTS-20260909-105528`. Archive SHA-256: `20AE518BD6BDE15CC89A95AC230ADF962902BFC354FC986923C814B69F7B9D36`.
 
 Launched and tested from the package directory, outside the development checkout: **11 unit tests**, **39 simulation tests**, the **1280×720 rendered UI regression**, and startup of the current-profile `sample.replay` all passed. The executable, runtime, source archive and active assets were packaged successfully. Package logs/screenshots are under that package's `artifacts` directory. Use `Play.ps1` or the repository's `scripts/run.ps1` to start.
+
+## Control, movement and ability revision — 2026-09-10
+
+Simulation version **10**, content version **6**. Two deliberate versioned breaks in this
+run: string-pulled paths (version 9) change movement results, and abilities (version 10)
+add commands, a phase and entity state. Replays recorded before them are rejected rather
+than misreported as divergence. No golden result was silently re-blessed.
+
+Measured on the same thermally limited development laptop as the previous revision, whose
+run-to-run spread is large; single-run differences under about 30% are not evidence.
+Absolute milliseconds are not comparable with the reference-desktop figures further up.
+
+### Verified on this machine
+
+`scripts/test.ps1 -PerfBudget 40`: **97 passed, 0 failed**. Four fresh processes agree at
+100-tick checkpoints over 100,000 ticks across 30/60/144 FPS schedules and default/tuned
+JIT caches. A real local ENet pair agrees at every 100-tick checkpoint. `test-ui.ps1` and
+`test-presentation.ps1` both exit 0.
+
+The performance gate is 40 ms on this machine and 10 ms by default for the reference
+desktop, as established in the previous revision. It is a parameter, not a constant.
+
+| Measure | Before this run | After |
+|---|---:|---:|
+| Open diagonal straightness (walked / direct) | staircase | 1.000x |
+| 100 units, open arrival | 932 ticks | 445 |
+| 100 units, chokepoint | 1,640 ticks | 1,326 |
+| 20 mixed units | 868 ticks | 705 |
+| 50 versus 50 counterflow | 4,079 ticks | 849 |
+| 240-unit active benchmark, p50 | 10.7 ms | 6.0 |
+| 240-unit active benchmark, p95 | 27.6 ms | 16.4 |
+| 240-unit active benchmark, maximum | 442 ms | 147 |
+
+The benchmark figures are the median of three back-to-back runs each; the individual
+p95 readings ranged 14.6–18.7 after and 15.5–45.0 before, which is the spread this
+machine has. Attack counts are identical before and after every behaviour-preserving
+change in this run (28,972 in the control benchmark, 6,372 in the balance one), which is
+the evidence that they are behaviour-preserving.
+
+### Delivered
+
+- Warcraft 3 control rules that were wrong: A-click on an enemy now focuses it rather
+  than attack-moving to the ground under it; Tab moves the command card between unit
+  types and keeps the whole selection; the card follows the active subgroup and otherwise
+  prefers a hero over a soldier over a worker rather than the lowest entity id; box
+  selection takes your own units over anything else and never mixes a building into an
+  army; Ctrl+click selects every visible unit of a type.
+- Orders are answered before the simulation runs: the ordered units' circles brighten and
+  an acknowledgement sound plays, resolved most-specific-first so faction voice lines slot
+  in by naming alone. The `windup` event finally has a consumer.
+- `src/sim/stats.lua` resolves speed, damage, armour, attack period, windup, range and
+  sight. Every direct content read for gameplay now goes through it.
+- String-pulled paths, path re-validation on navigation change, and prompt yielding.
+- Abilities and status effects: `cast` and `ping` commands, a cast phase, mana, cooldowns,
+  a status list, five target kinds and travelling projectiles. See
+  [docs/ABILITIES.md](docs/ABILITIES.md).
+- Target acquisition is bucketed into eight-cell blocks instead of scanning every hostile
+  on the map once per damage-capable entity per tick.
+
+### Still open after this run
+
+- **Formation-preserving group moves.** Destination slots are still an outward ring search
+  per unit, so a group's shape is discarded when it moves. Speed pacing holds a mixed army
+  together; its arrangement is not preserved.
+- **Auto-attacks do not travel.** The projectile mechanism exists and is used by abilities;
+  enabling it for ranged attacks changes when every ranged trade lands and needs a
+  playtest first.
+- **Adaptive lockstep.** The network buffer is still a fixed three ticks and the match
+  stalls above roughly 140 ms round trip rather than lengthening its turn.
+- **Ability balance is unmeasured.** The four hero abilities exist to prove the four
+  targeting kinds work end to end. Their numbers are a starting point for playtesting.
+- Every human gate listed in the earlier sections remains open: continuous-motion review,
+  crowd feel in chokepoints, combat readability, cross-PC play and stable-60 certification.

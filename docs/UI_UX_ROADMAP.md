@@ -182,3 +182,46 @@ The active benchmark starts 240 units across two players at 1080p and runs 600 t
 5. Run longer sessions to assess memory growth, repeated alerts, sound fatigue and late-game crowd movement.
 
 Success requires understandable outcomes and next actions, readable battles, and reproducible simulation. Passing automation alone does not establish these human gates.
+
+## Control and ability revision — 2026-09-10
+
+Four control rules were wrong by Warcraft 3 conventions and are fixed. A-clicking an
+enemy focuses it rather than attack-moving to the ground under it, which is most of what
+the A key is for. Tab moves the command card between unit types and keeps the whole
+selection; it used to replace the selection with one subgroup, so a player who pressed it
+to look at their casters lost the army with no way back. The card follows the active
+subgroup, and with none chosen it prefers a hero over a soldier over a worker rather than
+whichever unit happened to have the lowest entity id. Box selection takes your own units
+over anything else in the rectangle and never mixes a building into an army.
+
+Orders are answered locally before the simulation runs: the ordered units' circles
+brighten for a fifth of a second and an acknowledgement sound plays. The sound is resolved
+most-specific-first, so adding `ack-shield-attack` or `ack-shield` to the audio manifest
+makes them play with no code change; that is the hook faction voice lines drop into. The
+`windup` event, emitted since version 3 and consumed by nothing, now draws a tightening
+arc on the attacker, so a swing reads as thrown and a cancelled swing reads as stopped.
+
+Effects, order lines and rally lines are anchored to their entity and interpolated, so a
+spark no longer stutters at 20 Hz over a unit gliding at the frame rate. Hover refreshes
+once a tick as well as on motion, so a unit walking under a still pointer updates the
+cursor. World health bars are coloured by relation rather than by player colour: on a
+four-pixel bar in a fight the only question is whether you can shoot it.
+
+Targeting is now one record rather than a scatter of mode flags. `app.targeting` says
+what the next click means, and the cursor, the range ring, the area circle, the skill-shot
+line, the click handler and Escape all read it, so what is shown and what happens cannot
+drift apart. A new ability target kind is one branch in one function.
+
+Ability buttons sit in fixed card slots defined by content and say why they are unusable:
+seconds left, or mana short. Units carry a mana bar under the health bar and a status
+strip above it, drawn as coloured swatches that the user's own icons replace later.
+Settings gains **Smart cast**, off by default, which makes an ability key cast at the
+cursor immediately, with Alt casting on yourself.
+
+The minimap ping is now a `ping` command rather than a local dot. It is ordered, recorded
+in the replay and observed like every other action, and it is addressed to the pinging
+player's side only -- never to everyone, or a ping would hand the enemy your attention.
+
+Not added: autocast, ability levels, charges, a talking portrait, unit voice assets. The
+audio manifest, the cursor set, the status swatches and the effect anchors are the slots
+those drop into.

@@ -509,6 +509,9 @@ local function apply(w,c)
     -- and not the other.
     if c.kind=='ping' then
         if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position');return end
+        -- Addressed to the pinging player only, which in a 1v1 with no alliances is the
+        -- whole of "your team". When teams exist this becomes the team's audience; it
+        -- must never become everyone, or a ping would hand the enemy your attention.
         emit(w,'ping',{player=c.player,pingX=a.x,pingY=a.y});return
     end
     local e=F.integer(a.entity,1) and w.entities[a.entity] or nil
@@ -846,16 +849,42 @@ local function finishOrders(w)
         end
     end
 end
-local function enemyTarget(w,e,candidates)
-    local best,distance;local d=def(w,e);local sight=Stats.sight(w,e)*256;local ex,ey=e.x,e.y
-    -- The phase's candidate lists contain only live, hostile, non-resource entities.
-    for _,target in ipairs(candidates) do
-        if math.abs(ex-target.x)<=sight and math.abs(ey-target.y)<=sight then
-            local dist=F.distance2Bounded(ex,ey,target.x,target.y)
-            if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
-                local shooting=G.weaponRange(w,e,target)
-                local chasing=e.order.kind~='hold' and (e.engagement and F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)<=F.sq(w.content.rules.acquireRange or 768) or not e.engagement and dist<=F.sq(w.content.rules.acquireRange or 768))
-                if shooting or chasing then best=target;distance=dist end
+-- Hostiles are bucketed into eight-cell blocks so acquisition looks at the ground near
+-- the unit instead of at every enemy on the map. It used to be a linear scan of the whole
+-- hostile list, once per damage-capable entity, every tick -- the single largest cost in
+-- the combat phase at army scale. A fourteen-cell sight covers at most sixteen blocks.
+--
+-- The result is identical, not merely similar: the winner is chosen by a strict
+-- improvement on (squared distance, entity id), which is a total order, so which order
+-- the candidates were visited in cannot change the answer. The determinism harness is
+-- what proves that claim rather than the argument.
+local BLOCK=2048
+local function blockKey(x,y) return math.floor(y/BLOCK)*512+math.floor(x/BLOCK) end
+local function enemyTarget(w,e,blocks)
+    local best,distance;local sight=Stats.sight(w,e)*256;local ex,ey=e.x,e.y
+    local x0,x1=math.floor((ex-sight)/BLOCK),math.floor((ex+sight)/BLOCK)
+    local y0,y1=math.floor((ey-sight)/BLOCK),math.floor((ey+sight)/BLOCK)
+    if x0<0 then x0=0 end
+    if y0<0 then y0=0 end
+    local acquire=F.sq(w.content.rules.acquireRange or 768)
+    local chaseable=e.order.kind~='hold'
+    local engagement=e.engagement
+    for by=y0,y1 do
+        local row=by*512
+        for bx=x0,x1 do
+            local bin=blocks[row+bx]
+            if bin then
+                for i=1,#bin do
+                    local target=bin[i]
+                    if math.abs(ex-target.x)<=sight and math.abs(ey-target.y)<=sight then
+                        local dist=F.distance2Bounded(ex,ey,target.x,target.y)
+                        if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
+                            local shooting=G.weaponRange(w,e,target)
+                            local chasing=chaseable and (engagement and F.distance2Bounded(target.x,target.y,engagement.x,engagement.y)<=acquire or not engagement and dist<=acquire)
+                            if shooting or chasing then best=target;distance=dist end
+                        end
+                    end
+                end
             end
         end
     end
@@ -896,9 +925,19 @@ end
 local function combatOrders(w)
     local candidates={}
     for owner=0,#w.players do candidates[owner]={} end
-    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category~='node' then
-        for owner=0,#w.players do if owner~=e.owner then local list=candidates[owner];list[#list+1]=e end end
-    end end
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.alive and e.category~='node' and e.category~='projectile' then
+            local key=blockKey(e.x,e.y)
+            for owner=0,#w.players do
+                if owner~=e.owner then
+                    local map=candidates[owner]
+                    local bin=map[key]
+                    if not bin then bin={};map[key]=bin end
+                    bin[#bin+1]=e
+                end
+            end
+        end
+    end
     for _,id in ipairs(w.order) do local e=w.entities[id];local d=def(w,e)
         if e.alive and d and d.damage then
             local kind=e.order.kind;local target

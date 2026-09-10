@@ -1,9 +1,12 @@
 -- healthBars: 'always' | 'selected' | 'damaged'. screenShake and dayNight are cosmetic
 -- toggles. gameSpeed only affects offline play; network play always runs at 1x.
+-- smartCast makes an ability hotkey cast at the cursor instead of arming a click, with
+-- Alt casting on yourself. Off by default: it is faster once learned and surprising
+-- before that, which is exactly the kind of choice that belongs to the player.
 -- The idle-worker key defaults to F9 rather than the more traditional F8 because F5-F8
 -- are camera bookmarks here; it is rebindable like the others.
 local S={defaults={version=2,scale=100,edgeScroll=false,master=70,ui=65,effects=70,ambience=35,
- healthBars='damaged',screenShake=true,dayNight=false,gameSpeed=2,
+ healthBars='damaged',screenShake=true,dayNight=false,gameSpeed=2,smartCast=false,
  bindings={attack='a',stop='s',hold='h',hero='f1',alert='space',build='b',tower='t',idle='f9'}}}
 local Codec=require('src.sim.codec')
 -- Offline pacing multipliers. These scale how fast wall-clock time is fed to the fixed

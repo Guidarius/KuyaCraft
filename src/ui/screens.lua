@@ -24,6 +24,9 @@ function S.settings(app,w,h,back)
  end,nil,'Which units carry a health bar. Holding Alt always shows every bar.')
  app.widgets:button('daynight','Day/night tint: '..(app.settings.dayNight and 'On' or 'Off'),x+245,y+246,215,28,
   function() app.settings.dayNight=not app.settings.dayNight;store() end,nil,'A slow cosmetic colour cycle over the world. Purely visual; sight is unaffected.')
+ app.widgets:button('smartcast','Smart cast: '..(app.settings.smartCast and 'On' or 'Off'),x+245,y+280,215,28,
+  function() app.settings.smartCast=not app.settings.smartCast;store() end,nil,
+  'On: an ability key casts at the cursor straight away, and Alt casts it on yourself. Off: the key arms the ability and the next click aims it.')
  local speed=app.settings.gameSpeed or 2
  app.widgets:button('speed','Game speed: '..(Settings.SPEED_LABELS[speed] or 'Normal'),x,y+280,215,28,function()
   app.settings.gameSpeed=speed%#Settings.SPEEDS+1;store()

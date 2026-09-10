@@ -229,6 +229,7 @@ function App:update(dt)
                 elseif pending then acceptedCount=acceptedCount+1;self.audio:play('accepted');if pending.kind=='build' then self.awaitingPlacement=nil end end
             elseif event.kind=='healed' then self.audio:play('heal',self,event.x,event.y)
             elseif event.kind=='attack' or event.kind=='death' then self.audio:play(event.kind,self,event.x,event.y)
+            elseif event.kind=='ping' then self.localPing={x=event.pingX,y=event.pingY,time=self.clock,player=event.player};self.audio:play('alert')
             elseif event.kind=='windup' then self.audio:play('windup',self,event.x,event.y)
             elseif event.kind=='constructed' or event.kind=='recruited' or event.kind=='upgraded' or event.kind=='revived' then self.audio:play('ready',self,event.x,event.y) end
             if event.kind=='delivered' and event.owner==self.player then self:announceDelivery(event) end

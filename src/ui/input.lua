@@ -13,12 +13,28 @@ local function ctrl() return love.keyboard.isDown('lctrl','rctrl') end
 -- and for a cast the ability and its definition. Everything downstream -- the cursor,
 -- the range ring, the area circle, the click handler and Escape -- reads this one place,
 -- which is what lets an ability with a new target kind work without touching any of them.
-function I.arm(app,command,ability)
+-- `px,py` name the pointer in screen coordinates. It defaults to the real mouse, and is
+-- an argument so that smart cast can be driven without one.
+function I.arm(app,command,ability,px,py)
  app.building=nil
  if not command then app.targeting=nil;return end
  local spec=ability and Content.abilities and Content.abilities[ability] or nil
  -- A no-target ability has nothing to click: it fires where the caster stands.
  if spec and spec.target=='none' then app.targeting=nil;I.castAt(app,nil,nil,nil,ability);return end
+ -- Smart cast: the key is the cast. Warcraft 3 added this because arming and then
+ -- clicking is two actions for one decision, and in a fight the second one is the one
+ -- you get wrong. Alt aims at yourself instead of at the cursor, which is the other half
+ -- of the convention. With the pointer off the battlefield there is nothing to aim at,
+ -- so it falls back to arming rather than casting at the HUD.
+ if spec and app.settings.smartCast then
+  if not px and love.mouse and love.mouse.getPosition then px,py=love.mouse.getPosition() end
+  if px and Camera.contains(app,px,py) then
+   local caster=app:entity(Selection.primary(app))
+   if caster and love.keyboard.isDown('lalt','ralt') then return I.castAt(app,caster.x,caster.y,caster,ability) end
+   local wx,wy=app:position(px,py)
+   return I.castAt(app,wx,wy,app:pick(px,py),ability)
+  end
+ end
  app.targeting={command=command,ability=ability,spec=spec}
 end
 function I.disarm(app) app.targeting=nil;app.building=nil end
@@ -157,7 +173,9 @@ function I.mousepressed(app,x,y,button,presses)
  if app.minimap then
   local r=app.minimap;local wx,wy=Mini.position(app.view.map,r,x/s,y/s)
   if wx then
-   if button==1 and love.keyboard.isDown('lalt','ralt') then app.localPing={x=wx,y=wy,time=app.clock}
+   -- Alt-click pings. It goes through the command stream, so the marker appears for
+   -- your ally too and is in the replay -- it used to be a local dot only you saw.
+   if button==1 and love.keyboard.isDown('lalt','ralt') then app:command('ping',nil,{x=wx,y=wy});app.audio:play('click')
    elseif button==1 and app.targeting then I.resolveTargeting(app,wx,wy,nil)
    elseif button==1 then app.capture='minimap';Camera.center(app,wx,wy)
    elseif button==2 then

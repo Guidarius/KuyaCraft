@@ -364,6 +364,7 @@ end
 function T.abilities(app)
  local Input=require('src.ui.input')
  local Content=require('src.content')
+ local Camera=require('src.ui.camera')
  local hero=app:entity(app.view.player.hero)
  if not hero or not hero.alive then return end
  local names=Content.units[hero.kind].abilities
@@ -437,8 +438,48 @@ function T.abilities(app)
  for _,b in ipairs(app.widgets.items) do if b.id=='ability-'..names[1] then button=b end end
  assert(button and button.reason and button.reason:find('mana'),'an unaffordable ability did not mention mana')
  world.mana=world.maxMana
+ -- Smart cast turns the key into the cast: no armed mode, a command straight away.
+ local ground2
+ for _,name in ipairs(names) do if Content.abilities[name].target~='none' then ground2=name end end
+ if ground2 then
+  local was=app.settings.smartCast
+  app.settings.smartCast=true
+  app.targeting=nil
+  local queued=#app.queue
+  -- Pointed at the middle of the battlefield, the key is the cast: no armed mode. The
+  -- pointer is passed in rather than read from the mouse, so this does not depend on
+  -- where the cursor happened to be when the suite ran. A ground-aimed ability issues a
+  -- command outright; a unit-aimed one with nothing under the pointer says so instead,
+  -- and either way the player is never left holding an armed mode they did not ask for.
+  local rect=Camera.rect(app)
+  Input.arm(app,'cast',ground2,rect.x+rect.w/2,rect.y+rect.h/2)
+  assert(not app.targeting,'smart cast armed a targeting mode instead of casting')
+  if Content.abilities[ground2].target~='unit' then
+   local fired=app.queue[#app.queue]
+   assert(#app.queue>queued and fired.kind=='cast','smart cast issued no command')
+  end
+  for i=#app.queue,queued+1,-1 do table.remove(app.queue,i) end
+  -- Pointed at the dock there is nothing to aim at, so it arms rather than casting at a
+  -- panel.
+  app.targeting=nil
+  Input.arm(app,'cast',ground2,rect.x+rect.w/2,rect.y+rect.h+40)
+  assert(app.targeting,'smart cast off the battlefield did not fall back to arming')
+  app.targeting=nil
+  app.settings.smartCast=was
+ end
+ -- A ping is a command, so it reaches the other player and the replay rather than being
+ -- a dot only this client draws.
+ local queued=#app.queue
+ app:command('ping',nil,{x=8*256,y=8*256})
+ local last=app.queue[#app.queue]
+ assert(#app.queue>queued and last.kind=='ping','the minimap ping did not become a command')
+ assert(last.args.x==8*256 and last.args.y==8*256,'the ping carried the wrong position')
+ for i=#app.queue,queued+1,-1 do table.remove(app.queue,i) end
+ app.localPing={x=8*256,y=8*256,time=app.clock,player=app.player}
+ app:draw()
+ app.localPing=nil
  app.targeting=nil;app.selected={hero.id}
- print('PASS abilities: command card, arming, ground and instant casts, cooldown and mana refusals')
+ print('PASS abilities: command card, arming, ground and instant casts, smart cast, ping, cooldown and mana refusals')
 end
 function eqAbility(a,b) assert(a==b,'wrong ability: '..tostring(a)..' != '..tostring(b)) end
 return T

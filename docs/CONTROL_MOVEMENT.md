@@ -92,3 +92,47 @@ The full local run passed **60 tests**. Four fresh processes matched 100,000-tic
 | Active-battle work and memory | 29,352 attacks; lead moved 5,796 ticks; retained heap 5,459 / 4,484 / 4,366 KiB |
 
 The active test meets its 10 ms p95 requirement on the recorded hardware. Its 121 ms maximum is still a hitch risk. Timing excludes renderer, bots, transport and replay encoding. A separate 600-tick rendered 1080p battle averaged about 54 FPS, with simulation p95 19.778 ms and frame cadence p95 43.173 ms; stable 60 FPS remains unmet. These fixtures establish bounded, reproducible scenarios, not a proof that every possible crowd configuration resolves. See STATUS.md for workload details and remaining human/cross-PC gates.
+
+## Movement revision — simulation version 9
+
+Paths are pulled taut. A* still returns the cell-by-cell parent chain, but a waypoint now
+survives only when the straight line past it would put the unit's body through terrain or
+break the keep-right rule in a narrow passage. The result is a subsequence of the original
+nodes, so `e.path` keeps its shape, nothing new enters the snapshot, and the final node is
+never dropped because arrival is an exact-equality test on it. A congested unit keeps the
+fine path deliberately: local steering dissolves a crowd by making progress toward the
+next waypoint, and with a waypoint thirty cells away almost no sidestep shortens that
+distance, so a unit in a press would stop registering progress and wait instead of
+filtering through.
+
+Finished paths are re-validated when the navigation set changes. Only the next waypoint
+used to be tested, so a war hall dropped ten cells ahead went unnoticed until the unit
+walked into it.
+
+Bystanders step aside when they are in the way rather than after the mover has been stuck
+for ten ticks, and any unit that is not going somewhere, holding position, mid-swing,
+fighting a target or building a site can be asked. Each steps to the side of the mover's
+line it is already standing on, so a crowd opens down the middle instead of parting like a
+zip in one direction and piling up on that side.
+
+Two new gates measure movement quality, which the suite never did before: it asserted that
+everyone arrives and never that they walked a sensible line, so a route could have
+regressed into a staircase and every crowd test would still have passed.
+
+| Fixture | Before | After |
+|---|---:|---:|
+| Open diagonal, distance walked over straight-line distance | staircase | 1.000x |
+| Route through a wall gap | — | 1.000x |
+| 100 units, open arrival | 932 ticks | 445 |
+| 100 units, chokepoint | 1,640 ticks | 1,326 |
+| 20 mixed units | 868 ticks | 705 |
+| 50 versus 50 counterflow | 4,079 ticks | 849 |
+
+Body radii are worker 72, ordinary 80, hero 96, heavy/ram/camp leader 112, carrier 56.
+The earlier text here said 80 and 112 only. Patrol and follow shipped in simulation
+version 6 and are no longer deferred; projectile travel shipped in version 10 for
+abilities, and is deliberately still off for auto-attacks.
+
+`rules.smoothBudget` bounds the terrain samples the smoother may spend per tick across
+every route completed that tick. A route that cannot be smoothed inside it is walked as
+A* produced it, which is correct, just less straight.

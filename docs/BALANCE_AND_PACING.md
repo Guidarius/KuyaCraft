@@ -218,3 +218,25 @@ Human acceptance still requires three mirror and three asymmetric matches, measu
 
 
 Reference host for this pass: local Windows development PC, AMD Ryzen 5 5600G, pinned LÖVE 11.5. Headless timing and a rendered 1080p workload are measured separately. Filtered-view copying now uses a validated ordered deep copy rather than a serialization round trip; canonical byte serialization is unchanged. Sight uses integer row-interval coverage, verified against the original circular-cell formula.
+
+## Hero abilities — provisional, unmeasured
+
+From simulation version 10 each hero has two active abilities. They exist to prove the
+four targeting kinds run end to end through shipping content, and their numbers are a
+starting point for playtesting rather than a balanced kit. Nothing in this document's
+measured timings accounts for them: the mirror and asymmetric bot matches do not cast,
+because the bot has no ability behaviour yet.
+
+| Hero | Ability | Kind | Mana | Cooldown | Effect |
+|---|---|---|---:|---:|---|
+| Warden | Bulwark | instant, 6-cell radius | 60 | 24 s | Allies take 4 less damage per hit for 8 s |
+| Warden | Challenge | unit, 5 cells | 45 | 12 s | 60 damage, 35% slow for 4 s |
+| Beastkeeper | Thornfall | area, 8 cells, 2.5 radius | 70 | 20 s | 30 damage, burns 15 a second for 5 s |
+| Beastkeeper | Snare | skill shot, 7 cells | 50 | 16 s | Thrown at 3 cells/s; first enemy takes 35 and is rooted 3 s |
+
+Both heroes have 200 mana and regenerate 1 a second. Tune these only alongside a playtest
+that actually uses them; the isolated duel and gold-rate fixtures cannot see them at all.
+
+Auto-attacks remain instantaneous. The projectile mechanism that would make a crossbow
+bolt travel exists and is used by abilities, but enabling it for ranged attacks changes
+when every ranged trade in the game lands, which is a balance change and not a refactor.
