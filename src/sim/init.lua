@@ -5,6 +5,7 @@ local Path = require('src.sim.path')
 local G=require('src.sim.geometry')
 local Movement=require('src.sim.movement')
 local Harvest=require('src.sim.harvesting')
+local Vision=require('src.sim.vision')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
 -- replays store whole-world hashes and are rejected rather than misreported as
 -- divergence. See Sim.serializeAuthoritative.
@@ -172,6 +173,16 @@ local function visibility(w)
         if visible then for key in pairs(visible) do visible[key]=nil end else visible={};player.visible=visible end
         local explored=player.explored
         player.knownResources=player.knownResources or {}
+        -- Line of sight walks each observer's own shadow field, so overlapping armies
+        -- cannot share the work the way the radial span fill does. Radial visibility
+        -- stays available as a content rule for maps and profiles that want it, and
+        -- because it is markedly cheaper with a large army on screen.
+        if w.content.rules.lineOfSight then
+            for _,id in ipairs(w.order) do local e=w.entities[id]
+                if e.alive and e.owner==p then Vision.field(w,e,def(w,e).sight,visible,explored) end
+            end
+            Sim.knownResources(w,p,player)
+        else
         local rowCount=0
         for _,id in ipairs(w.order) do local e=w.entities[id]
             if e.alive and e.owner==p then
@@ -210,18 +221,21 @@ local function visibility(w)
             end
             rowMin[y]=nil;rowMax[y]=nil
         end
-        -- Resource nodes never move, so a remembered entry stays correct for as long as
-        -- it exists; rebuilding one per visible node per tick allocated thousands of
-        -- identical tables a second. Only a first sighting or a witnessed depletion
-        -- changes anything, and an unseen node keeps whatever was last observed.
-        if w.content.rules.profile then
-            local known=player.knownResources
-            for _,id in ipairs(w.order) do local n=w.entities[id]
-                if n.category=='node' and Sim.visible(w,p,n) then
-                    if not n.alive then known[id]=nil
-                    elseif not known[id] then known[id]={id=id,x=n.x,y=n.y,size=n.size,resource=n.resource} end
-                end
-            end
+        Sim.knownResources(w,p,player)
+        end
+    end
+end
+-- Resource nodes never move, so a remembered entry stays correct for as long as it
+-- exists; rebuilding one per visible node per tick allocated thousands of identical
+-- tables a second. Only a first sighting or a witnessed depletion changes anything, and
+-- an unseen node keeps whatever was last observed.
+function Sim.knownResources(w,p,player)
+    if not w.content.rules.profile then return end
+    local known=player.knownResources
+    for _,id in ipairs(w.order) do local n=w.entities[id]
+        if n.category=='node' and Sim.visible(w,p,n) then
+            if not n.alive then known[id]=nil
+            elseif not known[id] then known[id]={id=id,x=n.x,y=n.y,size=n.size,resource=n.resource} end
         end
     end
 end

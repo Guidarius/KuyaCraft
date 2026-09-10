@@ -1,4 +1,4 @@
-local T=require('src.content_time')
+﻿local T=require('src.content_time')
 local C = {
     version = 3,
     rules = { profile='marches-v1', tickRate=20, population=80, pathBudget=256, directPathBudget=16384,
@@ -14,7 +14,11 @@ local C = {
         -- Units moved together as one group walk at the slowest member's pace, so a
         -- mixed army arrives as an army instead of arriving piecemeal. Set false to
         -- return to every unit moving at its own speed.
-        formationPacing=true },
+        formationPacing=true,
+        -- Sight is blocked by terrain, buildings and forests rather than passing
+        -- straight through them. Set false for the cheaper radial visibility, which
+        -- costs markedly less with a large army because overlapping fields share work.
+        lineOfSight=true },
     units = {},
     buildings = {
         hq={label='Headquarters',hp=2800,size=5,sight=14,cost={},buildTicks=1,dropoff={gold=true,lumber=true},damage=30,range=2048,cooldown=30,windup=6,baseHeal=10},

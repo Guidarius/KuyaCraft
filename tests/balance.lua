@@ -112,7 +112,13 @@ function B.register(test)
   step(w,1);step(clone,1);eq(Codec.encode(e.order),Codec.encode(clone.entities[e.id].order));eq(e.order.kind,'harvest');eq(e.x,clone.entities[e.id].x);eq(e.y,clone.entities[e.id].y)
  end)
  test('simulation','balance: merged sight spans equal circular visibility oracle',function()
-  local w=world();for i=1,40 do S.unit(w,i%2==0 and 'shield' or 'crossbow',1,15+i%12,20+math.floor(i/12)) end
+  -- This validates the radial span merge against a naive circle, so it must run with
+  -- the radial rule. Line of sight deliberately produces a different field: it stops at
+  -- obstructions and originates at a building's centre rather than its corner. That
+  -- field has its own scenarios in tests/vision_scenarios.lua, one of which proves the
+  -- two agree exactly on open ground.
+  local w=world();w.content.rules.lineOfSight=false
+  for i=1,40 do S.unit(w,i%2==0 and 'shield' or 'crossbow',1,15+i%12,20+math.floor(i/12)) end
   step(w,1);local expected={}
   for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.owner==1 then local d=w.content.units[e.kind] or w.content.buildings[e.kind];local cx,cy=F.cell(e.x),F.cell(e.y)
    for y=math.max(0,cy-d.sight),math.min(w.map.height-1,cy+d.sight) do for x=math.max(0,cx-d.sight),math.min(w.map.width-1,cx+d.sight) do if (x-cx)^2+(y-cy)^2<=d.sight^2 then expected[P.key(w.map,x,y)]=true end end end

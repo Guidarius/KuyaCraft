@@ -220,6 +220,7 @@ test('simulation','follow keeps station, never acquires, and ends with its targe
 test('simulation','deliveries and kill tallies are authoritative',function() require('tests.order_scenarios').tallies() end)
 test('simulation','new orders survive a recorded replay',function() require('tests.order_scenarios').replay() end)
 test('simulation','a group move travels at the pace of its slowest member',function() require('tests.order_scenarios').formation() end)
+test('simulation','sight is blocked by terrain, buildings and forests',function() require('tests.vision_scenarios').run() end)
 test('scenario','mirror bot match and replay',function() require('tests.scenarios').match(true) end)
 test('scenario','asymmetric bot match and replay',function() require('tests.scenarios').match(false) end)
 test('performance','240-unit four-player stress',function() require('tests.scenarios').performance() end)

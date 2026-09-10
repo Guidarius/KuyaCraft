@@ -192,6 +192,34 @@ the asymmetric from **634.55 s to 632.45 s**. A ~7% longer mirror is consistent 
 cohesive arrivals producing decisive engagements rather than a stream of individual
 deaths, but two matches on one seed is an observation, not a measurement of bot strength.
 
+## Sight revision — line of sight
+
+Sight is now blocked by terrain, buildings and forests. The implementation is recursive
+shadowcasting over eight octants, with slopes held as integer numerator/denominator pairs
+and compared by cross-multiplication rather than as floats, so it is exact on any
+platform and keeps the guarantees the rest of the simulation relies on. A blocking cell
+is itself visible: you see the wall, not past it.
+
+Buildings now look out from the middle of their footprint instead of a corner. Without
+that a building is blinded by its own body, because its sight originates inside a blocked
+rectangle.
+
+Five scenarios cover it (`tests/vision_scenarios.lua`), including one that proves line of
+sight and the radial rule produce a **cell-for-cell identical field on open ground** —
+that is what establishes the new rule as a restriction of the old behaviour rather than a
+differently shaped field.
+
+Cost, measured back to back in one session: radial visibility p50 **2.40 ms**, line of
+sight **14.58 ms** uncached and **5.41 ms** with a per-observer field cache, in the
+240-unit benchmark. Radial shares work between overlapping observers through a prefix
+sum and line of sight cannot, because each field depends on its own origin; the cache
+recovers half of that by replaying an observer's recorded field whenever neither its cell
+nor the obstruction set has changed, which is every tick for a building and most ticks for
+an idle economy. `rules.lineOfSight=false` returns to radial.
+
+Both bot matches are almost unaffected, because the bots fight in the open: the mirror
+moved from 701.95 s to **701.6 s** and the asymmetric is unchanged at **632.45 s**.
+
 ## Milestone gates
 
 
@@ -232,7 +260,7 @@ deaths, but two matches on one seed is an observation, not a measurement of bot 
 
 - Passive mechanics are focused Lua implementations, not a generalized ability framework.
 
-- Fog uses radial visibility on flat terrain, without obstacle line-of-sight. Filtered observation memory supplies last-seen enemy-building/resource/camp minimap markers.
+- Fog uses line-of-sight: terrain, buildings and forests block sight rather than being seen through. Implemented as recursive shadowcasting with integer rational slopes, so it carries the same determinism guarantees as the rest of the simulation. `rules.lineOfSight=false` restores the cheaper radial visibility, which shares work between overlapping observers and costs about 2.25x less with a large army. Filtered observation memory supplies last-seen enemy-building/resource/camp minimap markers.
 
 - Native multiplayer is 1v1. The simulation accepts four players; interactive 4-player matches are not yet exposed.
 
