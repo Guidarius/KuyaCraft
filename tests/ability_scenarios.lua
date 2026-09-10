@@ -258,7 +258,52 @@ function M.ordering()
     end
     eq(run(false),run(true),'two casts in one tick resolved differently depending on arrival order')
 end
+-- A thrown line is a body in flight, not an instant result. It takes time to arrive, it
+-- can be walked out of, and it stops at the first thing it touches.
+function M.projectile()
+    local w=world()
+    local hero=unit(w,'beastkeeper',2,10,10)
+    local victim=unit(w,'shield',1,15,10)
+    victim.order={kind='hold'}
+    settle(w)
+    local hp=victim.hp
+    Sim.step(w,{cast(w,hero,'dart',{x=F.center(18),y=F.center(10)})})
+    assert(not rejection(w),'a legal thrown cast was rejected: '..tostring(rejection(w)))
+    -- Wait out the cast point, then look for the shot itself.
+    local flying,guard=nil,0
+    while not flying and guard<40 do
+        step(w,1);guard=guard+1
+        for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='projectile' then flying=e end end
+    end
+    assert(flying,'no projectile was launched')
+    eq(victim.hp,hp,'the shot dealt its damage before it had travelled anywhere')
+    local startX=flying.x
+    step(w,1)
+    assert(flying.x>startX,'the projectile did not move')
+    -- It arrives, once, and is recycled rather than left in the world.
+    guard=0
+    while victim.hp==hp and guard<200 do step(w,1);guard=guard+1 end
+    eq(victim.hp,hp-15,'the shot did not deal its impact damage exactly once')
+    assert(Abilities.status(w,victim,'stun'),'the impact status was not applied')
+    step(w,1)
+    for _,id in ipairs(w.order) do local e=w.entities[id];assert(not (e.alive and e.category=='projectile'),'the shot outlived its impact') end
+    -- A shot aimed at nothing expires at the end of its range instead of flying forever.
+    local before=0
+    for _,id in ipairs(w.order) do if w.entities[id].category=='projectile' then before=before+1 end end
+    hero.cooldowns=nil
+    Sim.step(w,{cast(w,hero,'dart',{x=F.center(10),y=F.center(2)})})
+    guard=0
+    while guard<120 do
+        step(w,1);guard=guard+1
+        local live=false
+        for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='projectile' then live=true end end
+        if not live and guard>10 then break end
+    end
+    local after=0
+    for _,id in ipairs(w.order) do if w.entities[id].category=='projectile' then after=after+1 end end
+    eq(after,before,'a spent projectile was not recycled: the entity list grew')
+end
 function M.run()
-    M.instant();M.targeted();M.cancellation();M.area();M.skillshot();M.rejections();M.snapshot();M.ordering()
+    M.instant();M.targeted();M.cancellation();M.area();M.skillshot();M.projectile();M.rejections();M.snapshot();M.ordering()
 end
 return M

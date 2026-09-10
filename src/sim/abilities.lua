@@ -195,8 +195,22 @@ function A.castRange(w,e,ability,order)
 end
 local function fire(w,e,ability,order,pending,api)
     local out={}
-    local n=A.targets(w,e,ability,order,out)
     local px,py=pointOf(w,e,order)
+    -- A projectile effect launches rather than resolving: the ability's targets are
+    -- decided when the shot arrives, not when it leaves, which is what makes a skill
+    -- shot something a player can walk out of.
+    local launched=false
+    for index,effect in ipairs(ability.effects or {}) do
+        if effect.kind=='projectile' then
+            launched=true
+            api.launch(w,e,ability,index,effect,order,px,py)
+        end
+    end
+    if launched then
+        api.emit(w,'cast',{source=e.id,ability=order.ability,target=order.target,castX=px,castY=py,hits=0})
+        return 0
+    end
+    local n=A.targets(w,e,ability,order,out)
     for _,effect in ipairs(ability.effects or {}) do
         for i=1,n do
             local t=out[i]

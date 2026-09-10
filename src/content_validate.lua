@@ -7,10 +7,10 @@ return function(C)
         assert(F.integer(d.radius,1,127),'invalid unit radius')
         assert(F.integer(d.speed,1,64),'invalid unit speed')
         assert(F.integer(d.range,0,65536),'invalid weapon range')
-        -- Carriers have no combat at all: no damage key, so nothing ever reads a windup
-        -- or a cooldown from them. Asserting a firing cadence on one would only mean
-        -- inventing numbers to satisfy the check.
-        if d.carrier then assert(not d.damage,'a carrier must not have damage')
+        -- Neither carriers nor projectiles ever attack: no damage key, so nothing ever
+        -- reads a windup or a cooldown from them. Asserting a firing cadence on one
+        -- would only mean inventing numbers to satisfy the check.
+        if d.carrier or d.projectile then assert(not d.damage,'a carrier or projectile must not have damage')
         else assert(F.integer(d.windup,1,d.cooldown-6),'invalid windup') end
     end
     for _,d in pairs(C.buildings) do if d.damage then assert(F.integer(d.windup,1,d.cooldown-1),'invalid building windup') end end
@@ -33,8 +33,17 @@ return function(C)
         if d.target=='direction' then assert(F.integer(d.width,1,65536),'ability '..id..' needs a width') end
         assert(d.effects and #d.effects>0,'ability '..id..' does nothing')
         for _,effect in ipairs(d.effects) do
-            assert(effect.kind=='damage' or effect.kind=='heal' or effect.kind=='status','ability '..id..' has an unknown effect kind')
-            if effect.kind=='status' then
+            assert(effect.kind=='damage' or effect.kind=='heal' or effect.kind=='status' or effect.kind=='projectile','ability '..id..' has an unknown effect kind')
+            if effect.kind=='projectile' then
+                assert(d.target~='none','ability '..id..' launches a projectile but takes no target to aim it at')
+                assert(F.integer(effect.speed,1,4096),'ability '..id..' has an invalid projectile speed')
+                assert(F.integer(effect.radius or 1,1,65536),'ability '..id..' has an invalid projectile radius')
+                assert(effect.onHit and #effect.onHit>0,'ability '..id..' fires a projectile that does nothing on impact')
+                for _,hit in ipairs(effect.onHit) do
+                    assert(hit.kind=='damage' or hit.kind=='heal' or hit.kind=='status','ability '..id..' has an unknown impact effect')
+                    if hit.kind=='status' then assert(C.statuses and C.statuses[hit.status],'ability '..id..' applies the unknown status '..tostring(hit.status)) end
+                end
+            elseif effect.kind=='status' then
                 assert(C.statuses and C.statuses[effect.status],'ability '..id..' applies the unknown status '..tostring(effect.status))
                 assert(F.integer(effect.ticks,1,100000),'ability '..id..' applies a status with no duration')
             else assert(F.integer(effect.amount,1,100000),'ability '..id..' has an invalid effect amount') end

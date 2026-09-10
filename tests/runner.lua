@@ -233,6 +233,7 @@ test('simulation','a targeted cast walks into range, damages once and really slo
 test('simulation','moving before the cast point cancels it and costs nothing',function() require('tests.ability_scenarios').cancellation() end)
 test('simulation','an area cast hits its circle and its burn ticks on a period',function() require('tests.ability_scenarios').area() end)
 test('simulation','a skill shot hits the first unit on its line and stuns it',function() require('tests.ability_scenarios').skillshot() end)
+test('simulation','a thrown shot travels, lands once and is recycled',function() require('tests.ability_scenarios').projectile() end)
 test('simulation','casts are refused with a reason the player can act on',function() require('tests.ability_scenarios').rejections() end)
 test('simulation','casts and statuses survive a snapshot identically',function() require('tests.ability_scenarios').snapshot() end)
 test('simulation','an area effect resolves in world order, not arrival order',function() require('tests.ability_scenarios').ordering() end)

@@ -24,7 +24,8 @@ local C = {
         warden = { label = 'Warden', radius = 80, windup = 4, hp = 600, damage = 24, range = 350, cooldown = 20, speed = 32, sight = 8, hero = true },
         beastkeeper = { label = 'Beastkeeper', radius = 80, windup = 4, hp = 460, damage = 22, range = 350, cooldown = 18, speed = 40, sight = 8, hero = true },
         neutral = { label = 'Camp guardian', radius = 80, windup = 4, hp = 170, damage = 10, range = 340, cooldown = 25, speed = 24, sight = 5 },
-        carrier = { label = 'Gold carrier', radius = 56, hp = 40, cooldown = 1, windup = 1, range = 0, speed = 40, sight = 0, food = 0, buildTicks = 0, cost = {}, carrier = true }
+        carrier = { label = 'Gold carrier', radius = 56, hp = 40, cooldown = 1, windup = 1, range = 0, speed = 40, sight = 0, food = 0, buildTicks = 0, cost = {}, carrier = true },
+        projectile = { label = 'Projectile', radius = 1, hp = 1, cooldown = 1, windup = 1, range = 0, speed = 1, sight = 0, food = 0, buildTicks = 0, cost = {}, projectile = true }
     },
     buildings = {
         hq = { label = 'Headquarters', hp = 2200, size = 3, sight = 9, cost = {}, buildTicks = 1, dropoff = true },
@@ -61,10 +62,16 @@ C.abilities={
     scorch={label='Scorch',slot=2,target='area',range=2048,radius=768,filter={enemy=true},
         cost={mana=30},cooldown=40,castPoint=4,backswing=4,
         effects={{kind='damage',amount=20},{kind='status',status='burn',ticks=60,amount=10}}},
+    -- Instant line: the hitscan path, kept so both direction resolutions stay covered.
     lash={label='Lash',slot=3,target='direction',range=1536,width=256,filter={enemy=true},
         cost={mana=25},cooldown=40,castPoint=4,backswing=4,
-        effects={{kind='damage',amount=15},{kind='status',status='stun',ticks=40}}}
+        effects={{kind='damage',amount=15},{kind='status',status='stun',ticks=40}}},
+    -- Thrown line: the same geometry with a position that advances, so it can be dodged.
+    dart={label='Dart',slot=4,target='direction',range=1536,width=256,filter={enemy=true},
+        cost={mana=25},cooldown=40,castPoint=4,backswing=4,
+        effects={{kind='projectile',speed=64,radius=128,
+            onHit={{kind='damage',amount=15},{kind='status',status='stun',ticks=40}}}}}
 }
 C.units.warden.abilities={'ward','smite'};C.units.warden.mana=100;C.units.warden.manaRegen=1
-C.units.beastkeeper.abilities={'scorch','lash'};C.units.beastkeeper.mana=100;C.units.beastkeeper.manaRegen=1
+C.units.beastkeeper.abilities={'scorch','lash','dart'};C.units.beastkeeper.mana=100;C.units.beastkeeper.manaRegen=1
 return C

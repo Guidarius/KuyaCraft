@@ -6,6 +6,7 @@ local G=require('src.sim.geometry')
 local Movement=require('src.sim.movement')
 local Stats=require('src.sim.stats')
 local Abilities=require('src.sim.abilities')
+local Projectiles=require('src.sim.projectiles')
 local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
@@ -193,13 +194,13 @@ local function visibility(w)
         -- because it is markedly cheaper with a large army on screen.
         if w.content.rules.lineOfSight then
             for _,id in ipairs(w.order) do local e=w.entities[id]
-                if e.alive and e.owner==p then Vision.field(w,e,Stats.sight(w,e),visible,explored) end
+                if e.alive and e.owner==p and e.category~='projectile' then Vision.field(w,e,Stats.sight(w,e),visible,explored) end
             end
             Sim.knownResources(w,p,player)
         else
         local rowCount=0
         for _,id in ipairs(w.order) do local e=w.entities[id]
-            if e.alive and e.owner==p then
+            if e.alive and e.owner==p and e.category~='projectile' then
                 local sight=Stats.sight(w,e);local spans=sightSpans[sight]
                 if not spans then spans={};for dy=-sight,sight do spans[dy]=F.isqrt(sight*sight-dy*dy) end;sightSpans[sight]=spans end
                 local cx,cy=F.cell(e.x),F.cell(e.y)
@@ -279,7 +280,9 @@ local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','
     'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
     'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine',
-    'mana','maxMana'}
+    'mana','maxMana',
+    -- A shot in flight carries its heading so the renderer can point it the right way.
+    'dx','dy','ability'}
 -- Fields an observer may only see on entities it owns.
 local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','payload','mine'}
 local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
@@ -944,7 +947,30 @@ end
 local pendingEffects={}
 -- The ability module owns casting and statuses but must not reach back into this file,
 -- or the two would be circular. It gets the four things it needs instead.
-local abilityApi={emit=emit,halt=halt,nextOrder=nextOrder,approachCast=approachCast}
+-- Launch a shot. Reuses a spent projectile where one exists, exactly as the carrier
+-- stream does, so a long battle does not grow the entity list without bound.
+local function launch(w,e,ability,index,effect,order,px,py)
+    local shot
+    for _,id in ipairs(w.order) do
+        local candidate=w.entities[id]
+        if candidate.category=='projectile' and candidate.spent then shot=candidate;break end
+    end
+    if not shot then shot=spawn(w,'projectile',e.owner,F.cell(e.x),F.cell(e.y),'projectile') end
+    shot.alive=true;shot.spent=nil;shot.deathTick=nil;shot.hit=nil
+    shot.owner=e.owner;shot.x=e.x;shot.y=e.y
+    shot.source=e.id;shot.ability=order.ability;shot.effectIndex=index
+    shot.speed=effect.speed or 64;shot.radius=effect.radius or 96;shot.pierce=effect.pierce or nil
+    if ability.target=='unit' then
+        shot.target=order.target;shot.remaining=nil;shot.dx=0;shot.dy=0
+    else
+        shot.target=nil
+        local dx,dy=F.vector((px or e.x)-e.x,(py or e.y)-e.y,shot.speed)
+        if dx==0 and dy==0 then dx=shot.speed end
+        shot.dx=dx;shot.dy=dy;shot.remaining=ability.range or 1024
+    end
+    emit(w,'projectile_launched',{entity=shot.id,source=e.id,ability=order.ability})
+end
+local abilityApi={emit=emit,halt=halt,nextOrder=nextOrder,approachCast=approachCast,launch=launch}
 -- Damage, healing and status application, all in one place and all applied after every
 -- source for the tick has been collected. Ability effects come first because they were
 -- produced earlier in the tick, then the auto-attack hits; within each, the order is
@@ -1082,6 +1108,7 @@ function Sim.step(w,commands)
     -- rather than in whatever order the phases happen to run.
     combatOrders(w);economy(w);movement(w);visibility(w);finishOrders(w)
     for i=#pendingEffects,1,-1 do pendingEffects[i]=nil end
+    Projectiles.step(w,pendingEffects,abilityApi)
     Abilities.step(w,pendingEffects,abilityApi)
     if combat(w,pendingEffects) then visibility(w) end
     local survivors={}
@@ -1144,7 +1171,7 @@ function Sim.recomputeBlocked(w)
     for _,id in ipairs(w.order) do
         local e=w.entities[id]
         -- Carriers are not obstructions: they walk through everything but terrain.
-        if e.alive and e.category~='unit' and e.category~='carrier' then
+        if e.alive and e.category~='unit' and e.category~='carrier' and e.category~='projectile' then
             local size=e.size or 1
             for y=F.cell(e.y),F.cell(e.y)+size-1 do
                 for x=F.cell(e.x),F.cell(e.x)+size-1 do blocked[Path.key(w.map,x,y)]=true end

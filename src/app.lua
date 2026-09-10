@@ -371,6 +371,18 @@ function App:drawEntity(e)
     -- Carriers are drawn small and stooped, with the gold they are holding above them, so
     -- a stream of them reads at a glance as income crossing the map -- and so an enemy
     -- can see what it is worth cutting.
+    -- A shot in flight: a short streak along its own heading, so which way it is going
+    -- reads without any art. Interpolated like a unit, because at 20 Hz a fast shot
+    -- would otherwise jump a third of a cell per frame.
+    elseif e.category=='projectile' then
+        local len=6*z
+        local dx,dy=e.dx or 0,e.dy or 0
+        local mag=math.sqrt(dx*dx+dy*dy)
+        if mag>0 then dx,dy=dx/mag*len,dy/mag*len*(CELL_Y/26) else dx,dy=len,0 end
+        g.setColor(1,.92,.6,.95);g.setLineWidth(math.max(1.5,2*z))
+        g.line(x-dx,y-dy-14*z,x+dx,y+dy-14*z)
+        g.setColor(1,.75,.35,.5);g.circle('fill',x+dx,y+dy-14*z,2*z)
+        g.setLineWidth(1)
     elseif e.category=='carrier' then
         z=z*0.66
         color(team);g.rectangle('fill',x-6*z,y-16*z,12*z,12*z,3*z)

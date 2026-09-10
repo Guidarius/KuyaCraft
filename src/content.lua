@@ -86,6 +86,11 @@ unit('leader','Camp leader',0,0,0,700,24,1.8,.4,.25,28,112)
 -- key at all, because that is what tells the combat phase they never attack. They are
 -- never recruited, cost nothing, eat no food, and grant no vision -- a convoy does not
 -- scout for you, so an ambush on your supply line is something you have to go and see.
+-- A shot in flight. It is a unit definition only because every entity needs one; it has
+-- no damage, no sight, no food and never moves under its own orders. What it does is in
+-- src/sim/projectiles.lua, and what it does to whoever it hits is in the ability.
+C.units.projectile={label='Projectile',cost={},food=0,buildTicks=0,hp=1,
+    cooldown=1,windup=1,range=0,speed=1,radius=1,sight=0,projectile=true}
 C.units.carrier={label='Gold carrier',cost={},food=0,buildTicks=0,hp=40,
     cooldown=1,windup=1,range=0,speed=40,radius=56,sight=0,carrier=true}
 -- The four targeting kinds, one hero ability each, so that every path through the cast
@@ -115,8 +120,11 @@ C.abilities = {
     snare = { label='Snare', hotkey='e', slot=3, target='direction', range=T.cells(7), width=T.cells(1.25),
         filter={enemy=true,building=false}, cost={mana=50}, cooldown=T.ticks(16),
         castPoint=T.ticks(.35), backswing=T.ticks(.35),
-        tip='A line 7 cells long. The first enemy it catches takes 35 damage and cannot move for 3 seconds.',
-        effects={{kind='damage',amount=35},{kind='status',status='root',ticks=T.ticks(3)}} }
+        tip='A thrown line 7 cells long. The first enemy it catches takes 35 damage and cannot move for 3 seconds.',
+        -- A real shot rather than an instant line: it travels at 3 cells a second, so it
+        -- can be walked out of, which is what makes aiming it a skill rather than a click.
+        effects={{kind='projectile',speed=60,radius=160,
+            onHit={{kind='damage',amount=35},{kind='status',status='root',ticks=T.ticks(3)}}}} }
 }
 
 C.units.warden.abilities={'bulwark','challenge'};C.units.warden.mana=200;C.units.warden.manaRegen=1
