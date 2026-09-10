@@ -8,6 +8,74 @@ local Mini=require('src.ui.minimap')
 local I={}
 local function shift() return love.keyboard.isDown('lshift','rshift') end
 local function ctrl() return love.keyboard.isDown('lctrl','rctrl') end
+-- Targeting is one record rather than a scatter of mode flags. `app.targeting` is nil
+-- when nothing is armed, and otherwise says what the next click means: a command kind,
+-- and for a cast the ability and its definition. Everything downstream -- the cursor,
+-- the range ring, the area circle, the click handler and Escape -- reads this one place,
+-- which is what lets an ability with a new target kind work without touching any of them.
+function I.arm(app,command,ability)
+ app.building=nil
+ if not command then app.targeting=nil;return end
+ local spec=ability and Content.abilities and Content.abilities[ability] or nil
+ -- A no-target ability has nothing to click: it fires where the caster stands.
+ if spec and spec.target=='none' then app.targeting=nil;I.castAt(app,nil,nil,nil,ability);return end
+ app.targeting={command=command,ability=ability,spec=spec}
+end
+function I.disarm(app) app.targeting=nil;app.building=nil end
+-- Every selected unit that owns the ability casts it. Out of range is not an error: the
+-- caster walks, exactly as it does for an attack order.
+function I.castAt(app,x,y,target,ability)
+ if app.playback then return end
+ local spec=Content.abilities and Content.abilities[ability]
+ if not spec then return end
+ local ordered={}
+ for _,id in ipairs(app.selected) do
+  local e=app:entity(id)
+  local d=e and e.alive and Content.units[e.kind]
+  local owns=false
+  if d and d.abilities then for _,name in ipairs(d.abilities) do if name==ability then owns=true end end end
+  if owns then
+   local args={ability=ability,append=shift()}
+   if spec.target=='unit' then
+    if not target then app.message='Choose a target for '..spec.label;app.audio:play('rejected');return end
+    args.target=target.id
+   elseif spec.target~='none' then args.x=x;args.y=y end
+   app:command('cast',id,args);ordered[#ordered+1]={id=id,kind=e.kind,command='cast'}
+  end
+ end
+ if #ordered>0 then
+  if x then app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind='cast'} end
+  I.acknowledge(app,ordered);app.message=spec.label
+ else app.message='Nothing selected can use '..spec.label;app.audio:play('rejected') end
+end
+-- What an armed click does. One place, so a new target kind is one branch here rather
+-- than an edit in the world handler, the minimap handler and the cursor code.
+function I.resolveTargeting(app,x,y,hit)
+ local t=app.targeting
+ if not t then return end
+ app.targeting=nil
+ if t.ability then return I.castAt(app,x,y,hit,t.ability) end
+ I.intent(app,x,y,hit,t.command)
+end
+-- Whether the pointer is over something the armed ability may be aimed at. Only unit
+-- targeting can be invalid at a given pixel; ground targeting is always legal, and out
+-- of range is not invalid because the caster will walk.
+function I.castLegal(app,spec,hit)
+ if not spec then return true end
+ if spec.target~='unit' then return true end
+ if not hit or not hit.alive then return false end
+ if hit.category=='node' or hit.category=='carrier' then return false end
+ local filter=spec.filter or {enemy=true}
+ if hit.category=='building' and not filter.building then return false end
+ if hit.owner==app.player then return filter.ally==true or filter.self==true end
+ return filter.enemy==true
+end
+function I.castShape(app,hit)
+ local t=app.targeting
+ if not t then return 'arrow' end
+ if not I.castLegal(app,t.spec,hit) then return 'invalid' end
+ return 'attack'
+end
 function I.intent(app,x,y,target,kind)
  if app.playback then return end
  local count=0;app.commandGroup=(app.commandGroup or 0)+1
@@ -78,7 +146,7 @@ function I.rally(app,x,y,target)
  end
 end
 function I.mousepressed(app,x,y,button,presses)
- if button==2 and (app.building or app.targetMode) then app.building=nil;app.targetMode=nil;return end
+ if button==2 and (app.building or app.targeting) then I.disarm(app);return end
  if app.widgets.context and app.widgets.context~=(app.overlay or 'match') then return end
  if button==1 then local hit,reason=app.widgets:click(x,y);if hit then if reason then app.message=reason;app.audio:play('rejected') end;return end end
  if app.overlay then return end
@@ -90,7 +158,7 @@ function I.mousepressed(app,x,y,button,presses)
   local r=app.minimap;local wx,wy=Mini.position(app.view.map,r,x/s,y/s)
   if wx then
    if button==1 and love.keyboard.isDown('lalt','ralt') then app.localPing={x=wx,y=wy,time=app.clock}
-   elseif button==1 and app.targetMode then I.intent(app,wx,wy,nil,app.targetMode);app.targetMode=nil
+   elseif button==1 and app.targeting then I.resolveTargeting(app,wx,wy,nil)
    elseif button==1 then app.capture='minimap';Camera.center(app,wx,wy)
    elseif button==2 then
     local target,best
@@ -110,7 +178,7 @@ function I.mousepressed(app,x,y,button,presses)
     for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.kind=='worker' then app:command('build',id,{building=app.building,x=cx,y=cy,append=shift()});break end end
     if not shift() then app.awaitingPlacement=app.building;app.building=nil end
    else app.message=reason;app.audio:play('rejected') end
-  elseif app.targetMode then local wx,wy=app:position(x,y);I.intent(app,wx,wy,app:pick(x,y),app.targetMode);app.targetMode=nil
+  elseif app.targeting then local wx,wy=app:position(x,y);I.resolveTargeting(app,wx,wy,app:pick(x,y))
   elseif (presses and presses>=2) or ctrl() then I.selectSameKind(app,x,y)
   else app.drag={x=x,y=y};app.capture='selection' end
  elseif button==2 then local wx,wy=app:position(x,y);I.intent(app,wx,wy,app:pick(x,y)) end
@@ -140,8 +208,9 @@ function I.updateHover(app,x,y)
   local wx,wy=app:position(x,y)
   local valid=Sim.placement(app.view,Content,app.building,math.floor(wx/256),math.floor(wy/256))
   shape=valid and 'build' or 'invalid'
- elseif app.targetMode=='attack_move' or app.targetMode=='patrol' then shape='attack'
- elseif app.targetMode=='move' then shape='move'
+ elseif app.targeting and app.targeting.ability then shape=I.castShape(app,hit)
+ elseif app.targeting and (app.targeting.command=='attack_move' or app.targeting.command=='patrol') then shape='attack'
+ elseif app.targeting and app.targeting.command=='move' then shape='move'
  elseif hit and hit.owner~=app.player and hit.owner~=0 and hit.category~='node' then shape='attack'
  -- A mine is inert: it reads as a place to build on, not a thing to click.
  elseif hit and hit.category=='node' then shape='build' end
@@ -277,7 +346,7 @@ function I.keypressed(app,key)
   end;app.rebind=nil;return
  end
  if key=='escape' then
-  if app.building or app.targetMode then app.building=nil;app.targetMode=nil
+  if app.building or app.targeting then I.disarm(app)
   elseif app.overlay then app.overlay=nil else app.overlay='pause' end;return
  end
  if app.overlay then return end

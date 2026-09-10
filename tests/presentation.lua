@@ -102,7 +102,7 @@ end
 function T.gamefeel(app)
  local Camera=require('src.ui.camera');local Input=require('src.ui.input');local Settings=require('src.ui.settings')
  local Selection=require('src.ui.selection')
- app.overlay=nil;app.building=nil;app.targetMode=nil
+ app.overlay=nil;app.building=nil;app.targeting=nil
 
  -- Idle workers: counted, selected, and cycled rather than always returning the first.
  local idle=Input.idleWorkers(app)
@@ -218,8 +218,8 @@ function T.gamefeel(app)
  app:update(.05)
  assert(app.world.entities[mover].order.kind=='move','a unit selection turned a right click into a rally')
  -- Patrol arms a target mode and then issues a patrol order.
- app:keypressed('p');assert(app.targetMode=='patrol','P did not arm patrol targeting')
- Input.intent(app,14*256+128,9*256+128,nil,'patrol');app.targetMode=nil
+ app:keypressed('p');assert(app.targeting and app.targeting.command=='patrol','P did not arm patrol targeting')
+ Input.intent(app,14*256+128,9*256+128,nil,'patrol');app.targeting=nil
  app:update(.05)
  assert(app.world.entities[mover].order.kind=='patrol','patrol order was not issued')
  assert(app.world.entities[mover].order.originX,'patrol order carries no beat origin')
@@ -233,6 +233,7 @@ function T.gamefeel(app)
   assert(app.world.entities[mover].order.target==other)
  end
  T.warcraftControls(app)
+ T.abilities(app)
  -- Every gameplay-presentation setting must actually be reachable and must persist.
  -- These existed and worked before they had any control, which meant a player could
  -- not change them and the README described options that were not there.
@@ -357,4 +358,87 @@ function T.warcraftControls(app)
  app.selected={mover};app.subgroupKind=nil;Camera.clamp(app)
  print('PASS warcraft controls: focus fire, non-destructive Tab, card priority, box priority, acknowledgement, anchored effects, windup')
 end
+-- Abilities from the player's side: the card offers them, the hotkey arms them, a click
+-- casts them, and every refusal says why. A spell that is unreachable from the command
+-- card is a spell that does not exist as far as a player is concerned.
+function T.abilities(app)
+ local Input=require('src.ui.input')
+ local Content=require('src.content')
+ local hero=app:entity(app.view.player.hero)
+ if not hero or not hero.alive then return end
+ local names=Content.units[hero.kind].abilities
+ assert(names and #names>0,'the hero has no abilities to offer')
+ app.selected={hero.id};app.subgroupKind=nil;app.targeting=nil
+ app:draw()
+ -- Every ability has a button, and the button carries the ability label.
+ for _,name in ipairs(names) do
+  local spec=Content.abilities[name]
+  local button
+  for _,b in ipairs(app.widgets.items) do if b.id=='ability-'..name then button=b end end
+  assert(button,'no command-card button for '..name)
+  assert(button.label:find(spec.label,1,true),'the button for '..name..' does not name it')
+ end
+ -- A ground-targeted ability arms rather than firing, and the preview record carries
+ -- everything the cursor and the range ring need.
+ local ground
+ for _,name in ipairs(names) do if Content.abilities[name].target~='none' then ground=name end end
+ if ground then
+  local spec=Content.abilities[ground]
+  Input.arm(app,'cast',ground)
+  assert(app.targeting and app.targeting.ability==ground,'arming a ground ability did not set the targeting record')
+  assert(app.targeting.spec==spec,'the targeting record carries no ability definition')
+  app:draw()
+  -- Escape gives it up without issuing anything.
+  local queued=#app.queue
+  app:keypressed('escape')
+  assert(not app.targeting,'escape did not cancel ability targeting')
+  assert(#app.queue==queued,'cancelling targeting issued a command')
+  -- Armed and clicked, it becomes exactly one cast command per selected caster.
+  Input.arm(app,'cast',ground)
+  local target
+  if spec.target=='unit' then
+   for _,e in ipairs(app.view.entities) do if e.alive and e.owner~=app.player and e.category=='unit' then target=e end end
+  end
+  if spec.target~='unit' or target then
+   Input.resolveTargeting(app,hero.x+512,hero.y,target)
+   assert(not app.targeting,'targeting stayed armed after the click')
+   local last=app.queue[#app.queue]
+   assert(last and last.kind=='cast','clicking with an ability armed did not issue a cast: '..tostring(last and last.kind))
+   eqAbility(last.args.ability,ground)
+   for i=#app.queue,1,-1 do if app.queue[i].kind=='cast' then table.remove(app.queue,i) end end
+  end
+ end
+ -- A no-target ability has nothing to click, so pressing it casts on the spot.
+ local instant
+ for _,name in ipairs(names) do if Content.abilities[name].target=='none' then instant=name end end
+ if instant then
+  local queued=#app.queue
+  Input.arm(app,'cast',instant)
+  assert(not app.targeting,'a no-target ability armed a targeting mode instead of casting')
+  assert(#app.queue>queued,'a no-target ability issued no command')
+  local last=app.queue[#app.queue]
+  assert(last.kind=='cast' and last.args.ability==instant,'the instant cast named the wrong ability')
+  for i=#app.queue,1,-1 do if app.queue[i].kind=='cast' then table.remove(app.queue,i) end end
+ end
+ -- A cooldown is reported on the button rather than silently doing nothing.
+ local world=app.world.entities[hero.id]
+ world.cooldowns=world.cooldowns or {}
+ world.cooldowns[names[1]]=app.world.tick+60
+ app.view=require('src.sim').view(app.world,app.player)
+ app:draw()
+ local button
+ for _,b in ipairs(app.widgets.items) do if b.id=='ability-'..names[1] then button=b end end
+ assert(button and button.reason and button.reason:find('Ready in'),'a cooling ability did not say when it is ready')
+ world.cooldowns[names[1]]=nil
+ -- And so is a shortage of mana.
+ world.mana=0
+ app.view=require('src.sim').view(app.world,app.player)
+ app:draw()
+ for _,b in ipairs(app.widgets.items) do if b.id=='ability-'..names[1] then button=b end end
+ assert(button and button.reason and button.reason:find('mana'),'an unaffordable ability did not mention mana')
+ world.mana=world.maxMana
+ app.targeting=nil;app.selected={hero.id}
+ print('PASS abilities: command card, arming, ground and instant casts, cooldown and mana refusals')
+end
+function eqAbility(a,b) assert(a==b,'wrong ability: '..tostring(a)..' != '..tostring(b)) end
 return T

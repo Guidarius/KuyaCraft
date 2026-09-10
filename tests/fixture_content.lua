@@ -40,4 +40,31 @@ local C = {
             upgrades = { { 'Rapid recovery', 'Opening sprint' }, { 'Predator damage', 'Ancient health' }, { 'Quick attacks', 'Pack recovery' } } }
     }
 }
+-- Abilities for the mechanics fixture. Round numbers and short durations, chosen so a
+-- scenario can assert an exact hit point total rather than a range, and so one covers
+-- each of the four target kinds. These are additions: no existing fixture unit gains an
+-- ability, so every scenario written before them behaves exactly as it did.
+C.statuses={
+    guard={stack='max',beneficial=true,modifiers={armor=0}},
+    slow={stack='refresh',modifiers={speedPercent=0}},
+    root={stack='refresh',flags={noMove=true}},
+    stun={stack='refresh',flags={noMove=true,noAttack=true,noCast=true}},
+    burn={stack='refresh',period=20,effects={{kind='damage',amount=1}}}
+}
+C.abilities={
+    ward={label='Ward',slot=2,target='none',radius=1024,filter={ally=true,self=true},
+        cost={mana=20},cooldown=40,castPoint=4,backswing=4,
+        effects={{kind='status',status='guard',ticks=100,magnitude=5}}},
+    smite={label='Smite',slot=3,target='unit',range=1024,filter={enemy=true},
+        cost={mana=30},cooldown=40,castPoint=4,backswing=4,
+        effects={{kind='damage',amount=50},{kind='status',status='slow',ticks=40,percent=-50}}},
+    scorch={label='Scorch',slot=2,target='area',range=2048,radius=768,filter={enemy=true},
+        cost={mana=30},cooldown=40,castPoint=4,backswing=4,
+        effects={{kind='damage',amount=20},{kind='status',status='burn',ticks=60,amount=10}}},
+    lash={label='Lash',slot=3,target='direction',range=1536,width=256,filter={enemy=true},
+        cost={mana=25},cooldown=40,castPoint=4,backswing=4,
+        effects={{kind='damage',amount=15},{kind='status',status='stun',ticks=40}}}
+}
+C.units.warden.abilities={'ward','smite'};C.units.warden.mana=100;C.units.warden.manaRegen=1
+C.units.beastkeeper.abilities={'scorch','lash'};C.units.beastkeeper.mana=100;C.units.beastkeeper.manaRegen=1
 return C

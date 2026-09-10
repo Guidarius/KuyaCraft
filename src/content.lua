@@ -1,6 +1,6 @@
 ﻿local T=require('src.content_time')
 local C = {
-    version = 5,
+    version = 6,
     rules = { profile='marches-v1', tickRate=20, population=80, pathBudget=256, directPathBudget=16384,
         -- Terrain samples per tick the path smoother may spend across every route
         -- completed that tick. A route that cannot be smoothed inside it is walked as
@@ -40,6 +40,21 @@ local C = {
         outpost={label='Outpost',hp=1400,size=4,sight=12,cost={gold=530},buildTicks=1800,dropoff=true},
         tower={label='Watchtower',hp=700,size=2,sight=12,cost={gold=220},buildTicks=900,damage=26,range=1920,cooldown=32,windup=6}
     },
+    -- Status effects. `modifiers` are read by src/sim/stats.lua and are the only way a
+    -- statistic is ever changed; `flags` are the hard gates, checked where the action
+    -- they forbid is decided. `stack` says what a second application does: refresh the
+    -- duration, keep the stronger, or add a stack.
+    statuses = {
+        guard = {stack='max',beneficial=true,modifiers={armor=0}},
+        slow  = {stack='refresh',modifiers={speedPercent=0}},
+        root  = {stack='refresh',flags={noMove=true}},
+        stun  = {stack='refresh',flags={noMove=true,noAttack=true,noCast=true}},
+        -- Periodic damage. `period` is in ticks and the amount comes from whatever
+        -- applied it, so one status definition serves burns of different strengths.
+        burn  = {stack='refresh',period=20,effects={{kind='damage',amount=1}}}
+    },
+    -- Hero abilities are defined below, after the units they belong to.
+    abilities = {},
     factions = {
         bastion = { label = 'The Bastion', hero = 'warden', roster = { 'shield', 'crossbow', 'medic', 'siege' },
             upgrades = { { 'Wide protection', 'Deep protection' }, { 'Vanguard damage', 'Guardian health' }, { 'Quick attacks', 'Enduring aura' } } },
@@ -73,6 +88,39 @@ unit('leader','Camp leader',0,0,0,700,24,1.8,.4,.25,28,112)
 -- scout for you, so an ambush on your supply line is something you have to go and see.
 C.units.carrier={label='Gold carrier',cost={},food=0,buildTicks=0,hp=40,
     cooldown=1,windup=1,range=0,speed=40,radius=56,sight=0,carrier=true}
+-- The four targeting kinds, one hero ability each, so that every path through the cast
+-- phase is exercised by shipping content rather than only by a fixture. Slot is the
+-- fixed position on the command card: the button never moves when the selection changes,
+-- which is what makes a hotkey worth learning.
+C.abilities = {
+    -- Instant, no target: the Warden plants itself and hardens everyone nearby.
+    bulwark = { label='Bulwark', hotkey='w', slot=2, target='none', radius=T.cells(6),
+        filter={ally=true,self=true}, cost={mana=60}, cooldown=T.ticks(24),
+        castPoint=T.ticks(.25), backswing=T.ticks(.3),
+        tip='Allies within 6 cells take 4 less damage from each hit for 8 seconds.',
+        effects={{kind='status',status='guard',ticks=T.ticks(8),magnitude=4}} },
+    -- Unit target: a single enemy is called out, slowed and hurt.
+    challenge = { label='Challenge', hotkey='e', slot=3, target='unit', range=T.cells(5),
+        filter={enemy=true,building=false}, cost={mana=45}, cooldown=T.ticks(12),
+        castPoint=T.ticks(.3), backswing=T.ticks(.35),
+        tip='Deals 60 damage and slows one enemy by 35% for 4 seconds.',
+        effects={{kind='damage',amount=60},{kind='status',status='slow',ticks=T.ticks(4),percent=-35}} },
+    -- Area target: a circle on the ground that burns whatever is standing in it.
+    thornfall = { label='Thornfall', hotkey='w', slot=2, target='area', range=T.cells(8), radius=T.cells(2.5),
+        filter={enemy=true,building=false}, cost={mana=70}, cooldown=T.ticks(20),
+        castPoint=T.ticks(.4), backswing=T.ticks(.3),
+        tip='Deals 30 damage in a 2.5-cell circle and burns for 15 a second over 5 seconds.',
+        effects={{kind='damage',amount=30},{kind='status',status='burn',ticks=T.ticks(5),amount=15}} },
+    -- Direction: a skill shot down a line, rooting the first thing it catches.
+    snare = { label='Snare', hotkey='e', slot=3, target='direction', range=T.cells(7), width=T.cells(1.25),
+        filter={enemy=true,building=false}, cost={mana=50}, cooldown=T.ticks(16),
+        castPoint=T.ticks(.35), backswing=T.ticks(.35),
+        tip='A line 7 cells long. The first enemy it catches takes 35 damage and cannot move for 3 seconds.',
+        effects={{kind='damage',amount=35},{kind='status',status='root',ticks=T.ticks(3)}} }
+}
+
+C.units.warden.abilities={'bulwark','challenge'};C.units.warden.mana=200;C.units.warden.manaRegen=1
+C.units.beastkeeper.abilities={'thornfall','snare'};C.units.beastkeeper.mana=200;C.units.beastkeeper.manaRegen=1
 C.units.worker.worker=true;C.units.worker.sight=10;C.units.siege.sight=10
 for _,id in ipairs({'warden','beastkeeper'}) do C.units[id].hero=true;C.units[id].sight=14 end
 for _,id in ipairs({'medic','siege','sprite','beast'}) do C.units[id].tech=true end

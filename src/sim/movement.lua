@@ -108,7 +108,7 @@ function M.step(w,halt,route)
     Path.step(w)
     local before=bins(w);local proposals={};local yields={}
     for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.category=='unit' and e.order.kind~='hold' then
+        if e.alive and e.category=='unit' and e.order.kind~='hold' and Stats.canMove(w,e) then
             local cx,cy=F.cell(e.x),F.cell(e.y);local lx,ly=e.laneX or 0,e.laneY or 0
             local laneArea=e.goal and (not Path.laneAllowed(w,cx,cy,lx,ly) or not Path.laneAllowed(w,cx+ly,cy-lx,lx,ly) or not Path.laneAllowed(w,cx-ly,cy+lx,lx,ly))
             e.opposed=laneArea and opposed(before,e) or nil

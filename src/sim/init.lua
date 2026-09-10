@@ -5,6 +5,7 @@ local Path = require('src.sim.path')
 local G=require('src.sim.geometry')
 local Movement=require('src.sim.movement')
 local Stats=require('src.sim.stats')
+local Abilities=require('src.sim.abilities')
 local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
@@ -12,6 +13,11 @@ local Vision=require('src.sim.vision')
 -- divergence. See Sim.serializeAuthoritative.
 -- Version 6: rally points, patrol and follow orders; per-player and per-entity kill
 -- and loss tallies; a `delivered` event carrying the exact amount and resource.
+-- Version 10: abilities and status effects. Adds the `cast` and `ping` commands, a
+-- cast phase between order completion and combat, mana, cooldowns and a status list on
+-- entities, and one effect list per tick that ability effects and attack hits are both
+-- applied from. Statuses are the only thing that may change a statistic, and they do it
+-- through src/sim/stats.lua.
 -- Version 9: paths are string-pulled, so a route bends only where terrain makes it
 -- bend instead of stepping cell centre to cell centre, and a finished path is
 -- re-validated when the navigation set changes rather than trusted until the unit
@@ -20,7 +26,7 @@ local Vision=require('src.sim.vision')
 -- Version 7: write-only entity state removed (reversals, maxWaitTicks, blockedTicks,
 -- harvestStatus, lastMove) along with the unused PRNG, so checkpoints stop hashing
 -- fields nothing reads. No rule changes.
-local Sim = { VERSION = 9 }
+local Sim = { VERSION = 10 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -124,6 +130,8 @@ local function spawn(w,kind,owner,x,y,category)
         alive=true,hp=d and d.hp or 1,maxHp=d and d.hp or 1,size=d and d.size or 1,cooldown=0,
         path={},pathIndex=1,order={kind='stop'},orders={},lastCombat=-1000}
     if d and d.hero then e.xp=0; e.upgrades={}; e.stance=1 end
+    -- A caster starts full. Mana is authoritative like every other integer here.
+    if d and d.mana then e.mana=d.mana;e.maxMana=d.mana end
     if category=='building' then e.queue={}; e.remaining=0 end
     w.entities[id]=e; w.order[#w.order+1]=id
     return e
@@ -270,7 +278,8 @@ end
 local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
     'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
-    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine'}
+    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine',
+    'mana','maxMana'}
 -- Fields an observer may only see on entities it owns.
 local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','payload','mine'}
 local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
@@ -290,6 +299,9 @@ local function viewEntity(w,e,own)
         copy.order=shallow(e.order);copy.orders=shallowArray(e.orders)
         if e.queue then copy.queue=shallowArray(e.queue) end
         if e.upgrades then copy.upgrades=shallow(e.upgrades) end
+        -- Cooldowns are your own bookkeeping; an enemy learns that a spell is spent by
+        -- watching it land, not by reading the caster's timers.
+        if e.cooldowns then copy.cooldowns=shallow(e.cooldowns) end
         if e.goal then copy.goal={x=e.goal.x,y=e.goal.y} end
         -- A rally point is your own standing policy and is drawn for you alone.
         if e.rally then copy.rally={x=e.rally.x,y=e.rally.y,target=e.rally.target} end
@@ -301,6 +313,19 @@ local function viewEntity(w,e,own)
     -- The attack phase drives animation for both sides; the target id is private.
     local a=e.attack
     if a then copy.attack={start=a.start,impact=a.impact,finish=a.finish,period=a.period,dx=a.dx,dy=a.dy,target=own and a.target or nil} end
+    -- A cast in progress is public: seeing an enemy hero wind up is the information a
+    -- player needs to react, and hiding it would make every spell arrive from nowhere.
+    -- Which ability, and at what, is private until it lands.
+    local cast=e.cast
+    if cast then copy.cast={start=cast.start,point=cast.point,finish=cast.finish,dx=cast.dx,dy=cast.dy,
+        ability=own and cast.ability or nil,target=own and cast.target or nil,x=own and cast.x or nil,y=own and cast.y or nil} end
+    -- Statuses are public in both directions. A stunned enemy has to read as stunned, or
+    -- the player cannot tell why their focus target stopped swinging.
+    if e.statuses then
+        local list={}
+        for i=1,#e.statuses do local s=e.statuses[i];list[i]={id=s.id,['until']=s['until'],stacks=s.stacks} end
+        copy.statuses=list
+    end
     return copy
 end
 function Sim.view(w,player)
@@ -432,6 +457,10 @@ function Sim.placement(view,content,kind,x,y)
 end
 local function clearCombat(e)
     e.attack=nil;e.attackTick=nil;e.combatTarget=nil;e.engagement=nil;e.retryAt=nil;e.yieldOrigin=nil;e.rangeLatch=nil;e.rangeLostAt=nil;e.chaseTarget=nil;e.chaseX=nil;e.chaseY=nil
+    -- A new order cancels a cast. Before the cast point nothing has been spent, so the
+    -- mana and the cooldown are still there; after it, only the backswing is thrown
+    -- away, which is the same bargain the attack phase offers for a committed swing.
+    e.cast=nil
 end
 local function setOrder(w,e,order,append)
     if append and e.order.kind~='stop' then
@@ -459,7 +488,7 @@ local function nextOrder(w,e)
 end
 local function reject(w,c,reason) emit(w,'rejected',{player=c.player or 0,sequence=c.sequence or 0,reason=reason}) end
 local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
-    rally=true,patrol=true,follow=true}
+    rally=true,patrol=true,follow=true,cast=true,ping=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
 local destinationKinds={move=true,attack_move=true,patrol=true}
 local function apply(w,c)
@@ -470,6 +499,15 @@ local function apply(w,c)
     if p.defeated or c.sequence<=p.sequence then reject(w,c,'duplicate, stale, or defeated'); return end
     p.sequence=c.sequence
     local a=c.args
+    -- A ping is a message, not an order: it names no entity, changes no state, and is
+    -- accepted only to be echoed as an event. It goes through the command stream rather
+    -- than the network layer so that it is ordered, recorded in the replay and observed
+    -- exactly like every other action, and so a marker can never appear for one player
+    -- and not the other.
+    if c.kind=='ping' then
+        if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position');return end
+        emit(w,'ping',{player=c.player,pingX=a.x,pingY=a.y});return
+    end
     local e=F.integer(a.entity,1) and w.entities[a.entity] or nil
     if not e or e.owner~=c.player then reject(w,c,'invalid ownership'); return end
     local d=def(w,e)
@@ -552,6 +590,29 @@ local function apply(w,c)
     end
     if e.category~='unit' then reject(w,c,'unit required'); return end
     if c.kind=='stop' or c.kind=='hold' then setOrder(w,e,{kind=c.kind},false);e.suppressAcquireUntil=w.tick;return end
+    if c.kind=='cast' then
+        if e.category~='unit' then reject(w,c,'not a caster');return end
+        local ability=Abilities.definition(w,a.ability)
+        if not ability or not Abilities.has(w,e,a.ability) then reject(w,c,'unknown ability');return end
+        if not Stats.canCast(w,e) then reject(w,c,'silenced');return end
+        if not Abilities.ready(w,e,a.ability) then reject(w,c,'ability on cooldown');return end
+        if not Abilities.affordable(w,e,ability) then reject(w,c,'not enough mana');return end
+        local order={kind='cast',ability=a.ability}
+        if ability.target=='unit' then
+            local t=F.integer(a.target,1) and w.entities[a.target] or nil
+            if not t or not Abilities.matches(w,e,t,ability.filter) then reject(w,c,'invalid ability target');return end
+            -- You may only aim at what you can see. Separate from the legality check so
+            -- the HUD can say which of the two went wrong.
+            if not Sim.visible(w,c.player,t) then reject(w,c,'target not visible');return end
+            order.target=t.id
+        elseif ability.target~='none' then
+            if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position');return end
+            order.x,order.y=a.x,a.y
+        end
+        -- Range is deliberately not checked here. A cast is an order, so a caster too
+        -- far away walks into range first, exactly as an attack order does.
+        setOrder(w,e,order,a.append);return
+    end
     if destinationKinds[c.kind] then
         if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position'); return end
         local rx,ry=F.cell(a.x),F.cell(a.y)
@@ -868,7 +929,54 @@ local function combatOrders(w)
         end
     end
 end
-local function combat(w)
+-- Walk a caster into range of its cast point. A cast is an order, so a caster that is
+-- too far away closes the distance first, exactly as an attack order does; the range is
+-- never checked when the command is accepted.
+local function approachCast(w,e,ability,order)
+    local t=order.target and w.entities[order.target]
+    if t then return approachTarget(w,e,t,(ability.range or 0)+G.radius(w,e)+G.radius(w,t)) end
+    if not order.x then return true end
+    return approachTarget(w,e,{x=order.x,y=order.y,category='point'},(ability.range or 0)+G.radius(w,e))
+end
+-- The per-tick effect list. A module-level scratch array like the others in this file:
+-- it exists only between the ability phase and the end of the combat phase, and never
+-- reaches a snapshot or a hash.
+local pendingEffects={}
+-- The ability module owns casting and statuses but must not reach back into this file,
+-- or the two would be circular. It gets the four things it needs instead.
+local abilityApi={emit=emit,halt=halt,nextOrder=nextOrder,approachCast=approachCast}
+-- Damage, healing and status application, all in one place and all applied after every
+-- source for the tick has been collected. Ability effects come first because they were
+-- produced earlier in the tick, then the auto-attack hits; within each, the order is
+-- `w.order`, so two peers apply exactly the same sequence.
+local function applyEffects(w,list,killers,killerSource)
+    local outOfCombat=w.content.rules.outOfCombatTicks or 60
+    for _,fx in ipairs(list) do
+        local target=w.entities[fx.target]
+        if target and target.alive then
+            if fx.kind=='damage' then
+                if not Stats.invulnerable(w,target) then
+                    target.hp=target.hp-fx.damage
+                    if target.kind=='beastkeeper' and target.upgrades[1]==2 and w.tick-target.lastCombat>outOfCombat then target.sprintUntil=w.tick+40 end
+                    target.lastCombat=w.tick
+                    -- First attacker to land a blow this tick takes credit, matching the
+                    -- existing bounty and experience rule.
+                    if not killers[target.id] then
+                        local source=w.entities[fx.source]
+                        if source then killers[target.id]=source.owner;killerSource[target.id]=fx.source end
+                    end
+                end
+            elseif fx.kind=='heal' then
+                local old=target.hp
+                target.hp=math.min(target.maxHp,target.hp+fx.amount)
+                if target.hp>old then emit(w,'healed',{entity=target.id}) end
+            elseif fx.kind=='status' then
+                Abilities.applyStatus(w,target,fx,abilityApi)
+            end
+        end
+    end
+end
+local function combat(w,pending)
     local hits={};local protectors=Stats.protectors(w)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]; local d=def(w,e)
@@ -881,7 +989,7 @@ local function combat(w)
                     if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                         phase.committed=true;e.nextCommitTick=w.tick+phase.period;e.cooldown=phase.period
                         if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end
-                        hits[#hits+1]={source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e)-Stats.armor(w,target,protectors))}
+                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e)-Stats.armor(w,target,protectors))}
                         e.lastCombat=w.tick;e.attackTick=w.tick;emit(w,'attack',{source=e.id,target=target.id})
                     end
                 end
@@ -896,7 +1004,7 @@ local function combat(w)
             if d.heal and not w.content.rules.profile and w.tick%20==0 then
                 for _,allyId in ipairs(ids(w)) do local ally=w.entities[allyId]; if ally.alive and ally.owner==e.owner and inRange(e,ally,768) then local old=ally.hp;ally.hp=math.min(ally.maxHp,ally.hp+d.heal);if ally.hp>old then emit(w,'healed',{entity=ally.id}) end end end
             end
-            if d.damage and (e.category~='building' or e.remaining==0) then
+            if d.damage and (e.category~='building' or e.remaining==0) and Stats.canAttack(w,e) then
                 local target=w.entities[e.combatTarget]
                 if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                     halt(w,e)
@@ -911,12 +1019,8 @@ local function combat(w)
         end
     end
     local killers={};local killerSource={}
-    for _,hit in ipairs(hits) do
-        local e=w.entities[hit.target];e.hp=e.hp-hit.damage;if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end;e.lastCombat=w.tick
-        -- First attacker to land a blow this tick takes credit, matching the existing
-        -- bounty and experience rule.
-        if not killers[e.id] then killers[e.id]=w.entities[hit.source].owner;killerSource[e.id]=hit.source end
-    end
+    if pending then applyEffects(w,pending,killers,killerSource) end
+    applyEffects(w,hits,killers,killerSource)
     local navChanged,deathChanged=false,false
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
@@ -952,6 +1056,9 @@ local function combat(w)
 end
 function Sim.step(w,commands)
     w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0;w.metrics.smoothChecks=0
+    -- Statuses are swept before commands, so nothing in the tick -- not a command, not
+    -- a phase, not a view -- can observe one on a tick it is no longer active for.
+    Abilities.expire(w,abilityApi)
     if w.result then return w.events end
     -- Both live only for the command-application part of the step and are removed
     -- before it returns, so neither reaches snapshots or canonical serialization.
@@ -968,7 +1075,15 @@ function Sim.step(w,commands)
     end)
     for _,c in ipairs(ordered) do local before=#w.events;apply(w,c);local rejected=false;for i=before+1,#w.events do if w.events[i].kind=='rejected' then rejected=true end end;if not rejected then emit(w,'accepted',{player=c.player,sequence=c.sequence,entity=c.args.entity}) end end
     w.commandClaims=nil;w.claimScratch=nil
-    combatOrders(w);economy(w);movement(w);visibility(w);finishOrders(w); if combat(w) then visibility(w) end
+    -- Casts resolve after orders finish and before combat, so a stun landing this tick
+    -- is already in force when the combat phase asks whether its victim may swing. The
+    -- effects they produce join the tick's attack hits and are applied together, which
+    -- is what makes a spell and a sword that land on the same tick resolve as one event
+    -- rather than in whatever order the phases happen to run.
+    combatOrders(w);economy(w);movement(w);visibility(w);finishOrders(w)
+    for i=#pendingEffects,1,-1 do pendingEffects[i]=nil end
+    Abilities.step(w,pendingEffects,abilityApi)
+    if combat(w,pendingEffects) then visibility(w) end
     local survivors={}
     for p=1,#w.players do
         w.players[p].defeated=not hq(w,p).alive

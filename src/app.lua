@@ -29,6 +29,11 @@ local function color(c,a) love.graphics.setColor(c[1],c[2],c[3],a or 1) end
 -- which meant that in a fight the only question a four-pixel bar needs to answer --
 -- can I shoot this -- was the one it did not answer. Player colour is still on the
 -- body, the minimap dot and the selection tile.
+-- One swatch per status, so the strip over a unit is readable at a glance without any
+-- art: red is harm you are taking, blue holds you still, green protects. The user's own
+-- icons drop in over these later; the slot and the position are what the code owes them.
+local STATUS_COLOURS={stun={.55,.6,1},root={.4,.5,.9},slow={.55,.75,.95},burn={1,.5,.25},
+    guard={.5,.95,.6},other={.85,.85,.85}}
 local BAR_OWN={0.42,0.87,0.46}
 local BAR_ENEMY={0.9,0.33,0.28}
 local BAR_NEUTRAL={0.88,0.74,0.32}
@@ -397,6 +402,22 @@ function App:drawEntity(e)
             local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
             color(barColor(self,e));g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
         end
+        -- Mana under the health bar, and a status strip above it. A stunned enemy has to
+        -- read as stunned or the player cannot tell why their focus target stopped, and
+        -- a caster with no mana left has to read that way before they press the key.
+        if e.maxMana and e.maxMana>0 then
+            local manaY=y-(d.hero and 48 or 35)*z
+            g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,manaY,28*z,3*z)
+            g.setColor(.42,.6,.95);g.rectangle('fill',x-14*z,manaY,28*z*(e.mana or 0)/e.maxMana,3*z)
+        end
+        if e.statuses and #e.statuses>0 then
+            local sy=y-(d.hero and 60 or 47)*z
+            for index,status in ipairs(e.statuses) do
+                local c=STATUS_COLOURS[status.id] or STATUS_COLOURS.other
+                g.setColor(c[1],c[2],c[3])
+                g.rectangle('fill',x-14*z+(index-1)*6*z,sy,5*z,5*z,1)
+            end
+        end
         -- Control-group number above a selected member, as a place to look after Tab.
         local badge=isSelected and self.groupBadges and self.groupBadges[e.id]
         if badge then
@@ -457,6 +478,46 @@ function App:draw()
         for ring=0,1 do
             local scale=(1-t)*(1+ring*0.55)
             g.ellipse('line',mx,my,(4+14*scale)*z,(2+8*scale)*z)
+        end
+    end
+    -- Ability targeting preview. A spell you cannot see the shape of is a spell you
+    -- learn by wasting it: the ring is how far the caster may cast without walking, the
+    -- circle is what an area will actually cover, and the line is where a skill shot
+    -- goes. Drawn from the same record the click handler reads, so what is shown and
+    -- what happens cannot drift apart.
+    local targeting=self.targeting
+    if targeting and targeting.spec then
+        local spec=targeting.spec
+        local caster=self:entity(require('src.ui.selection').primary(self))
+        local mx,my=love.mouse.getPosition()
+        local wx,wy=self:position(mx,my)
+        if caster then
+            local cx,cy=self:screen(self:interpolated(caster))
+            if (spec.range or 0)>0 then
+                g.setColor(.55,.85,1,.28);g.setLineWidth(1)
+                g.ellipse('line',cx,cy,spec.range/256*26*z,spec.range/256*CELL_Y*z)
+            end
+            if spec.target=='direction' then
+                local dx,dy=wx-caster.x,wy-caster.y
+                local length=math.sqrt(dx*dx+dy*dy)
+                if length>0 then
+                    local ex,ey=self:screen(caster.x+dx/length*spec.range,caster.y+dy/length*spec.range)
+                    g.setColor(1,.55,.4,.6);g.setLineWidth(math.max(2,spec.width/256*26*z*.5))
+                    g.line(cx,cy,ex,ey);g.setLineWidth(1)
+                end
+            end
+        end
+        if spec.target=='area' then
+            local ax,ay=self:screen(wx,wy)
+            g.setColor(1,.55,.4,.5);g.setLineWidth(2)
+            g.ellipse('line',ax,ay,spec.radius/256*26*z,spec.radius/256*CELL_Y*z)
+            g.setColor(1,.55,.4,.12)
+            g.ellipse('fill',ax,ay,spec.radius/256*26*z,spec.radius/256*CELL_Y*z)
+            g.setLineWidth(1)
+        elseif spec.target=='none' and caster then
+            local cx,cy=self:screen(self:interpolated(caster))
+            g.setColor(.6,1,.75,.45);g.setLineWidth(2)
+            g.ellipse('line',cx,cy,spec.radius/256*26*z,spec.radius/256*CELL_Y*z);g.setLineWidth(1)
         end
     end
     if self.drag then
