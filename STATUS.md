@@ -184,11 +184,13 @@ Kills and losses are now counted by the simulation on both the player and the ki
 entity. The interface previously inferred them from the events it happened to observe,
 which under-reports a kill made outside your own sight.
 
-The bot does not yet benefit from formation pacing: `src/bot.lua` issues its attack-moves
-without a shared `group` id, so its armies still travel at each unit's own speed and
-arrive piecemeal. Both bot match outcomes are therefore unchanged at 660.85 s and
-634.55 s. Grouping the bot's attack orders is the cheapest available improvement to how
-its armies fight and belongs with the wider bot work.
+The bot now groups each wave of attack-move orders under the tick that issued them, so
+its armies travel at the pace of their slowest member and arrive together instead of
+trickling into the enemy. Retreats are deliberately left ungrouped. Both matches keep the
+same winner and take slightly longer: the mirror moved from **660.85 s to 701.95 s** and
+the asymmetric from **634.55 s to 632.45 s**. A ~7% longer mirror is consistent with
+cohesive arrivals producing decisive engagements rather than a stream of individual
+deaths, but two matches on one seed is an observation, not a measurement of bot strength.
 
 ## Milestone gates
 
@@ -222,7 +224,7 @@ its armies fight and belongs with the wider bot work.
 
 
 
-- Bot games finish in roughly 2–3 simulated minutes, much shorter than the 15–25 minute target. Costs, damage, map size, hero progression, and economy need playtesting.
+- Bot games finish in roughly 10–12 simulated minutes against a 15–25 minute target. Costs, damage, map size, hero progression, and economy need playtesting. The bot also has no retreat-and-regroup behaviour, no multi-front pressure and no difficulty setting.
 
 - Unit collision uses soft allied compression, hard enemy/terrain clearance, persistent destination slots and bounded local steering/rerouting. The finite crowd fixtures pass; universal liveness and polished continuous-motion behavior are not proven. Terrain-unreachable slots can still fail explicitly.
 

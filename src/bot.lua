@@ -108,10 +108,16 @@ function B.commands(view,C)
  elseif target then tx,ty=target.x,target.y
  elseif #army>=3 and view.tick<3600 then tx,ty=(owner==1 and 28 or 100)*256,(owner==1 and 30 or 82)*256
  elseif #army>=6 or view.tick>=6000 then local start=view.map.starts and view.map.starts[owner==1 and 2 or 1];tx,ty=(start and start.x or (owner==1 and view.map.width-8 or 8))*256,(start and start.y or (owner==1 and view.map.height-8 or 8))*256 end
+ -- Everything ordered forward on the same tick forms one wave and travels as one, so a
+ -- mixed force arrives together instead of trickling into the enemy a unit at a time.
+ -- The tick is the wave identity: deterministic, distinct per wave, and already the
+ -- shared clock every peer agrees on. A retreat is deliberately not grouped -- units
+ -- running for their lives should each move at their own speed.
+ local wave=view.tick+1
  for _,e in ipairs(army) do
   local retreat=e.hp*100<e.maxHp*30 or e.order.kind=='move' and e.hp*100<e.maxHp*75
   if retreat then if e.order.kind~='move' and view.tick%100==0 then add('move',e,{x=hq.x+(hq.size+1)*256,y=hq.y}) end
-  elseif tx and (e.order.kind=='stop' or view.tick%200==0) then add('attack_move',e,{x=tx,y=ty}) end
+  elseif tx and (e.order.kind=='stop' or view.tick%200==0) then add('attack_move',e,{x=tx,y=ty,group=wave}) end
  end
  return out
 end
