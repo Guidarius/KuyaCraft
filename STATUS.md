@@ -252,7 +252,7 @@ moved from 701.95 s to **701.6 s** and the asymmetric is unchanged at **632.45 s
 
 
 
-- Bot games finish in roughly 10–12 simulated minutes against a 15–25 minute target. Costs, damage, map size, hero progression, and economy need playtesting. The bot also has no retreat-and-regroup behaviour, no multi-front pressure and no difficulty setting.
+- Bot games finish in roughly 10–12 simulated minutes against a 15–25 minute target, but the duration is the symptom rather than the problem. `artifacts/balance-pacing-*.txt` shows both matches are **decided** at around five minutes: the loser peaks within a minute of first contact and declines monotonically for the remaining seven, while the winner grows to the food cap. Nearly half of each match is a foregone conclusion. Lengthening the match by making headquarters or units tougher would extend the one-sided phase rather than fix it; what is missing is a way back into a lost engagement. This wants playtesting to decide, not tuning to a duration number. The bot also has no retreat-and-regroup behaviour, no multi-front pressure and no difficulty setting.
 
 - Unit collision uses soft allied compression, hard enemy/terrain clearance, persistent destination slots and bounded local steering/rerouting. The finite crowd fixtures pass; universal liveness and polished continuous-motion behavior are not proven. Terrain-unreachable slots can still fail explicitly.
 
@@ -298,7 +298,8 @@ moved from 701.95 s to **701.6 s** and the asymmetric is unchanged at **632.45 s
 
 5. Extend content validation and ability-combination tests as faction rules grow.
 
-6. Reduce active-battle maximum-step spikes and rendered frame hitches; extend session/network soaks before increasing content scope. `Sim.step` is now about 90% of the rendered tick path, so the remaining work is inside it: per-command group-move claim scans, the square-scan `nearest`, whole-map visibility flushes, O(N^2) target acquisition and the brute-force firing-position search.
+6. Decide what a losing position should feel like, then give it a mechanism: the pacing report shows matches are decided at five minutes and take eleven to finish. Cheaper rebuilding, base defences that hold ground, or expansion income that rewards a pushed-back player are the candidates; each changes feel, so each needs a playtest rather than a number.
+7. Reduce active-battle maximum-step spikes and rendered frame hitches; extend session/network soaks before increasing content scope. `Sim.step` is now about 90% of the rendered tick path, so the remaining work is inside it: per-command group-move claim scans, the square-scan `nearest`, whole-map visibility flushes, O(N^2) target acquisition and the brute-force firing-position search.
 7. Batch sprite drawing and cull to the viewport. The rendered battle submits 483 draw calls per frame at 240 units with no `SpriteBatch`, `Mesh` or `Text` objects anywhere, which is the binding limit on a draw-call-bound GPU.
 
 

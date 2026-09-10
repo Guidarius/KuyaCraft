@@ -4,7 +4,7 @@ Profile: `marches-v1`, content version 3, simulation version 4. These are LoveRT
 
 ## Intent and rules
 
-- Target 15–25-minute 1v1 matches with a developed army of one hero and roughly 15–25 combat units, plus 12–18 workers.
+- Target 15–25-minute 1v1 matches with a developed army of one hero and roughly 15–25 combat units, plus 12–18 workers. Measured against this on every balance run: see `artifacts/balance-pacing-mirror.txt` and `-asymmetric.txt`, written by `scripts/test.ps1 -Suite balance`. Both currently finish in 10–12 minutes, and the report shows why that number is misleading — the matches are decided around five minutes and spend the rest of their length finishing.
 - Start with a completed headquarters, hero, five workers, 500 gold and 150 lumber. No initial combat troops.
 - One headquarters advancement unlocks the faction's support and heavy units. Worker production continues during research.
 - Fixed 80 food, weighted by unit role. No supply buildings, upkeep, inventory, recall, or armor/damage-type matrix.
