@@ -19,39 +19,69 @@ local function building(w,kind,x,y)
  local e={id=id,kind=kind,category='building',owner=1,alive=true,x=F.center(x),y=F.center(y),size=d.size,hp=d.hp,maxHp=d.hp,remaining=0,queue={},order={kind='stop'},orders={},path={},pathIndex=1,cooldown=0,lastCombat=-1000}
  w.entities[id]=e;w.order[#w.order+1]=id;for cy=y,y+d.size-1 do for cx=x,x+d.size-1 do w.blocked[P.key(w.map,cx,cy)]=true end end;w.navVersion=w.navVersion+1;return e
 end
-function B.income(count,resource)
- local w=world({{x=8,y=6,resource=resource or 'gold',amount=12000,size=resource=='lumber' and 1 or 3}})
- local ws=workers(w);if count==6 then ws[6]=S.unit(w,'worker',1,13,10) end
- local cs={};for i,e in ipairs(ws) do e.x=F.center(7+i);e.y=F.center(10);cs[#cs+1]=S.command(w,e,'harvest',{target=1},i) end
- step(w,600,cs);local before=w.players[1].resources[resource or 'gold'];local clone=Sim.restore(Sim.snapshot(w))
+-- Gold per minute from one extractor with its mine `distance` cells from the
+-- headquarters. Runs long enough for the carrier pipeline to fill before measuring, so
+-- this is steady-state income and not the first delivery's latency.
+function B.extractorIncome(distance)
+ local mineX=8+distance
+ local w=world({{x=mineX,y=12,resource='gold',amount=1000000,size=3}})
+ local site=building(w,'extractor',mineX,12);site.mine=1
+ step(w,1)
+ -- Fill the pipeline: the first carriers are still walking, so their gold has not landed.
+ step(w,2400)
+ local before=w.players[1].resources.gold;local clone=Sim.restore(Sim.snapshot(w))
  step(w,1200);step(clone,1200);eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
- return w.players[1].resources[resource or 'gold']-before,w
+ return w.players[1].resources.gold-before,w
 end
 function B.register(test)
  test('unit','balance profile: exact times, definitions and weighted opening',function()
   assert(require('src.content_validate')(C));local T=require('src.content_time');eq(T.ticks(1.45),29);assert(not pcall(T.ticks,.03));eq(T.cells(.375),96)
-  local w=world();eq(Sim.unitCount(w,1),6);eq(Sim.population(w,1),10);eq(w.players[1].resources.gold,500)
+  local w=world();eq(Sim.unitCount(w,1),4);eq(Sim.population(w,1),8);eq(w.players[1].resources.gold,650)
+  assert(C.rules.startingResources.lumber==nil,'lumber has come back')
+  for id,d in pairs(C.units) do assert(d.cost.lumber==nil,id..' still costs lumber') end
+  for id,d in pairs(C.buildings) do assert(d.cost.lumber==nil,id..' still costs lumber') end
   for _,d in pairs(C.units) do assert(d.food>=0 and d.food==math.floor(d.food));eq(d.cooldown,math.floor(d.cooldown)) end
  end)
- test('simulation','balance: gold throughput, slot cap and hauling snapshots',function()
-  local five,w=B.income(5);local six=B.income(6)
-  print('BALANCE gold/min: five='..five..' six='..six);assert(five>=500 and five<=600,'five-worker income outside 500–600/min');assert(six<=600 and six<=five+10,'sixth worker bypassed cap');eq(#w.entities[1].slots,5)
+ test('simulation','balance: a near mine pays full rate and a far one pays less',function()
+  -- A short route is limited by the emission interval, a long one by how many deliveries
+  -- can be in flight, so income falls as roughly 1/distance past the crossover. This is
+  -- the whole economic argument of docs/RESOURCE_FLOW.md, measured.
+  local near=B.extractorIncome(4)
+  local far,w=B.extractorIncome(40)
+  print('BALANCE gold/min: near='..near..' far='..far)
+  local rules=C.rules
+  local expected=rules.carrierPayload*1200/rules.carrierEmitTicks
+  assert(near>=expected*0.85 and near<=expected*1.05,'near mine income '..near..' is not close to the interval-limited '..expected)
+  assert(far<near*0.75,'a mine ten times further away paid '..far..' against '..near..', so distance costs nothing')
+  assert(far>0,'a distant mine paid nothing at all')
+  -- The in-flight cap is what bounds carrier entities, so it has to actually hold.
+  local live=0
+  for _,id in ipairs(w.order) do local e=w.entities[id];if e.category=='carrier' and e.alive then live=live+1 end end
+  assert(live<=rules.carrierSlots,'in-flight carriers exceeded the slot cap: '..live)
  end)
- test('simulation','balance: lumber hauling rate at a nearby drop-off',function()
-  local w=world({{x=8,y=4,resource='lumber',amount=10000,size=1}});local e=workers(w)[1];e.x=F.center(9);e.y=F.center(8)
-  step(w,600,{S.command(w,e,'harvest',{target=1})});local before=w.players[1].resources.lumber;step(w,1200);local rate=w.players[1].resources.lumber-before
-  print('BALANCE lumber/min, one worker: '..rate);assert(rate>=40 and rate<=55,'lumber route outside target')
+ test('simulation','balance: a shorter route restores a distant mine',function()
+  -- The answer to the distance penalty is a forward drop-off, and it has to work.
+  local far=B.extractorIncome(40)
+  local mineX=48
+  local w=world({{x=mineX,y=12,resource='gold',amount=1000000,size=3}})
+  local site=building(w,'extractor',mineX,12);site.mine=1
+  building(w,'outpost',mineX+4,12)
+  step(w,1);step(w,2400)
+  local before=w.players[1].resources.gold;step(w,1200)
+  local withOutpost=w.players[1].resources.gold-before
+  print('BALANCE gold/min: far='..far..' far+outpost='..withOutpost)
+  assert(withOutpost>far*1.4,'an outpost beside a distant mine did not restore its rate: '..withOutpost..' against '..far)
  end)
  test('simulation','balance: food, tech, independent production and research cancellation',function()
-  local w=world();local hq=w.entities[w.players[1].hq];local hall=building(w,'barracks',20,12);w.players[1].resources={gold=10000,lumber=10000}
+  local w=world();local hq=w.entities[w.players[1].hq];local hall=building(w,'barracks',20,12);w.players[1].resources={gold=10000}
   step(w,1,{S.command(w,hall,'recruit',{unit='medic'})});eq(w.events[1].kind,'rejected')
   step(w,1,{S.command(w,hq,'research')});eq(hq.researchRemaining,1999)
-  step(w,1,{S.command(w,hq,'recruit',{unit='worker'})});eq(Sim.population(w,1),11)
+  step(w,1,{S.command(w,hq,'recruit',{unit='worker'})});eq(Sim.population(w,1),9)
   step(w,300);eq(#hq.queue,0);assert(hq.researchRemaining>0)
-  local gold=w.players[1].resources.gold;step(w,1,{S.command(w,hq,'cancel',{research=true})});eq(w.players[1].resources.gold,gold+200)
+  local gold=w.players[1].resources.gold;step(w,1,{S.command(w,hq,'cancel',{research=true})});eq(w.players[1].resources.gold,gold+300)
   step(w,1,{S.command(w,hq,'research')});local clone=Sim.restore(Sim.snapshot(w));step(w,1999);step(clone,1999);assert(w.players[1].tech);eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
-  step(w,1,{S.command(w,hall,'recruit',{unit='medic'})});eq(#hall.queue,1);eq(Sim.population(w,1),13)
-  w.content.rules.population=13;step(w,1,{S.command(w,hall,'recruit',{unit='shield'})});eq(#hall.queue,1)
+  step(w,1,{S.command(w,hall,'recruit',{unit='medic'})});eq(#hall.queue,1);eq(Sim.population(w,1),11)
+  w.content.rules.population=11;step(w,1,{S.command(w,hall,'recruit',{unit='shield'})});eq(#hall.queue,1)
  end)
  test('simulation','balance: construction health growth preserves damage and refund',function()
   local w=world();local e=workers(w)[1];e.x=F.center(17);e.y=F.center(14)
@@ -73,19 +103,13 @@ function B.register(test)
  end)
  test('simulation','balance: earned revival tiers and reserved hero food',function()
   local w=world();local hero=w.entities[w.players[1].hero];hero.xp=1000;hero.alive=false;hero.hp=0
-  local gold,ticks=Sim.revival(C,hero);eq(gold,250);eq(ticks,1200);eq(Sim.population(w,1),10)
+  local gold,ticks=Sim.revival(C,hero);eq(gold,250);eq(ticks,1200);eq(Sim.population(w,1),8)
   step(w,1,{S.command(w,hero,'revive')});step(w,1199);assert(hero.alive);eq(hero.xp,1000);eq(#hero.upgrades,0)
  end)
  test('simulation','balance: supports choose different injured units and exclude buildings',function()
   local w=isolated();local a=S.unit(w,'shield',1,22,22);local b=S.unit(w,'shield',1,23,22);a.hp=100;b.hp=200
   S.unit(w,'medic',1,22,24);S.unit(w,'medic',1,23,24);local hall=building(w,'barracks',25,23);hall.hp=100
   step(w,20);eq(a.hp,112);eq(b.hp,212);eq(hall.hp,100)
- end)
- test('simulation','balance: carried resources survive destroyed drop-off',function()
-  local w=world({{x=20,y=6,resource='gold',amount=100,size=3}});local e=workers(w)[1];local a=building(w,'outpost',20,12);local b=building(w,'outpost',30,12)
-  w.content.buildings.hq.dropoff={};e.x=F.center(20);e.y=F.center(10);e.cargo=10;e.cargoType='gold';e.order={kind='harvest',target=1}
-  step(w,1);a.alive=false;w.navVersion=w.navVersion+1;local before=w.players[1].resources.gold
-  local clone=Sim.restore(Sim.snapshot(w));step(w,500);step(clone,500);assert(w.players[1].resources.gold>=before+10);eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone));assert(b.alive)
  end)
  test('simulation','balance: easy camp reward, leash and delayed reset',function()
   local w=isolated();local hero=w.entities[w.players[1].hero];hero.alive=true;hero.x=F.center(24);hero.y=F.center(24)
@@ -99,20 +123,14 @@ function B.register(test)
   for _=1,500 do Sim.step(reset,{});if guard.homeSince then arrived=reset.tick;break end end
   assert(arrived,'camp failed to return home');step(reset,59);eq(guard.hp,100);step(reset,1);eq(guard.hp,guard.maxHp)
  end)
- test('simulation','balance: forest succession uses known reachable nodes',function()
-  local w=world({{x=16,y=12,resource='lumber',amount=10},{x=16,y=14,resource='lumber',amount=100},{x=55,y=4,resource='lumber',amount=100}})
-  local e=workers(w)[1];e.x=F.center(15);e.y=F.center(12);step(w,1)
-  step(w,1,{S.command(w,e,'harvest',{target=1})});step(w,800)
-  assert(not w.entities[1].alive);eq(e.order.target,2);assert(w.entities[3].amount==100)
-  for _,observed in ipairs(Sim.view(w,2).entities) do assert(not observed.slots and not observed.economySearch,'private scheduler leaked') end
- end)
- test('simulation','balance: hidden mine depletion does not cancel a worker remotely',function()
-  local w=world({{x=40,y=40,resource='gold',amount=100,size=3}});local e=workers(w)[1];e.order={kind='harvest',target=1}
-  local clone=Sim.restore(Sim.snapshot(w));clone.entities[1].alive=false
-  step(w,1);step(clone,1);eq(Codec.encode(e.order),Codec.encode(clone.entities[e.id].order));eq(e.order.kind,'harvest');eq(e.x,clone.entities[e.id].x);eq(e.y,clone.entities[e.id].y)
- end)
  test('simulation','balance: merged sight spans equal circular visibility oracle',function()
-  local w=world();for i=1,40 do S.unit(w,i%2==0 and 'shield' or 'crossbow',1,15+i%12,20+math.floor(i/12)) end
+  -- This validates the radial span merge against a naive circle, so it must run with
+  -- the radial rule. Line of sight deliberately produces a different field: it stops at
+  -- obstructions and originates at a building's centre rather than its corner. That
+  -- field has its own scenarios in tests/vision_scenarios.lua, one of which proves the
+  -- two agree exactly on open ground.
+  local w=world();w.content.rules.lineOfSight=false
+  for i=1,40 do S.unit(w,i%2==0 and 'shield' or 'crossbow',1,15+i%12,20+math.floor(i/12)) end
   step(w,1);local expected={}
   for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.owner==1 then local d=w.content.units[e.kind] or w.content.buildings[e.kind];local cx,cy=F.cell(e.x),F.cell(e.y)
    for y=math.max(0,cy-d.sight),math.min(w.map.height-1,cy+d.sight) do for x=math.max(0,cx-d.sight),math.min(w.map.width-1,cx+d.sight) do if (x-cx)^2+(y-cy)^2<=d.sight^2 then expected[P.key(w.map,x,y)]=true end end end

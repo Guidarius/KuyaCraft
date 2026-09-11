@@ -14,7 +14,11 @@ function L.remember(path)
 end
 function L.list()
  local paths=load();local source=love.filesystem.getSource()
- if not source:match('%.love$') then for _,name in ipairs(love.filesystem.getDirectoryItems('artifacts')) do if name:match('%.replay$') then paths[#paths+1]=source..'/artifacts/'..name end end end
+ -- Running from a source folder, also offer whatever is sitting in its artifacts
+ -- directory. A packaged build has no such folder inside it: its source is the
+ -- executable or the .love archive, so scanning it would only invent broken paths.
+ local packaged=love.filesystem.isFused() or source:match('%.love$')
+ if not packaged then for _,name in ipairs(love.filesystem.getDirectoryItems('artifacts')) do if name:match('%.replay$') then paths[#paths+1]=source..'/artifacts/'..name end end end
  local found,result={},{}
  for _,path in ipairs(paths) do
   path=path:gsub('\\','/')

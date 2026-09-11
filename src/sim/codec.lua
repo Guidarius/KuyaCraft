@@ -26,6 +26,22 @@ function M.keys(t)
     end)
     return keys
 end
+-- string.format('%.0f') is exact and locale-independent, but it is a full printf
+-- per number and the encoder formats one for every key and every value. Cell keys,
+-- coordinates and tick counts repeat constantly within and across encodes, so the
+-- tokens are memoised. The cached value is the output of the same call it replaces,
+-- so the byte stream cannot differ; only integers in the cell/coordinate range are
+-- retained so the table stays bounded.
+local tokens = {}
+local function numeric(v)
+    local token = tokens[v]
+    if token then return token end
+    token = 'n' .. string.format('%.0f', v) .. ':'
+    -- Zero is excluded deliberately: -0.0 and 0.0 are the same table key but
+    -- format them as different tokens, so caching either would alias the other.
+    if v >= 1 and v <= 65536 then tokens[v] = token end
+    return token
+end
 function M.encode(value)
     local out, active = {}, {}
     local function write(v, depth)
@@ -33,7 +49,7 @@ function M.encode(value)
         local kind = type(v)
         if kind == 'nil' then out[#out + 1] = 'z'
         elseif kind == 'boolean' then out[#out + 1] = v and 't' or 'f'
-        elseif kind == 'number' then Fixed.check(v); out[#out + 1] = 'n' .. string.format('%.0f', v) .. ':'
+        elseif kind == 'number' then Fixed.check(v); out[#out + 1] = numeric(v)
         elseif kind == 'string' then out[#out + 1] = 's' .. #v .. ':' .. v
         elseif kind == 'table' then
             assert(not active[v], 'cyclic state')

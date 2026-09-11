@@ -20,7 +20,7 @@ function T.construction()
  Sim.step(w,{command(w,'move',e.id,{x=8*256+128,y=8*256+128})})
  Sim.step(w,{command(w,'build',e.id,{building='barracks',x=7,y=4,append=true})})
  assert(#e.orders==1 and e.order.kind=='move');local site=w.entities[e.orders[1].target]
- assert(site and site.remaining==C.buildings.barracks.buildTicks);assert(w.players[1].resources.gold==before-120)
+ assert(site and site.remaining==C.buildings.barracks.buildTicks);assert(w.players[1].resources.gold==before-C.buildings.barracks.cost.gold)
  for _=1,400 do Sim.step(w,{}) end;assert(site.remaining==0 and e.order.kind=='stop')
 end
 function T.combat()

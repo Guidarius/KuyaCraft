@@ -1,11 +1,11 @@
 # LoveRTS — Balance, scale and match pacing
 
-Profile: `marches-v1`, content version 3, simulation version 4. These are LoveRTS starting values inspired by Warcraft-style pacing, not a transcription of Blizzard's unit database. Match duration is a playtest target, not a timer that forces an outcome.
+Profile: `marches-v1`, content version 4, simulation version 8. These are LoveRTS starting values inspired by Warcraft-style pacing, not a transcription of Blizzard's unit database. Match duration is a playtest target, not a timer that forces an outcome.
 
 ## Intent and rules
 
-- Target 15–25-minute 1v1 matches with a developed army of one hero and roughly 15–25 combat units, plus 12–18 workers.
-- Start with a completed headquarters, hero, five workers, 500 gold and 150 lumber. No initial combat troops.
+- Target 15–25-minute 1v1 matches with a developed army of one hero and roughly 15–25 combat units, plus 12–18 workers. Measured against this on every balance run: see `artifacts/balance-pacing-mirror.txt` and `-asymmetric.txt`, written by `scripts/test.ps1 -Suite balance`. Both currently finish in 9–11 minutes, and the report shows why that number is misleading — the matches are decided around five minutes and spend the rest of their length finishing.
+- Start with a completed headquarters, hero, three workers and 650 gold. No initial combat troops. Workers are engineers only; nothing harvests.
 - One headquarters advancement unlocks the faction's support and heavy units. Worker production continues during research.
 - Fixed 80 food, weighted by unit role. No supply buildings, upkeep, inventory, recall, or armor/damage-type matrix.
 - Protect units, retreat on foot, recover at the base, and contest camps and expansion mines.
@@ -60,25 +60,34 @@ The nearby natural/camp approaches are currently faster than the proposal. These
 
 ## Economy and food
 
+**Superseded from simulation version 8.** Workers no longer harvest and lumber no longer
+exists. The economy is extractors and carriers, and its design, arithmetic and measured
+rates live in [RESOURCE_FLOW.md](RESOURCE_FLOW.md). The summary:
+
 | Rule | Value |
 |---|---|
-| Starting stockpile | 500 gold / 150 lumber |
-| Gold cargo | 10 |
-| Mining work per trip | 3 s / 60 ticks |
-| Gold assignments | At most five workers per mine, including delivery trips |
-| Mine extraction ceiling | One cargo every 20 ticks; unused extraction time does not accumulate |
-| Lumber cargo/work | 10 / 8 s (160 ticks) |
-| Tree contents | 100 lumber |
+| Starting stockpile | 650 gold |
+| Starting workers | 3 |
+| Carrier payload | 8 gold |
+| Emission interval | 16 ticks (0.8 s) |
+| Deliveries in flight per extractor | 9 |
+| Carrier speed / HP / food | 40 subunits per tick / 40 / none |
+| Carrier corpse before the slot recycles | 40 ticks |
 | Starting mine | 12,000 gold |
 | Each expansion mine | 9,000 gold |
-| Starting forest | 60 trees per side |
-| Natural/contested forest | 30 trees per site |
+| Forests | terrain, not a resource; they block movement and sight |
 
-Workers physically walk to work and delivery positions. A well-placed five-worker mine targets 500–600 gold/minute; the isolated acceptance fixture produces **600/minute**, and adding a sixth produces **600/minute**. A forest worker targets roughly 40–55 lumber/minute on an ordinary hauling route. The measured eight-cell origin-distance fixture yields 50/minute; a shorter six-cell route yielded 60. Efficient adjacent placement can exceed the ordinary-route target, up to the 75/minute chopping ceiling. Hauling distance and crowding reduce both resource rates.
+Measured: a near mine pays **600 gold/minute**, a far one **344**, and an outpost beside
+the far one restores it to **600**. The two scenarios that measure this are in
+`tests/balance.lua` and print `BALANCE gold/min:` on every balance run.
 
-Headquarters and completed outposts accept both resources. Lumber depots accept lumber. Delivery selects the nearest reachable eligible building by integer navigation cost, with entity ID breaking equal-cost ties. Cargo survives loss of a drop-off. Depleted forests transition toward the nearest known reachable tree; discovery memory does not search the whole hidden world for resources.
-
-Hauling/tree searches have a shared per-tick expansion ceiling equal to `pathBudget` (256), separately measured from movement path expansions. Search heaps, costs, selected destinations, mine assignment lists, extraction clocks and cargo are serialized. A missing reachable destination waits with bounded retries. Mine slots and private search state are removed from other players' filtered views.
+Carriers deliver to the nearest living friendly drop-off — the headquarters or a completed
+outpost — chosen by squared distance with the entity id breaking ties. One cached A* route
+per extractor is shared by every carrier it emits and is recomputed when the obstruction
+set or the destination changes; no carrier ever calls the pathfinder. Carriers are their
+own entity category: not selectable, not in the collision bins, no crowd resolution, no
+food and no orders. They are ordinary combat targets, and a carrier that dies destroys its
+gold rather than handing it over.
 
 | Unit role | Food |
 |---|---:|
@@ -93,16 +102,18 @@ Recruitment reserves food and resources on acceptance. Cancelled recruitment rel
 
 ## Buildings and technology
 
-| Building/action | Gold | Lumber | Seconds | Ticks | HP | Footprint |
-|---|---:|---:|---:|---:|---:|---|
-| Initial HQ | free | free | complete | — | 2,800 | 5×5 |
-| War hall | 160 | 60 | 60 | 1,200 | 1,500 | 4×4 |
-| Lumber depot | 80 | 40 | 30 | 600 | 500 | 2×2 |
-| Outpost | 350 | 180 | 90 | 1,800 | 1,400 | 4×4 |
-| Watchtower | 150 | 70 | 45 | 900 | 700 | 2×2 |
-| HQ advancement | 400 | 200 | 100 | 2,000 | unchanged | unchanged |
-| Gold mine | — | — | — | — | resource | 3×3 |
-| Tree | — | — | — | — | resource | 1×1 |
+Costs below fold the old lumber price into gold one for one, so relative prices are
+unchanged from the two-resource profile.
+
+| Building/action | Gold | Seconds | Ticks | HP | Footprint |
+|---|---:|---:|---:|---:|---|
+| Initial HQ | free | complete | — | 2,800 | 5×5 |
+| Extractor | 120 | 30 | 600 | 900 | 3×3, on a mine |
+| War hall | 220 | 60 | 1,200 | 1,500 | 4×4 |
+| Outpost | 530 | 90 | 1,800 | 1,400 | 4×4 |
+| Watchtower | 220 | 45 | 900 | 700 | 2×2 |
+| HQ advancement | 600 | 100 | 2,000 | unchanged | unchanged |
+| Gold mine | — | — | — | resource | 3×3 |
 
 One worker builds a site; no multi-worker acceleration. Construction time begins while the assigned worker is in work range. A site reserves its entire footprint immediately, starts at 10% health capacity, and gains capacity with progress. Damage persists through construction; finishing does not heal away damage already taken.
 
@@ -119,17 +130,17 @@ HQ recovery heals up to three injured friendly units for 10 HP each per second w
 
 All times include the complete production duration. Period means consecutive committed impacts; windup is part of the attack cycle, never added again to its steady cadence. Movement before impact cancels the hit. Movement after impact cannot erase the committed recovery deadline.
 
-| Unit | Gold/Lumber | Food | Train s | HP | Damage | Period s | Windup s | Edge range cells | Speed subunits/tick | Cells/s |
+| Unit | Gold | Food | Train s | HP | Damage | Period s | Windup s | Edge range cells | Speed subunits/tick | Cells/s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Worker | 75/0 | 1 | 15 | 220 | 5 | 2.0 | .30 | .25 | 30 | 2.344 |
-| Shieldguard | 135/0 | 2 | 20 | 420 | 14 | 1.4 | .30 | .25 | 35 | 2.734 |
-| Crossbow | 190/30 | 3 | 26 | 320 | 22 | 1.6 | .35 | 5 | 35 | 2.734 |
-| Standard bearer* | 155/40 | 2 | 28 | 300 | 8 | 1.8 | .30 | 4 | 35 | 2.734 |
-| Ram* | 300/80 | 4 | 40 | 900 | 60 | 2.5 | .50 | .5 | 26 | 2.031 |
-| Stalker | 130/0 | 2 | 20 | 340 | 13 | 1.25 | .25 | .25 | 40 | 3.125 |
-| Thorn thrower | 180/30 | 3 | 25 | 280 | 19 | 1.45 | .30 | 4.5 | 37 | 2.891 |
-| Grove sprite* | 150/40 | 2 | 28 | 250 | 7 | 1.6 | .25 | 4 | 39 | 3.047 |
-| Heavy beast* | 280/70 | 4 | 36 | 760 | 34 | 1.7 | .40 | .375 | 35 | 2.734 |
+| Worker | 75 | 1 | 15 | 220 | 5 | 2.0 | .30 | .25 | 30 | 2.344 |
+| Shieldguard | 135 | 2 | 20 | 420 | 14 | 1.4 | .30 | .25 | 35 | 2.734 |
+| Crossbow | 220 | 3 | 26 | 320 | 22 | 1.6 | .35 | 5 | 35 | 2.734 |
+| Standard bearer* | 195 | 2 | 28 | 300 | 8 | 1.8 | .30 | 4 | 35 | 2.734 |
+| Ram* | 380 | 4 | 40 | 900 | 60 | 2.5 | .50 | .5 | 26 | 2.031 |
+| Stalker | 130 | 2 | 20 | 340 | 13 | 1.25 | .25 | .25 | 40 | 3.125 |
+| Thorn thrower | 210 | 3 | 25 | 280 | 19 | 1.45 | .30 | 4.5 | 37 | 2.891 |
+| Grove sprite* | 190 | 2 | 28 | 250 | 7 | 1.6 | .25 | 4 | 39 | 3.047 |
+| Heavy beast* | 350 | 4 | 36 | 760 | 34 | 1.7 | .40 | .375 | 35 | 2.734 |
 | Warden | initial hero | 5 | — | 1,000 | 30 | 1.5 | .30 | .25 | 42 | 3.281 |
 | Beastkeeper | initial hero | 5 | — | 900 | 27 | 1.35 | .25 | .25 | 44 | 3.438 |
 
@@ -182,7 +193,7 @@ Each side has two easy camps, one route medium and one natural medium. Two hard 
 
 XP milestone targets are 3–5, 7–11 and 12–18 minutes. They are not automatically granted by time.
 
-Bots read filtered views and public coordinates. They build production, grow to 12–16 workers, allocate five workers per operating mine, establish a depot, save for advancement and an outpost, and recruit a mixture of unlocked roles. A production-count pattern prevents a time-based rotation from repeatedly skipping expensive ranged troops. They clear visible camps, scout public positions, pressure opponents and retreat damaged units for base recovery. Bots are a reproducible smoke/playability workload, not a substitute for human balance testing.
+Bots read filtered views and public coordinates. They build production, keep four to six workers, put an extractor on every gold mine they can see within reach of a drop-off, save for advancement and an outpost, and recruit a mixture of unlocked roles. A production-count pattern prevents a time-based rotation from repeatedly skipping expensive ranged troops. They clear visible camps, scout public positions, pressure opponents and retreat damaged units for base recovery. Bots are a reproducible smoke/playability workload, not a substitute for human balance testing.
 
 ## Verification and iteration
 
@@ -207,3 +218,25 @@ Human acceptance still requires three mirror and three asymmetric matches, measu
 
 
 Reference host for this pass: local Windows development PC, AMD Ryzen 5 5600G, pinned LÖVE 11.5. Headless timing and a rendered 1080p workload are measured separately. Filtered-view copying now uses a validated ordered deep copy rather than a serialization round trip; canonical byte serialization is unchanged. Sight uses integer row-interval coverage, verified against the original circular-cell formula.
+
+## Hero abilities — provisional, unmeasured
+
+From simulation version 10 each hero has two active abilities. They exist to prove the
+four targeting kinds run end to end through shipping content, and their numbers are a
+starting point for playtesting rather than a balanced kit. Nothing in this document's
+measured timings accounts for them: the mirror and asymmetric bot matches do not cast,
+because the bot has no ability behaviour yet.
+
+| Hero | Ability | Kind | Mana | Cooldown | Effect |
+|---|---|---|---:|---:|---|
+| Warden | Bulwark | instant, 6-cell radius | 60 | 24 s | Allies take 4 less damage per hit for 8 s |
+| Warden | Challenge | unit, 5 cells | 45 | 12 s | 60 damage, 35% slow for 4 s |
+| Beastkeeper | Thornfall | area, 8 cells, 2.5 radius | 70 | 20 s | 30 damage, burns 15 a second for 5 s |
+| Beastkeeper | Snare | skill shot, 7 cells | 50 | 16 s | Thrown at 3 cells/s; first enemy takes 35 and is rooted 3 s |
+
+Both heroes have 200 mana and regenerate 1 a second. Tune these only alongside a playtest
+that actually uses them; the isolated duel and gold-rate fixtures cannot see them at all.
+
+Auto-attacks remain instantaneous. The projectile mechanism that would make a crossbow
+bolt travel exists and is used by abilities, but enabling it for ranged attacks changes
+when every ranged trade in the game lands, which is a balance change and not a refactor.

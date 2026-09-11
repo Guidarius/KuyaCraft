@@ -11,6 +11,12 @@ function M.mulDiv(a, b, divisor)
     assert(a == 0 or math.abs(b) <= math.floor(M.MAX_EXACT / math.abs(a)), 'integer product overflow')
     return math.floor(a * b / divisor)
 end
+-- Squaring via x*x rather than x^2 keeps the whole simulation inside integer
+-- multiplication. pow() is exact here on every IEEE-754 platform we target, but
+-- it is a libm call whose rounding is not architecturally pinned, and it is
+-- slower. Taking an argument (rather than repeating the expression) keeps
+-- function calls in the operand from being evaluated twice.
+function M.sq(n) return n*n end
 function M.cell(value) return math.floor(value / M.SCALE) end
 function M.center(cell) return cell * M.SCALE + M.SCALE / 2 end
 function M.isqrt(n)

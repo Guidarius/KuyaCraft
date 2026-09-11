@@ -78,7 +78,7 @@ function S:draw()
  elseif self.screen=='results' then
   local a=self.match;local r=a.world.result;label(r.winner==0 and 'DRAW' or r.winner==a.player and 'VICTORY' or 'DEFEAT',y)
   local living,lost=0,0;for _,e in ipairs(a.view.entities) do if e.owner==a.player and e.category=='unit' then if e.alive then living=living+1 else lost=lost+1 end end end
-  label(string.format('Duration: %d:%02d\nSurviving units: %d\nUnits lost: %d\nGold: %d  Lumber: %d',math.floor(r.tick/1200),math.floor(r.tick/20)%60,living,lost,a.view.player.resources.gold,a.view.player.resources.lumber),y+65)
+  label(string.format('Duration: %d:%02d\nSurviving units: %d\nUnits lost: %d\nGold: %d',math.floor(r.tick/1200),math.floor(r.tick/20)%60,living,lost,a.view.player.resources.gold),y+65)
   button('save','Save Replay',5,function() a:save();self.message=a.message end);button('setup','Return to Setup',6,function() self:leave() end)
  end
  if self.message~='' then g.setColor(.95,.72,.44);g.printf(self.message,20,h-55,w-40,'center') end

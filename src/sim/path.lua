@@ -1,4 +1,5 @@
 local F = require('src.sim.fixed')
+local G = require('src.sim.geometry')
 local P = {}
 local dirs = { {0,-1,10}, {1,0,10}, {0,1,10}, {-1,0,10}, {1,-1,14}, {1,1,14}, {-1,1,14}, {-1,-1,14} }
 local function less(a,b)
@@ -61,6 +62,106 @@ function P.lanePosition(w,x,y,r,lx,ly)
     end
     return true
 end
+-- Path smoothing, the string pull.
+--
+-- A* returns the cell-by-cell parent chain, and walking it literally is what made every
+-- march across open ground a staircase of 45-degree hops between cell centres. This
+-- keeps only the waypoints that actually constrain the route: a node survives when the
+-- straight line past it would put the unit's body through terrain or would break the
+-- keep-right rule in a narrow passage. In the open a forty-cell march becomes one
+-- straight line; around a corner the route bends at the corner and nowhere else.
+--
+-- The result is a subsequence of the original nodes, so `e.path` keeps exactly the shape
+-- it had: no new fields, nothing new in the snapshot, and the final node is never
+-- dropped because arrival is an exact-equality test on it.
+local function lineClear(w,x0,y0,x1,y1,r,lx,ly)
+    local dx,dy=x1-x0,y1-y0
+    local span=math.abs(dx)>math.abs(dy) and math.abs(dx) or math.abs(dy)
+    if span==0 then return G.terrain(w,x0,y0,r) end
+    -- Never step further than the body radius, so consecutive samples overlap and the
+    -- swept circle is covered rather than sampled through.
+    local step=r<128 and r or 128
+    if step<1 then step=1 end
+    local steps=math.floor(span/step)+1
+    for i=0,steps do
+        local x=x0+F.mulDiv(dx,i,steps)
+        local y=y0+F.mulDiv(dy,i,steps)
+        if not G.terrain(w,x,y,r) then return false end
+        if not P.laneAllowed(w,F.cell(x),F.cell(y),lx,ly) then return false end
+    end
+    w.metrics.smoothChecks=w.metrics.smoothChecks+steps+1
+    return true
+end
+-- How far ahead a single pull may reach. Long enough that an ordinary cross-map march
+-- collapses to a handful of segments, and bounded so that smoothing a path stays linear
+-- in its length; `rules.smoothBudget` bounds the per-tick total on top of that.
+local LOOKAHEAD=32
+local function smooth(w,e,path)
+    local n=#path
+    if n<3 then return path end
+    local r=G.radius(w,e)
+    if r<=0 then return path end
+    -- A congested unit keeps the cell-by-cell path. Local steering resolves a crowd by
+    -- making progress toward the *next waypoint*, and it does that by sidestepping: with
+    -- a waypoint thirty cells away almost no sidestep reduces the distance, so a unit in
+    -- a press stops registering progress and waits instead of filtering through. Fine
+    -- waypoints are what let a queue dissolve. Straightening is for the open field, and
+    -- a unit that has just been stuck is by definition not in the open field.
+    if e.detour and e.detour.untilTick>w.tick then return path end
+    if w.metrics.smoothChecks>=(w.content.rules.smoothBudget or 4096) then return path end
+    local lx,ly=e.laneX or 0,e.laneY or 0
+    local out={}
+    local ax,ay=e.x,e.y
+    local i=1
+    while i<=n do
+        local limit=i+LOOKAHEAD;if limit>n then limit=n end
+        -- Farthest first, walking back until a straight line is clear. Reachability is
+        -- not monotonic along a turning path, so a binary search would settle for a
+        -- nearer waypoint and leave a visible kink; taking the first clear line from the
+        -- far end always finds the longest jump inside the window. In the open the first
+        -- test succeeds, which is also the cheapest case. Every accepted waypoint was
+        -- tested as a straight line in its own right, so a dropped node can never put a
+        -- body through anything, and the final node survives because the scan stops at it.
+        local best=i
+        for k=limit,i+1,-1 do
+            if lineClear(w,ax,ay,F.center(path[k].x),F.center(path[k].y),r,lx,ly) then best=k;break end
+        end
+        out[#out+1]=path[best]
+        ax,ay=F.center(path[best].x),F.center(path[best].y)
+        i=best+1
+    end
+    return out
+end
+P.smooth=smooth
+-- Is the route still there? A completed path used to be trusted forever: only the very
+-- next waypoint was tested for walkability, so a war hall dropped ten cells ahead went
+-- unnoticed until the unit walked into it and spent ten ticks stuck before the
+-- congestion reroute fired. In-flight searches already compare against `w.navVersion`;
+-- this gives finished paths the same treatment, checked once when that version moves
+-- rather than every tick. Only the next few segments are walked, because that is where
+-- a new obstacle can matter before the next check.
+local SEGMENTS=3
+function P.pathClear(w,e)
+    local path=e.path
+    if not path then return true end
+    local x0,y0=e.x,e.y
+    for k=0,SEGMENTS-1 do
+        local node=path[e.pathIndex+k]
+        if not node then return true end
+        if not P.walkable(w,node.x,node.y) then return false end
+        local x1,y1=node.px or F.center(node.x),node.py or F.center(node.y)
+        local dx,dy=x1-x0,y1-y0
+        local span=math.abs(dx)>math.abs(dy) and math.abs(dx) or math.abs(dy)
+        if span>0 then
+            local steps=math.floor(span/128)+1
+            for i=0,steps do
+                if not P.walkable(w,F.cell(x0+F.mulDiv(dx,i,steps)),F.cell(y0+F.mulDiv(dy,i,steps))) then return false end
+            end
+        end
+        x0,y0=x1,y1
+    end
+    return true
+end
 local function heuristic(x,y,gx,gy)
     local dx,dy = math.abs(x-gx),math.abs(y-gy)
     return 10 * math.max(dx,dy) + 4 * math.min(dx,dy)
@@ -92,7 +193,7 @@ function P.request(w,e,gx,gy)
     e.goal = {x=gx,y=gy}
     if not e.detour or e.detour.untilTick<=w.tick then
         local direct=directPath(w,e,sx,sy,gx,gy)
-        if direct then e.path=direct;w.searches[e.id]=nil;if #direct==0 then e.goal=nil end;return true end
+        if direct then e.path=smooth(w,e,direct);e.pathVersion=w.navVersion;w.searches[e.id]=nil;if #direct==0 then e.goal=nil end;return true end
     end
     w.searches[e.id] = {open={ {x=sx,y=sy,key=start,g=0,h=h,f=h} }, costs={[start]=0},
         closed={}, parents={}, gx=gx,gy=gy, version=w.navVersion, expanded=0, laneX=math.abs(gx-sx)>=math.abs(gy-sy) and (gx>=sx and 1 or -1) or 0, laneY=math.abs(gx-sx)<math.abs(gy-sy) and (gy>=sy and 1 or -1) or 0}
@@ -114,6 +215,7 @@ local function expand(w,id,s)
         end
         e.path={}
         for i=#reverse,1,-1 do e.path[#e.path+1]=reverse[i] end
+        e.path=smooth(w,e,e.path);e.pathVersion=w.navVersion
         e.pathIndex=1; w.searches[id]=nil
         if #e.path==0 then
             if e.x~=F.center(s.gx) or e.y~=F.center(s.gy) then e.path={{x=s.gx,y=s.gy}} else e.goal=nil end

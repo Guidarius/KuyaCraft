@@ -2,7 +2,11 @@
 local F={directions={'N','NE','E','SE','S','SW','W','NW'}}
 local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden'}
 function F.assetId(e)
-    if e.kind=='worker' then return (e.cargo or 0)>0 and 'worker_loaded' or 'worker' end
+    -- The loaded worker recipe is the gold carrier: same body, same clips, a bundle on
+    -- its back. A carrier is only ever alive while it is holding gold, so it has no
+    -- unloaded state and the workers themselves no longer carry anything.
+    if e.kind=='carrier' then return 'worker_loaded' end
+    if e.kind=='worker' then return 'worker' end
     return assetIds[e.kind]
 end
 function F.direction(dx,dy,last)
