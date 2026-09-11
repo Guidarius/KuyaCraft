@@ -13,6 +13,10 @@ try {
     $clientArgs=@('"' + $ProjectRoot + '"','--network-worker','--join',"127.0.0.1:$Port",'--output','"' + $clientOutput + '"')
     $hostProcess=Start-Process -FilePath $runtime -ArgumentList $hostArgs -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $hostLog -RedirectStandardError (Join-Path $ProjectRoot 'artifacts/network-host.err')
     $clientProcess=Start-Process -FilePath $runtime -ArgumentList $clientArgs -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $clientLog -RedirectStandardError (Join-Path $ProjectRoot 'artifacts/network-client.err')
+    # Touching .Handle caches it while the process is alive. Without this, Windows
+    # PowerShell 5.1 reports $null from .ExitCode once the process has exited, and
+    # $null -ne 0 fails the check no matter what the workers actually reported.
+    $null=$hostProcess.Handle;$null=$clientProcess.Handle
     if (-not $hostProcess.WaitForExit(30000) -or -not $clientProcess.WaitForExit(30000)) { throw 'Network process timeout; inspect artifacts/network-*.log and .err.' }
     if ($hostProcess.ExitCode -ne 0 -or $clientProcess.ExitCode -ne 0) { throw 'Network process failed; inspect artifacts/network-*.log and .err.' }
     if ((Get-Content -LiteralPath $hostOutput -Raw) -cne (Get-Content -LiteralPath $clientOutput -Raw)) { throw 'Two-process network state mismatch.' }

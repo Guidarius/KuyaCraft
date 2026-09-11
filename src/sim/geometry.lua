@@ -1,5 +1,6 @@
 -- Integer geometry shared by navigation, occupancy and weapons. No engine APIs.
 local F=require('src.sim.fixed')
+local Stats=require('src.sim.stats')
 local G={}
 -- Rebuilt for each step and after spawn/revival. These derived buckets are
 -- discarded before step returns and are never snapshot/serialization state.
@@ -52,8 +53,9 @@ function G.free(w,x,y,r,except)
     return true
 end
 function G.weaponRangeAt(w,e,x,y,t,extra)
-    local d=w.content.units[e.kind] or w.content.buildings[e.kind]
-    local range=d.range+G.radius(w,e)+(extra or 0)
+    -- Reach comes from the resolver, so anything that lengthens or shortens a weapon
+    -- reaches every range check in the game through this one call.
+    local range=Stats.range(w,e)+G.radius(w,e)+(extra or 0)
     if t.category=='building' then
         return G.rectangleDistance2(x,y,t.x-128,t.y-128,t.x-128+t.size*256,t.y-128+t.size*256)<=range*range
     end

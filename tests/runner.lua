@@ -76,12 +76,20 @@ test('simulation','unreachable search terminates',function()
     step(w,1,{command(w,1,'move',e.id,{x=F.center(10),y=F.center(5)})});step(w,500)
     eq(e.lastOrderFailure,'unreachable');assert(not w.searches[e.id])
 end)
-test('simulation','harvest delivers resources and depletes node',function()
-    local m=Maps.create('harvest',20);m.resources={{x=6,y=6,resource='gold',amount=10}};m.camps={}
+test('simulation','an extractor delivers a mine and then depletes it',function()
+    local m=Maps.create('extract',20);m.resources={{x=6,y=6,resource='gold',amount=16,size=3}};m.camps={}
     local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
     local e=find(w,1,'worker');local node=find(w,0,'resource');local before=w.players[1].resources.gold
-    step(w,1,{command(w,1,'harvest',e.id,{target=node.id})});step(w,400)
-    eq(w.players[1].resources.gold,before+10);assert(not node.alive);eq(e.cargo,0)
+    local cost=Content.buildings.extractor.cost.gold
+    step(w,1,{command(w,1,'build',e.id,{building='extractor',x=6,y=6})})
+    local site=find(w,1,'extractor');assert(site,'extractor rejected on a mine')
+    -- Sixteen gold is two payloads: the mine empties, both are delivered, and the
+    -- carriers that were paid for are the only ones ever emitted.
+    local depleted=false
+    for _=1,1200 do for _,ev in ipairs(Sim.step(w,{})) do if ev.kind=='depleted' then depleted=true end end end
+    assert(depleted,'mine never depleted');assert(not node.alive)
+    eq(w.players[1].resources.gold,before-cost+16)
+    for _,id in ipairs(w.order) do assert(w.entities[id].category~='carrier' or not w.entities[id].alive) end
 end)
 test('simulation','build, production, cancellation, population reservation',function()
     local w=world(24);local worker=find(w,1,'worker')
@@ -189,6 +197,49 @@ test('simulation','group destinations remain distinct and bodies respect clearan
     end
     for _,c in ipairs(commands) do local e=w.entities[c.args.entity];eq(e.order.kind,'stop');assert(not e.lastOrderFailure) end
 end)
+test('simulation','authoritative checkpoint covers derived navigation state',function()
+    -- w.blocked and the lane cache are excluded from Sim.serializeAuthoritative on
+    -- the grounds that they derive from map.blocked plus the standing buildings,
+    -- which the checkpoint does cover. Prove that across construction, depletion
+    -- and destruction rather than asserting it in a comment.
+    local Path=require('src.sim.path')
+    local w=world(24)
+    local builder=find(w,1,'worker')
+    local function derived()
+        eq(Codec.encode(w.blocked),Codec.encode(Sim.recomputeBlocked(w)),'w.blocked is not recomputable')
+    end
+    derived()
+    -- Close enough to the worker that the footprint is inside its sight radius.
+    step(w,1,{command(w,1,'build',builder.id,{building='barracks',x=7,y=6})})
+    for _,event in ipairs(w.events) do assert(event.kind~='rejected','build rejected: '..tostring(event.reason)) end
+    local site=find(w,1,'barracks');assert(site,'no construction site')
+    derived();assert(w.blocked[Path.key(w.map,7,6)],'footprint did not block navigation')
+    for _=1,400 do step(w,1);derived() end
+    assert(site.remaining==0,'construction did not complete')
+    site.hp=0;step(w,1);assert(not site.alive,'building survived zero health')
+    derived();assert(not w.blocked[Path.key(w.map,7,6)],'destroyed footprint still blocks navigation')
+    -- A checkpoint must still notice a real divergence in state it does cover.
+    local a,b=world(24),world(24)
+    eq(Sim.serializeAuthoritative(a),Sim.serializeAuthoritative(b))
+    local mover=find(a,1,'worker');step(a,1,{command(a,1,'move',mover.id,{x=F.center(6),y=F.center(6)})});step(b,1)
+    assert(Sim.serializeAuthoritative(a)~=Sim.serializeAuthoritative(b),'checkpoint missed a divergence')
+end)
+test('simulation','rally points direct production to a point and to a node',function() require('tests.order_scenarios').rally() end)
+test('simulation','patrol walks its beat and turns at both ends',function() require('tests.order_scenarios').patrol() end)
+test('simulation','follow keeps station, never acquires, and ends with its target',function() require('tests.order_scenarios').follow() end)
+test('simulation','deliveries and kill tallies are authoritative',function() require('tests.order_scenarios').tallies() end)
+test('simulation','new orders survive a recorded replay',function() require('tests.order_scenarios').replay() end)
+test('simulation','a group move travels at the pace of its slowest member',function() require('tests.order_scenarios').formation() end)
+test('simulation','an instant cast wards allies in its radius and starts a cooldown',function() require('tests.ability_scenarios').instant() end)
+test('simulation','a targeted cast walks into range, damages once and really slows',function() require('tests.ability_scenarios').targeted() end)
+test('simulation','moving before the cast point cancels it and costs nothing',function() require('tests.ability_scenarios').cancellation() end)
+test('simulation','an area cast hits its circle and its burn ticks on a period',function() require('tests.ability_scenarios').area() end)
+test('simulation','a skill shot hits the first unit on its line and stuns it',function() require('tests.ability_scenarios').skillshot() end)
+test('simulation','a thrown shot travels, lands once and is recycled',function() require('tests.ability_scenarios').projectile() end)
+test('simulation','casts are refused with a reason the player can act on',function() require('tests.ability_scenarios').rejections() end)
+test('simulation','casts and statuses survive a snapshot identically',function() require('tests.ability_scenarios').snapshot() end)
+test('simulation','an area effect resolves in world order, not arrival order',function() require('tests.ability_scenarios').ordering() end)
+test('simulation','sight is blocked by terrain, buildings and forests',function() require('tests.vision_scenarios').run() end)
 test('scenario','mirror bot match and replay',function() require('tests.scenarios').match(true) end)
 test('scenario','asymmetric bot match and replay',function() require('tests.scenarios').match(false) end)
 test('performance','240-unit four-player stress',function() require('tests.scenarios').performance() end)
@@ -213,9 +264,16 @@ function T.run(options)
     if options['determinism-worker'] then return T.worker(options) end
     require('tests.control_scenarios').benchmarkTicks=tonumber(options['benchmark-ticks'])
     require('tests.control_scenarios').profile=options['profile-sim']
-    local suite=options.test or 'all';assert(({all=true,balance=true,unit=true,simulation=true,determinism=true,network=true,scenario=true,performance=true,crowd=true,soak=true})[suite],'unknown suite')
+    -- Perf gates are budgets, not constants: slower reference hardware sets its own.
+    local budget=tonumber(options['perf-budget']) or 10
+    require('tests.control_scenarios').perfBudget=budget
+    require('tests.balance_scenarios').perfBudget=budget
+    local suite=options.test or 'all'
+    assert(({all=true,balance=true,unit=true,simulation=true,determinism=true,network=true,scenario=true,performance=true,crowd=true,soak=true,quick=true})[suite],'unknown suite')
+    -- 'quick' is unit+simulation in one process: no determinism or network child processes.
+    local accepts=suite=='quick' and function(s) return s=='unit' or s=='simulation' end or function(s) return suite=='all' or s==suite end
     local passed,failed=0,0
-    for _,item in ipairs(tests) do if (suite=='all' or item.suite==suite) and (not options.filter or item.name:find(options.filter,1,true)) then
+    for _,item in ipairs(tests) do if accepts(item.suite) and (not options.filter or item.name:find(options.filter,1,true)) then
         local ok,err=xpcall(item.fn,debug.traceback)
         if ok then passed=passed+1;print('PASS '..item.name) else failed=failed+1;print('FAIL '..item.name..'\n'..err) end
     end end

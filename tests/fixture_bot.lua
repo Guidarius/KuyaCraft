@@ -23,17 +23,21 @@ function M.commands(view,content)
             else enemy=enemy or e end
         end
     end
-    for _,e in ipairs(view.entities) do
-        if e.alive and e.owner==player and e.kind=='worker' and e.order.kind=='stop' then
-            local best,dist
-            for _,n in ipairs(nodes) do
-                local d=(e.x-n.x)^2+(e.y-n.y)^2
-                local desired=e.id%2==0 and 'gold' or 'lumber'; if n.resource==desired and (not best or d<dist) then best=n;dist=d end
+    -- One extractor on the nearest uncovered mine. Nothing harvests, so an idle worker
+    -- is only ever useful as a builder.
+    local covered={}
+    for _,e in ipairs(view.entities) do if e.alive and e.mine then covered[e.mine]=true end end
+    if worker and worker.order.kind=='stop' and view.player.resources.gold>=content.buildings.extractor.cost.gold then
+        local best,dist
+        for _,n in ipairs(nodes) do
+            if n.resource=='gold' and not covered[n.id] then
+                local d=(worker.x-n.x)^2+(worker.y-n.y)^2
+                if not best or d<dist then best=n;dist=d end
             end
-            if best then add('harvest',e,{target=best.id}) end
         end
+        if best then add('build',worker,{building='extractor',x=math.floor(best.x/256),y=math.floor(best.y/256)}) end
     end
-    if worker and not barracks and view.player.resources.gold>=120 and view.player.resources.lumber>=60 then
+    if worker and not barracks and view.player.resources.gold>=content.buildings.barracks.cost.gold then
         local ox,oy=math.floor(hq.x/256),math.floor(hq.y/256)
         local placed=false
         for radius=3,7 do

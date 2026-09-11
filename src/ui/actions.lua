@@ -1,19 +1,23 @@
 local C=require('src.content')
 local Sim=require('src.sim')
+local Selection=require('src.ui.selection')
+local Input
 local A={}
 -- Presentation-only selection and availability. The simulation validates again at execution.
 function A.context(app)
  local ids={};for _,id in ipairs(app.selected) do ids[#ids+1]=id end;table.sort(ids)
- local signature=table.concat(ids,',');local ctx={units={},workers={},entities={},signature=signature}
+ local signature=table.concat(ids,',')..':'..tostring(app.subgroupKind or '');local ctx={units={},workers={},entities={},signature=signature}
  for _,id in ipairs(ids) do local e=app:entity(id);if e and e.owner==app.player then
   ctx.entities[#ctx.entities+1]=e
   if e.alive and e.category=='unit' then ctx.units[#ctx.units+1]=e;if e.kind=='worker' then ctx.workers[#ctx.workers+1]=e end end
  end end
  ctx.onlyWorkers=#ctx.workers>0 and #ctx.workers==#ids
+ ctx.canBuild=ctx.onlyWorkers or (app.subgroupKind=='worker' and #ctx.workers>0)
  ctx.onlyUnits=#ctx.units>0 and #ctx.units==#ids
- if #ids==1 and #ctx.entities==1 then local e=ctx.entities[1];ctx.single=e;if e.upgrades then ctx.hero=e end end
- if app.cardSelection~=signature then app.cardSelection=signature;app.cardPage=nil;app.building=nil;app.targetMode=nil;app.attackMove=nil end
- if app.cardPage=='build' and not ctx.onlyWorkers or app.cardPage=='abilities' and not ctx.hero then app.cardPage=nil;app.building=nil;app.targetMode=nil end
+ local primary=app:entity(Selection.primary(app));ctx.single=primary
+ if primary and primary.owner==app.player and primary.upgrades then ctx.hero=primary end
+ if app.cardSelection~=signature then app.cardSelection=signature;app.cardPage=nil;app.building=nil;app.targeting=nil end
+ if app.cardPage=='build' and not ctx.canBuild or app.cardPage=='abilities' and not ctx.hero then app.cardPage=nil;app.building=nil;app.targeting=nil end
  return ctx
 end
 function A.costs(app,cost,entity,extra)
@@ -48,15 +52,16 @@ function A.activate(app,action)
  return true
 end
 function A.list(app)
- local ctx=A.context(app);local e=ctx.single;local list={}
+ local ctx=A.context(app);local e=app:entity(Selection.primary(app));local list={}
+ Input=Input or require('src.ui.input')
  local locked=app.playback and 'Replay is read-only' or app.world.result and 'Match has ended' or app.network and not app.network.ready and 'Waiting for match to start' or nil
  local function add(id,label,key,fn,reason,tip,costs,menu)
   list[#list+1]={id=id,label=label,key=key or '',run=fn,reason=(not menu and locked) or reason,tip=tip,costs=costs,menu=menu}
  end
- local function back() add('back-card','Back','escape',function() app.cardPage=nil;app.building=nil;app.targetMode=nil end,nil,'Return to commands.',nil,true);list[#list].slot=9 end
+ local function back() add('back-card','Back','escape',function() app.cardPage=nil;app.building=nil;app.targeting=nil end,nil,'Return to commands.',nil,true);list[#list].slot=9 end
  if app.cardPage=='build' then
-  for i,kind in ipairs({'barracks','tower','outpost','depot'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
-   add(kind,d.label,({'q',app.settings.bindings.tower or 't','e','r'})[i],function() app.building=kind;app.targetMode=nil end,missing(costs),
+  for i,kind in ipairs({'barracks','tower','outpost','extractor'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
+   add(kind,d.label,({'q',app.settings.bindings.tower or 't','e','r'})[i],function() app.building=kind;app.targeting=nil end,missing(costs),
     'Place '..d.label..'. '..(d.buildTicks/C.rules.tickRate)..' seconds. Shift queues another site. One selected worker builds each site.',costs)
   end
   back();return list
@@ -73,16 +78,16 @@ function A.list(app)
   back();return list
  end
  if #ctx.units>0 then
-  add('move','Move','m',function() app.targetMode='move' end,nil,'Click a destination. Shift appends.')
-  add('attack','Attack move',app.settings.bindings.attack,function() app.targetMode='attack_move' end,nil,'Engage enemies on the way.')
+  add('move','Move','m',function() Input.arm(app,'move') end,nil,'Click a destination. Shift appends.')
+  add('attack','Attack move',app.settings.bindings.attack,function() Input.arm(app,'attack_move') end,nil,'Engage enemies on the way.')
   add('stop','Stop',app.settings.bindings.stop,function() for _,unit in ipairs(ctx.units) do app:command('stop',unit.id) end end,nil,'Stop and clear orders for selected units.')
   add('hold','Hold',app.settings.bindings.hold,function() for _,unit in ipairs(ctx.units) do app:command('hold',unit.id) end end,nil,'Stand still and fire. Never chase or yield.')
  end
- if ctx.onlyWorkers then
+ if ctx.canBuild then
   add('build-menu','Build',app.settings.bindings.build,function() app.cardPage='build' end,nil,'Choose a building. Costs and requirements appear on each card.',nil,true)
-  add('harvest','Harvest','g',function() app.targetMode='harvest' end,nil,'Click a visible resource. Orders all selected workers.')
  end
- if e and e.category=='building' then
+ if #ctx.units>0 then add('patrol','Patrol','p',function() Input.arm(app,'patrol') end,nil,'Patrol to a point and engage enemies along the way.') end
+ if e and e.owner==app.player and e.category=='building' then
   local dead=not e.alive and 'Building destroyed' or nil
   local roster=e.kind=='hq' and {'worker'} or e.kind=='barracks' and C.factions[app.view.player.faction].roster or {}
   for i,kind in ipairs(roster) do local d=C.units[kind]
@@ -101,14 +106,42 @@ function A.list(app)
  end
  if ctx.hero then local hero=ctx.hero;local dead=not hero.alive and 'Hero is dead' or nil
   if hero.alive then
-   add('stance','Stance '..hero.stance,'q',function() app:command('toggle',hero.id) end,nil,'Switch defensive/recovery and offensive/pursuit stance.')
-   add('passive',hero.kind=='warden' and 'Protection' or 'Recovery','',nil,'Passive',hero.kind=='warden' and 'Nearby allies take reduced damage.' or 'Recover health out of combat.')
+   add('stance','Stance '..hero.stance,'z',function() app:command('toggle',hero.id) end,nil,'Switch defensive/recovery and offensive/pursuit stance.')
   else local gold,ticks=Sim.revival(C,hero);local costs=A.costs(app,{gold=gold},hero);local hq=app:entity(app.view.player.hq)
    add('revive','Revive','v',function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or (not hq or not hq.alive) and 'Requires living headquarters' or missing(costs),'Return at headquarters in '..ticks/C.rules.tickRate..' seconds.',costs)
   end
   local available=0;for tier in ipairs(C.rules.xpThresholds) do if not A.upgradeReason(app,hero,tier) then available=available+1 end end
   add('abilities','Abilities'..(available>0 and ' +'..available or ''),'u',function() app.cardPage='abilities' end,dead,'View all three tiers. Each tier grants one permanent choice.',nil,true)
  end
+ -- Abilities. The button says what stops it being usable, because "nothing happened" is
+ -- the worst answer a command card can give: not enough mana, still cooling down, or the
+ -- unit is dead. Cooldown is shown as the seconds left, which is the number a player
+ -- actually counts.
+ local unitDef=e and e.owner==app.player and C.units[e.kind]
+ if unitDef and unitDef.abilities then
+  for _,id in ipairs(unitDef.abilities) do
+   local spec=C.abilities[id]
+   if spec then
+    local remaining=e.cooldowns and e.cooldowns[id] and (e.cooldowns[id]-app.world.tick) or 0
+    local cost=spec.cost and spec.cost.mana or 0
+    local reason=not e.alive and 'Unit is dead' or nil
+    if not reason and remaining>0 then reason='Ready in '..math.ceil(remaining/20)..'s' end
+    if not reason and cost>0 and (e.mana or 0)<cost then reason='Needs '..cost..' mana' end
+    local label=spec.label
+    if remaining>0 then label=label..' '..math.ceil(remaining/20)..'s' end
+    local tip=(spec.tip or '')..(cost>0 and ('  Costs '..cost..' mana.') or '')
+    if spec.target=='none' then tip=tip..'  Cast where you stand.'
+    elseif spec.target=='unit' then tip=tip..'  Click a target.'
+    elseif spec.target=='direction' then tip=tip..'  Click to aim the line.'
+    else tip=tip..'  Click the ground.' end
+    add('ability-'..id,label,spec.hotkey or '',function() Input.arm(app,'cast',id) end,reason,tip,A.costs(app,spec.cost,e));list[#list].slot=spec.slot
+   end
+  end
+ end
+ local occupied={}
+ for _,action in ipairs(list) do if action.slot then occupied[action.slot]=true end end
+ local slot=1
+ for _,action in ipairs(list) do if not action.slot then while occupied[slot] do slot=slot+1 end;action.slot=slot;occupied[slot]=true end end
  return list
 end
 A.upgrades={

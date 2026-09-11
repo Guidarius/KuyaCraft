@@ -12,11 +12,14 @@ local function workers(app) local ids={};for _,e in ipairs(app.view.entities) do
 function T.context()
  local app=fixture();local ids=workers(app);local hero=app.view.player.hero;local before=Sim.serializeCanonical(app.world)
  app.selected={hero};local a=index(app);assert(a.abilities and a.stance and not a['build-menu'])
- app.selected={ids[1],ids[2]};a=index(app);assert(a['build-menu'] and a.harvest and not a.abilities)
- Actions.activate(app,a['build-menu']);assert(app.cardPage=='build');a=index(app);assert(a.barracks and a.tower and a.depot and a.outpost and not a.move)
- app.selected={hero,ids[1]};a=index(app);assert(not app.cardPage and a.move and not a.stance and not a['build-menu'] and not a.abilities)
+ app.selected={ids[1],ids[2]};a=index(app);assert(a['build-menu'] and not a.harvest and not a.abilities)
+ Actions.activate(app,a['build-menu']);assert(app.cardPage=='build');a=index(app);assert(a.barracks and a.tower and a.extractor and a.outpost and not a.move)
+ app.selected={hero,ids[1]};a=index(app);assert(not app.cardPage and a.move and a.stance and not a['build-menu'] and a.abilities)
  app.selected={ids[1],hero};local b=index(app);assert(b.move and not b['build-menu'],'selection order altered capabilities')
  Actions.activate(app,b.stop);assert(#app.queue==2)
+ app.subgroupKind='worker';a=index(app);assert(a['build-menu'] and not a.stance);Actions.activate(app,a['build-menu']);assert(index(app).extractor,'worker subgroup lost build menu');app.subgroupKind=nil
+ app.selected={hero};a=index(app);local slots={};local keys={};for _,action in pairs(a) do assert(action.slot<=9 and not slots[action.slot],'overlapping command slot');slots[action.slot]=true;if action.key~='' then assert(not keys[action.key],'duplicate hotkey');keys[action.key]=true end end
+ for _,id in ipairs(C.units[app:entity(hero).kind].abilities) do assert(a['ability-'..id].slot==C.abilities[id].slot,'spell slot moved') end
  app.selected={app.view.player.hq};assert(index(app)['recruit-worker'])
  app.selected={};assert(not next(index(app)))
  assert(Sim.serializeCanonical(app.world)==before,'UI changed simulation state')
@@ -24,7 +27,7 @@ end
 function T.availability()
  local app=fixture();app.selected={app.view.player.hq};local hq=app:entity(app.selected[1]);hq.kind='barracks'
  local a=index(app);assert(a['recruit-medic'].reason=='Requires HQ advancement')
- app.view.player.tech=true;app.view.player.resources.gold=0;app.view.player.resources.lumber=1000
+ app.view.player.tech=true;app.view.player.resources.gold=0
  a=index(app);local unit=a['recruit-medic'];assert(unit.reason=='Insufficient gold' and unit.costs[1].short and not unit.costs[2].short)
  Actions.activate(app,unit);assert(#app.queue==0 and app.uiNotice.kind=='rejected' and app.costFlash.keys.gold)
  local costs=Actions.costs(app,{mana=30},{mana=10});assert(costs[1].short and costs[1].key=='mana')
@@ -56,7 +59,7 @@ function T.rendered()
  local hero=app.world.entities[app.view.player.hero];hero.xp=C.rules.xpThresholds[1];app.view=Sim.view(app.world,1)
  click('ability-1-1');assert(app.overlay=='upgrade' and not hero.upgrades[1]);click('commit');app:update(.05);assert(hero.upgrades[1]==1 and app.cardPage=='abilities')
  assert(app.uiNotice.kind=='levelup')
- app.network={ready=false};local queued=#app.queue;require('src.ui.input').intent(app,0,0,nil,'move');assert(#app.queue==queued and app.uiNotice.kind=='rejected' and app.uiNotice.text=='Waiting for match to start','blocked order reported issued');app.network=nil
+ app.network={ready=false};local queued=#app.queue;require('src.ui.input').intent(app,0,0,nil,'move');assert(#app.queue==queued and app.uiNotice.kind=='rejected' and app.uiNotice.text=='Waiting for match to start' and app.message=='Waiting for match to start','blocked order reported issued');app.network=nil
  local state=Sim.serializeCanonical(app.world);app:draw();app:draw();assert(Sim.serializeCanonical(app.world)==state)
  local feedback=require('src.ui.command_feedback');app.orderMarker={group=8,time=0,x=0,y=0};feedback.resolve(app,{kind='rejected',reason='invalid position'},{kind='move',group=7,x=0,y=0});assert(not app.orderMarker.kind,'late rejection altered newer marker')
  feedback.resolve(app,{kind='rejected',reason='invalid position'},{kind='move',group=8,x=0,y=0});assert(app.orderMarker.kind=='rejected')
@@ -69,12 +72,12 @@ function T.rendered()
 end
 function T.captures(app,capture)
  local ids=workers(app);local hero=app.world.entities[app.view.player.hero];local player=app.world.players[1]
- local gold,lumber,xp=player.resources.gold,player.resources.lumber,hero.xp
- app.overlay=nil;app.selected={ids[1],ids[2]};Actions.context(app);app.cardPage='build';player.resources.gold=100;player.resources.lumber=50;app.view=Sim.view(app.world,1)
+ local gold,xp=player.resources.gold,hero.xp
+ app.overlay=nil;app.selected={ids[1],ids[2]};Actions.context(app);app.cardPage='build';player.resources.gold=100;app.view=Sim.view(app.world,1)
  capture('build-card',function() app:draw();for _,b in ipairs(app.widgets.items) do if b.id=='barracks' then app.widgets.hover=b end end;app.widgets:tooltip(love.graphics.getWidth(),love.graphics.getHeight()) end)
  app.selected={hero.id};Actions.context(app);app.cardPage='abilities';hero.xp=500;app.view=Sim.view(app.world,1)
  capture('ability-card',function() app:draw() end)
  app.selected={hero.id,ids[1]};capture('mixed-card',function() app:draw() end)
- player.resources.gold=gold;player.resources.lumber=lumber;hero.xp=xp;app.view=Sim.view(app.world,1);app.selected={hero.id};Actions.context(app)
+ player.resources.gold=gold;hero.xp=xp;app.view=Sim.view(app.world,1);app.selected={hero.id};Actions.context(app)
 end
 return T

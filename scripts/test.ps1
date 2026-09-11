@@ -1,8 +1,12 @@
-param([string]$Suite = 'all', [switch]$SelfTestFailure, [switch]$DeterminismWorker, [string]$OutputPath = '', [int]$Schedule = 60)
+# PerfBudget is the p95 Sim.step gate in milliseconds. The default of 10 is
+# calibrated for the reference desktop; slower hardware passes its own budget
+# rather than silently weakening the assertion in the test source.
+param([string]$Suite = 'all', [switch]$SelfTestFailure, [switch]$DeterminismWorker, [string]$OutputPath = '', [int]$Schedule = 60, [double]$PerfBudget = 0)
 . "$PSScriptRoot/common.ps1"
 $runtime = Get-LoveRuntime
 Initialize-Artifacts
 $testArgs = @($ProjectRoot, '--test', $Suite)
+if ($PerfBudget -gt 0) { $testArgs += @('--perf-budget', "$PerfBudget") }
 if ($SelfTestFailure) { $testArgs += '--self-test-failure' }
 if ($DeterminismWorker) { $testArgs += @('--determinism-worker', '--schedule', "$Schedule", '--output', $OutputPath) }
 Push-Location $ProjectRoot

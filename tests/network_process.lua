@@ -39,7 +39,7 @@ function T.run(options)
                 if commands then
                     Sim.step(world,commands)
                     if world.tick%100==0 then
-                        local hash=Hash.bytes(Sim.serializeCanonical(world));file:write(world.tick..' '..hash..'\n');net:checksum(world.tick,hash)
+                        local hash=Hash.bytes(Sim.serializeAuthoritative(world));file:write(world.tick..' '..hash..'\n');net:checksum(world.tick,hash)
                     end
                 end
             elseif net.remoteHashes[600] and net.remoteHashes[600]==net.hashes[600] then

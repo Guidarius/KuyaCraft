@@ -35,8 +35,11 @@ No public services, NAT traversal, reconnect or host migration were added.
 | Left click / drag | Select / box-select |
 | Shift selection | Add or remove units |
 | Double click | Visible friendly units of the same type within the battlefield |
-| Right click | Move, attack visible enemy, harvest or resume construction |
+| Right click | Move, attack visible enemy, follow own unit, or resume construction |
 | A then left click | Attack-move, including minimap |
+| P then left click | Patrol between here and there |
+| Right click own unit | Follow it |
+| Right click with buildings selected | Set rally point |
 | S | Stop and clear orders |
 | Shift order | Append a task; maximum 32 pending tasks per unit |
 | Ctrl+1–9 | Assign groups |
@@ -48,11 +51,17 @@ No public services, NAT traversal, reconnect or host migration were added.
 | Scroll | Cursor-anchored zoom, subject to map bounds |
 | Escape / right click while targeting | Cancel targeting |
 | B / T | Worker war hall / watchtower placement |
-| F5 | Save replay |
+| F2 | Select all combat units |
+| F9 | Select and centre the next idle worker (cycles; rebindable) |
+| F5–F8 / Ctrl+F5–F8 | Recall / set camera bookmark |
+| Ctrl+F1 | Toggle follow hero |
+| Alt held | Show every health bar |
+| F4 / F10 | Performance overlay / hotkey help |
+| Ctrl+S | Save replay |
 
 Actions have mouse buttons, icons, labels, hotkeys and explanatory tooltips. Disabled controls explain costs, capacity, selection or unfinished construction. Passive actions remain visible. Number keys never recruit.
 
-Selection tiles show type counts; click selects a subgroup and Tab cycles subgroups. Production exposes remaining time, order and individual cancellation with full resource refund. Site cancellation keeps the existing 50% construction refund.
+Selection tiles show type counts; click selects a subgroup and Tab cycles subgroups. Below them, a selection of more than one unit shows a tile per unit with its own health bar: click keeps only that unit, shift-click drops it, and pages appear beyond twelve. Production exposes remaining time, order and individual cancellation with full resource refund. Site cancellation keeps the existing 50% construction refund.
 
 The hero dock shows health, XP, stance, revival and pending upgrades without replacing selection when using hero actions. Upgrade alternatives show exact numerical effects. An option click previews; **Choose Upgrade** sends the irreversible choice command. Closing retains pending milestones.
 
@@ -90,7 +99,7 @@ Replay seeking rebuilds memory from tick zero using filtered views. A bounded sa
 
 Simulation version is now **2**. Old replays intentionally fail strict version/source checks. No existing golden result was silently rewritten.
 
-- Move, attack-move, attack, harvest and construction share an explicit deterministic task queue.
+- Move, attack-move, attack, patrol, follow and construction share an explicit deterministic task queue.
 - Normal orders replace; Shift appends; Stop clears. Completed, depleted, invalidated or exhausted tasks advance.
 - Queued construction spends resources and blocks its footprint at command acceptance. Work starts only when the builder reaches that task.
 - Placement preview and authority share Sim.placement; authority also checks complete occupancy.
@@ -173,3 +182,46 @@ The active benchmark starts 240 units across two players at 1080p and runs 600 t
 5. Run longer sessions to assess memory growth, repeated alerts, sound fatigue and late-game crowd movement.
 
 Success requires understandable outcomes and next actions, readable battles, and reproducible simulation. Passing automation alone does not establish these human gates.
+
+## Control and ability revision — 2026-09-10
+
+Four control rules were wrong by Warcraft 3 conventions and are fixed. A-clicking an
+enemy focuses it rather than attack-moving to the ground under it, which is most of what
+the A key is for. Tab moves the command card between unit types and keeps the whole
+selection; it used to replace the selection with one subgroup, so a player who pressed it
+to look at their casters lost the army with no way back. The card follows the active
+subgroup, and with none chosen it prefers a hero over a soldier over a worker rather than
+whichever unit happened to have the lowest entity id. Box selection takes your own units
+over anything else in the rectangle and never mixes a building into an army.
+
+Orders are answered locally before the simulation runs: the ordered units' circles
+brighten for a fifth of a second and an acknowledgement sound plays. The sound is resolved
+most-specific-first, so adding `ack-shield-attack` or `ack-shield` to the audio manifest
+makes them play with no code change; that is the hook faction voice lines drop into. The
+`windup` event, emitted since version 3 and consumed by nothing, now draws a tightening
+arc on the attacker, so a swing reads as thrown and a cancelled swing reads as stopped.
+
+Effects, order lines and rally lines are anchored to their entity and interpolated, so a
+spark no longer stutters at 20 Hz over a unit gliding at the frame rate. Hover refreshes
+once a tick as well as on motion, so a unit walking under a still pointer updates the
+cursor. World health bars are coloured by relation rather than by player colour: on a
+four-pixel bar in a fight the only question is whether you can shoot it.
+
+Targeting is now one record rather than a scatter of mode flags. `app.targeting` says
+what the next click means, and the cursor, the range ring, the area circle, the skill-shot
+line, the click handler and Escape all read it, so what is shown and what happens cannot
+drift apart. A new ability target kind is one branch in one function.
+
+Ability buttons sit in fixed card slots defined by content and say why they are unusable:
+seconds left, or mana short. Units carry a mana bar under the health bar and a status
+strip above it, drawn as coloured swatches that the user's own icons replace later.
+Settings gains **Smart cast**, off by default, which makes an ability key cast at the
+cursor immediately, with Alt casting on yourself.
+
+The minimap ping is now a `ping` command rather than a local dot. It is ordered, recorded
+in the replay and observed like every other action, and it is addressed to the pinging
+player's side only -- never to everyone, or a ping would hand the enemy your attention.
+
+Not added: autocast, ability levels, charges, a talking portrait, unit voice assets. The
+audio manifest, the cursor set, the status swatches and the effect anchors are the slots
+those drop into.

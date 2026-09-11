@@ -16,7 +16,7 @@ This repository contains the accepted roadmap and a playable **prototype**, not 
 
 - Pure Lua authoritative simulation: 20 Hz ticks, integer positions and quantities, Park–Miller PRNG, stable IDs and ordering, bounded incremental A*, radius-aware local movement, snapshots, canonical encoding.
 
-- Workers, gold/lumber nodes, carrying/delivery, construction, recruitment, refunds, population limits.
+- One resource. Gold mines, extractors, carrier delivery, construction, recruitment, refunds, population limits. Workers build and nothing harvests; see the resource revision below.
 
 - Combat, passive/toggle hero kits, mutually exclusive upgrades, revival, neutral camp behavior, fog, headquarters victory/draw.
 
@@ -59,6 +59,249 @@ Reference hardware: AMD Ryzen 5 5600G, NVIDIA GeForce RTX 3060, approximately 23
 
 
 
+## Performance revision — 2026-09-09
+
+Simulation version **5**. This revision changes what periodic checkpoints hash and is a
+deliberate, versioned break: replays recorded before it are rejected by `Replay.read`
+rather than reported as divergence. No golden result was re-blessed; the bot match
+outcomes below are unchanged from before the work.
+
+**Measured on a different machine from the reference hardware above.** This clone was
+developed on an Intel Core i5-6300U (2 cores / 4 threads, 2.4 GHz nominal, observed
+running at ~0.8 GHz under sustained load) with 7.88 GiB RAM and integrated graphics —
+roughly 3–4x slower than the Ryzen 5 5600G / RTX 3060 the earlier figures were taken on.
+Absolute milliseconds below are therefore **not** comparable with the older sections;
+only the before/after pairs, measured back to back on this machine, are meaningful.
+Run-to-run spread on this thermally limited laptop is large (22–35 ms p95 for identical
+code), so single-run differences under about 30% are not evidence of anything.
+
+Rendered 1080p battle, 240 units, 600 ticks, sprites/fog/minimap/effects/audio enabled:
+
+| Measure | Before | After |
+|---|---|---|
+| Frame cadence p95 | 72.52 ms | 33.95 ms |
+| Frames delivered in 30 s | 1,199 | 1,509 |
+| Draw submission p95 | 14.35 ms | 10.27 ms |
+| Sampled Lua heap growth per 30 s | +3.5 MiB | +0.75 MiB |
+
+The rendered benchmark now times each stage of the tick separately, because timing only
+`Sim.step` hid most of the cost. After this revision: `step` 25.3 ms p95, `Sim.view`
+5.5 ms, observation 0.4 ms, events 0.1 ms, feedback 0.3 ms, replay recording 0.04 ms p95
+(50 ms on checkpoint ticks), minimap fog cache 0.6 ms. Draw calls are 483 p95 at 240
+units, which is the next rendering limit and is not yet addressed.
+
+Headless authoritative benchmarks on this machine: the 240-unit 10,000-tick control
+benchmark measured **35.0 ms p95 / 516 ms maximum** with 29,352 attacks and 5,796 lead
+moving ticks; the 128x112 240-unit balance benchmark measured **23.6 ms p95 / 107 ms
+maximum** (previously 24.4 ms p95 / **217 ms** maximum on the same machine). Attack and
+movement counts are identical before and after, which is the evidence that the changes
+are behaviour-preserving. Neither meets the 10 ms p95 target on this hardware; the gate
+is now a parameter (`scripts/test.ps1 -PerfBudget`) rather than a constant, and was run
+at 40 ms here. It remains 10 ms by default for the reference desktop.
+
+Verified after this revision: **81 tests passed, zero failed**; 100,000 ticks agree at
+100-tick checkpoints across four fresh processes (30/60/144 FPS schedules plus default
+JIT cache); real ENet host and client agree at every 100-tick checkpoint through 600
+ticks; mirror and asymmetric bot matches finished at **660.85 s** and **634.55 s**,
+identical to before the work.
+
+### Simulation step work
+
+A line profile chose the targets rather than intuition. `visibility()` was the largest
+single cost in the step at roughly 22% of samples, because it rebuilt its row tables
+every tick and prefix-summed the **entire map width** for every covered row: about
+14,000 iterations per player per tick on a 128x112 map regardless of how little was
+visible. It now tracks which rows are covered and the span of each. Per-phase p50 inside
+`Sim.step`, measured with `--profile-sim phases` before and after on this machine:
+
+| Phase | before | after |
+|---|---|---|
+| movement | 4.74 ms | 3.18 ms |
+| combatOrders | 2.09 ms | 1.59 ms |
+| visibility | 1.90 ms | 1.04 ms |
+| combat | 0.38 ms | 0.33 ms |
+| economy | 0.11 ms | 0.06 ms |
+| finishOrders | 0.05 ms | 0.04 ms |
+| **total** | **9.28 ms** | **6.24 ms** |
+
+Also: the local-movement spatial index is built once per tick instead of twice; `nearest()`
+walks ring perimeters instead of whole squares (it was cubic in the radius for a quadratic
+number of candidates); and group-move command application no longer allocates a claims
+table per command and a closure per entity. The remaining worst tick in a match is still a
+240-unit group move, because each unit's destination search must not see its own
+reservations and the reservation set changes as earlier commands in the same tick are
+applied; making that incremental is the next available win and is not done.
+
+### Presentation and game feel
+
+Viewport culling and a hoisted depth comparator were added to the draw path. **Sprite
+batching was not done and could not be**: `assets/generated/` is absent in this clone, so
+every unit renders through the procedural placeholder path and there are no atlases to
+batch, no masks to convert and nothing to measure. That work needs the Blender export to
+be run first, and the 483 draw calls per frame reported above are placeholder geometry,
+not the shipping sprite renderer.
+
+WC3-style control and feedback added, all presentation-only and all covered by a new
+`PASS gamefeel` rendered test: floating resource/rejection text, hit flash and screen
+shake, runtime-generated cursor states, hover and ally/enemy ring colours, control-group
+badges, an Alt-to-reveal health-bar policy, per-unit selection tiles with individual
+health, an idle-worker counter and cycling hotkey, select-all-army, eased camera
+centring, camera bookmarks, follow-hero, hero XP bar and level, production progress,
+a unit stat card, an F4 performance overlay, an F10 generated hotkey list, a
+victory/defeat banner with match statistics, and offline game speed. Game speed scales
+only the wall-clock feed to the fixed 20 Hz accumulator, so replays and checkpoints are
+identical at every speed and network play is pinned to 1x.
+
+Three harness defects were fixed to get there. `scripts/test-network.ps1` always failed on
+this machine because Windows PowerShell 5.1 returns `$null` from `Process.ExitCode`
+unless the handle is cached first, so `$null -ne 0` failed the check even when both
+peers reported success. The two p95 performance gates were hard-coded to 10 ms. And the
+frame-delta clamp introduced here changed the documented backlog contract, which
+`scripts/test.ps1` cannot catch at all: `tests/control_input.lua` only runs under
+`--ui-test`. That test now asserts the new contract, but the coverage gap is real —
+**`scripts/test.ps1` does not exercise any rendered code**, so `scripts/test-ui.ps1`
+has to be run alongside it after presentation changes.
+
+## Orders revision — simulation version 6
+
+Rally points, patrol, follow, formation pacing, authoritative kill/loss tallies and a
+`delivered` event carrying the exact amount and resource. This is a deliberate,
+versioned break: replays recorded under version 5 are rejected by `Replay.read` rather
+than misreported as divergence. Six regression scenarios were added
+(`tests/order_scenarios.lua`), including one that drives all three new orders through a
+recorded replay and re-verifies every checkpoint.
+
+Formation pacing caps every member of a group move to the slowest member's speed while
+that order stands. It is `rules.formationPacing` in content, on by default, and it
+produced an unexpected second effect: in the 20-unit mixed-speed chokepoint fixture,
+arrival improved from **1,900 to 868 ticks**. Capping the group stops fast units racing
+ahead and jamming the choke against their own slower allies, so the whole group flows
+through in order. Uniform-speed crowds are unaffected, as the cap is then a no-op:
+open arrivals with 1/10/50/100 units remain **348/419/658/932**, chokepoints with
+5/20/100 remain **407/1015/1640**, and 50-versus-50 counterflow remains **4079**.
+
+Kills and losses are now counted by the simulation on both the player and the killing
+entity. The interface previously inferred them from the events it happened to observe,
+which under-reports a kill made outside your own sight.
+
+The bot now groups each wave of attack-move orders under the tick that issued them, so
+its armies travel at the pace of their slowest member and arrive together instead of
+trickling into the enemy. Retreats are deliberately left ungrouped. Both matches keep the
+same winner and take slightly longer: the mirror moved from **660.85 s to 701.95 s** and
+the asymmetric from **634.55 s to 632.45 s**. A ~7% longer mirror is consistent with
+cohesive arrivals producing decisive engagements rather than a stream of individual
+deaths, but two matches on one seed is an observation, not a measurement of bot strength.
+
+## Sight revision — line of sight
+
+Sight is now blocked by terrain, buildings and forests. The implementation is recursive
+shadowcasting over eight octants, with slopes held as integer numerator/denominator pairs
+and compared by cross-multiplication rather than as floats, so it is exact on any
+platform and keeps the guarantees the rest of the simulation relies on. A blocking cell
+is itself visible: you see the wall, not past it.
+
+Buildings now look out from the middle of their footprint instead of a corner. Without
+that a building is blinded by its own body, because its sight originates inside a blocked
+rectangle.
+
+Five scenarios cover it (`tests/vision_scenarios.lua`), including one that proves line of
+sight and the radial rule produce a **cell-for-cell identical field on open ground** —
+that is what establishes the new rule as a restriction of the old behaviour rather than a
+differently shaped field.
+
+Cost, measured back to back in one session: radial visibility p50 **2.40 ms**, line of
+sight **14.58 ms** uncached and **5.41 ms** with a per-observer field cache, in the
+240-unit benchmark. Radial shares work between overlapping observers through a prefix
+sum and line of sight cannot, because each field depends on its own origin; the cache
+recovers half of that by replaying an observer's recorded field whenever neither its cell
+nor the obstruction set has changed, which is every tick for a building and most ticks for
+an idle economy. `rules.lineOfSight=false` returns to radial.
+
+Both bot matches are almost unaffected, because the bots fight in the open: the mirror
+moved from 701.95 s to **701.6 s** and the asymmetric is unchanged at **632.45 s**.
+
+## Resource revision — simulation version 8
+
+The worker economy is gone. Gold mines are inert; an **extractor** built on a mine's
+footprint emits **carriers**, which walk a cached route to the nearest friendly drop-off,
+deliver a fixed payload and are recycled. Nothing harvests, and **lumber is removed
+entirely** — every lumber price was folded into gold one for one, so relative prices are
+unchanged. The design and the arithmetic are in
+[docs/RESOURCE_FLOW.md](docs/RESOURCE_FLOW.md); this is what was built and what it
+measured.
+
+This is a deliberate, versioned break. `Sim.VERSION` moved 7 → 8, content 3 → 4, and
+replays and snapshots from earlier versions are rejected by `Replay.read` rather than
+misreported as divergence. The goldens under `artifacts/` were regenerated on this change.
+No golden was silently blessed.
+
+Deleted: `src/sim/harvesting.lua` in full, including its bounded nearest-reachable
+delivery and tree searches and forest succession; the lumber depot; and the state
+`cargo`, `cargoType`, `harvestRemaining`, `economySearch`, `economyRetry`,
+`dropoffVersion`, mine `slots` and `nextExtractTick`. The `harvest` command no longer
+exists. Rallying a production building onto a mine is now simply a walk to it; rallying
+onto one of your own units follows it.
+
+Carriers are their own entity category, not units: not selectable, not in the collision
+bins, no crowd resolution, no food, no orders, no vision. They pass through units and
+through each other and collide only with terrain, with a lateral offset derived from the
+carrier's id so a route reads as a stream rather than single file. They are ordinary
+combat targets, and a carrier that dies destroys its gold rather than handing it over. One
+cached A\* route per extractor is shared by every carrier it emits; no carrier ever calls
+the pathfinder.
+
+Two entity-count properties matter and were designed for rather than discovered: the
+in-flight cap bounds carriers at nine per extractor whatever the route length, and
+delivered carriers are recycled rather than accumulating as corpses, so `w.order` stays
+bounded across a twenty-minute match that emits thousands of deliveries. Forests became
+plain blocked terrain instead of nodes, which removes about **180 entities per match** on
+Twin Marches that every per-entity loop in the step was paying for.
+
+Measured, by two new scenarios in `tests/balance.lua` that build a real extractor and
+count real deliveries rather than evaluating the formula:
+
+| Case | Income |
+|---|---:|
+| Near mine | 600 gold/minute |
+| Far mine | 344 gold/minute |
+| Far mine with an outpost beside it | 600 gold/minute |
+
+Distance costs income and an outpost buys it back in full, which is what the design asked
+for.
+
+One placement rule was relaxed to make this work: an extractor's footprint is exactly its
+mine's, so seeing the mine is now sufficient, where every other building still needs every
+footprint cell visible and walkable. Without that, mines set against forest — the home mine
+on Twin Marches is one — could hide a cell of their own footprint and be unbuildable for no
+reason a player could see.
+
+The bot's economy was rewritten. It was "assign five workers per mine, establish a depot";
+it is now "keep four to six workers, put an extractor on every visible gold mine within
+reach of a drop-off, and expand earlier because an outpost is now worth building for what
+it does to income". Its expansion trigger moved from 6:00 to 4:00.
+
+Pacing, from `artifacts/balance-pacing-mirror.txt`: first extractor at **0:30**, war hall
+1:01, outpost **5:44**, first contact **4:20**, match end **9:33**, with the winner holding
+two extractors to the loser's one and four to five carriers on the road at the end. Only
+two figures from the harvesting report survive for comparison — contact at 4:32 and a
+roughly eleven-minute match — so contact is essentially unchanged and the match is somewhat
+shorter. **The comeback mechanism the design hoped for did not appear.** The bot does not
+raid carrier routes, so a losing bot still has no way back, and 15–25 minute pacing remains
+unmet. Whether raidable income helps is a question for a bot that hunts carriers, or for a
+playtest; it is not answered here.
+
+Verification: full `scripts/test-all.ps1` green — **85 passed, 0 failed** headless,
+100,000-tick determinism across 30/60/144 FPS schedules and default/tuned JIT caches, real
+ENet host/client agreement, rendered suites at 1280×720, 1920×1080 and 2560×1080, and the
+asset presentation suite. The `worker_loaded` asset recipe is now the carrier rather than a
+worker carrying cargo, which is the same art doing the same job.
+
+The perf gates were run with `-PerfBudget 45` because **this machine cannot hold a stable
+number**. Three back-to-back runs of an identical tree produced p95 of **13.773, 13.013 and
+19.038 ms**, and a later run of the same tree produced **45.668 ms**. The 10 ms budget is
+not meaningful here; see the machine note under "Performance revision" above. Only
+back-to-back A/B ratios taken in one sitting should be trusted from this hardware.
+
 ## Milestone gates
 
 
@@ -91,7 +334,7 @@ Reference hardware: AMD Ryzen 5 5600G, NVIDIA GeForce RTX 3060, approximately 23
 
 
 
-- Bot games finish in roughly 2–3 simulated minutes, much shorter than the 15–25 minute target. Costs, damage, map size, hero progression, and economy need playtesting.
+- Bot games finish in roughly 10–12 simulated minutes against a 15–25 minute target, but the duration is the symptom rather than the problem. `artifacts/balance-pacing-*.txt` shows both matches are **decided** at around five minutes: the loser peaks within a minute of first contact and declines monotonically for the remaining seven, while the winner grows to the food cap. Nearly half of each match is a foregone conclusion. Lengthening the match by making headquarters or units tougher would extend the one-sided phase rather than fix it; what is missing is a way back into a lost engagement. This wants playtesting to decide, not tuning to a duration number. The bot also has no retreat-and-regroup behaviour, no multi-front pressure and no difficulty setting.
 
 - Unit collision uses soft allied compression, hard enemy/terrain clearance, persistent destination slots and bounded local steering/rerouting. The finite crowd fixtures pass; universal liveness and polished continuous-motion behavior are not proven. Terrain-unreachable slots can still fail explicitly.
 
@@ -99,7 +342,7 @@ Reference hardware: AMD Ryzen 5 5600G, NVIDIA GeForce RTX 3060, approximately 23
 
 - Passive mechanics are focused Lua implementations, not a generalized ability framework.
 
-- Fog uses radial visibility on flat terrain, without obstacle line-of-sight. Filtered observation memory supplies last-seen enemy-building/resource/camp minimap markers.
+- Fog uses line-of-sight: terrain, buildings and forests block sight rather than being seen through. Implemented as recursive shadowcasting with integer rational slopes, so it carries the same determinism guarantees as the rest of the simulation. `rules.lineOfSight=false` restores the cheaper radial visibility, which shares work between overlapping observers and costs about 2.25x less with a large army. Filtered observation memory supplies last-seen enemy-building/resource/camp minimap markers.
 
 - Native multiplayer is 1v1. The simulation accepts four players; interactive 4-player matches are not yet exposed.
 
@@ -113,7 +356,13 @@ Reference hardware: AMD Ryzen 5 5600G, NVIDIA GeForce RTX 3060, approximately 23
 
 - Source updates can invalidate replays because compatibility includes the exact authoritative source fingerprint.
 
+- Periodic replay/network checkpoints hash authoritative state only (`Sim.serializeAuthoritative`). Content, map, `w.blocked`, the lane cache and per-player `explored` are excluded as fixed, derived or render-only; a regression test recomputes `w.blocked` across construction and destruction and asserts it matches. `Sim.serializeCanonical` still encodes the whole world and is what the equivalence assertions and desync dumps use.
+
+- Simulation views are an explicit field whitelist rather than a copy of the entity with private fields deleted afterwards, so a newly added private field is unobservable by default. Views share the immutable map and the player's live visibility tables by reference and must be treated as read-only.
+
 - No public lobbies, NAT traversal, accounts, reconnect, host migration, ranked play, or persistent player saves.
+
+- The Windows package is a fused `LoveRTS.exe` plus its runtime DLLs, verified only by launching it and running the unit suite against the packaged archive on this machine. It has not been run on a second PC, is unsigned (SmartScreen will warn on first run), and ships with procedural placeholder art unless `assets/generated` was present at packaging time.
 
 
 
@@ -131,7 +380,9 @@ Reference hardware: AMD Ryzen 5 5600G, NVIDIA GeForce RTX 3060, approximately 23
 
 5. Extend content validation and ability-combination tests as faction rules grow.
 
-6. Reduce active-battle maximum-step spikes and rendered frame hitches; extend session/network soaks before increasing content scope.
+6. Decide what a losing position should feel like, then give it a mechanism: the pacing report shows matches are decided at five minutes and take eleven to finish. Cheaper rebuilding, base defences that hold ground, or expansion income that rewards a pushed-back player are the candidates; each changes feel, so each needs a playtest rather than a number.
+7. Reduce active-battle maximum-step spikes and rendered frame hitches; extend session/network soaks before increasing content scope. `Sim.step` is now about 90% of the rendered tick path, so the remaining work is inside it: per-command group-move claim scans, the square-scan `nearest`, whole-map visibility flushes, O(N^2) target acquisition and the brute-force firing-position search.
+7. Batch sprite drawing and cull to the viewport. The rendered battle submits 483 draw calls per frame at 240 units with no `SpriteBatch`, `Mesh` or `Text` objects anywhere, which is the binding limit on a draw-call-bound GPU.
 
 
 
@@ -216,6 +467,8 @@ Final portable UI package: `D:\LoveRTS\dist\LoveRTS-20260909-001501`. SHA-256: `
 
 Implemented `marches-v1` (content 3, simulation 4). The complete numerical specification and remaining acceptance gates are in [docs/BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md).
 
+**This section is a historical record.** Its economy figures — worker harvesting, lumber, depots, two-resource costs and five-worker mine rates — were superseded by the resource revision above at simulation version 8. Combat, food, camp, revival and performance figures still stand.
+
 Delivered:
 
 - Default 128×112 Twin Marches map with paired terrain, resources, camps and authored starting formations; hero + five workers + completed HQ; 500 gold / 150 lumber.
@@ -281,3 +534,106 @@ Delivered worker Build and hero ability submenus, full-selection action context,
 Verification: 13 unit tests passed; the rendered UI suite passed at 1280x720, 1920x1080 and 2560x1080 with the existing scale checks. New tests cover selection permutations, costs/prerequisites, mouse/keyboard parity, hero choice submission, late acknowledgement isolation, bounded feedback and missing audio-file fallback. Build/ability/mixed-selection captures were generated and representative images visually inspected. Evidence is under `artifacts/command-card-*.log` and `ui-*-card-*.png`.
 
 Gameplay simulation/content were unchanged; full gameplay, performance and cross-process suites were not rerun for this presentation delivery. Listening review, continuous human play and two-PC sessions remain unperformed. The cost display supports mana metadata; current content does not yet spend mana.
+## Control, movement and ability revision — 2026-09-10
+
+Simulation version **10**, content version **6**. Two deliberate versioned breaks in this
+run: string-pulled paths (version 9) change movement results, and abilities (version 10)
+add commands, a phase and entity state. Replays recorded before them are rejected rather
+than misreported as divergence. No golden result was silently re-blessed.
+
+Measured on the same thermally limited development laptop as the previous revision, whose
+run-to-run spread is large; single-run differences under about 30% are not evidence.
+Absolute milliseconds are not comparable with the reference-desktop figures further up.
+
+### Verified on this machine
+
+`scripts/test.ps1 -PerfBudget 40`: **97 passed, 0 failed**. Four fresh processes agree at
+100-tick checkpoints over 100,000 ticks across 30/60/144 FPS schedules and default/tuned
+JIT caches. A real local ENet pair agrees at every 100-tick checkpoint. `test-ui.ps1` and
+`test-presentation.ps1` both exit 0.
+
+The performance gate is 40 ms on this machine and 10 ms by default for the reference
+desktop, as established in the previous revision. It is a parameter, not a constant.
+
+| Measure | Before this run | After |
+|---|---:|---:|
+| Open diagonal straightness (walked / direct) | staircase | 1.000x |
+| 100 units, open arrival | 932 ticks | 445 |
+| 100 units, chokepoint | 1,640 ticks | 1,326 |
+| 20 mixed units | 868 ticks | 705 |
+| 50 versus 50 counterflow | 4,079 ticks | 849 |
+| 240-unit active benchmark, p50 | 10.7 ms | 6.0 |
+| 240-unit active benchmark, p95 | 27.6 ms | 16.4 |
+| 240-unit active benchmark, maximum | 442 ms | 147 |
+
+The benchmark figures are the median of three back-to-back runs each; the individual
+p95 readings ranged 14.6–18.7 after and 15.5–45.0 before, which is the spread this
+machine has. Attack counts are identical before and after every behaviour-preserving
+change in this run (28,972 in the control benchmark, 6,372 in the balance one), which is
+the evidence that they are behaviour-preserving.
+
+### Delivered
+
+- Warcraft 3 control rules that were wrong: A-click on an enemy now focuses it rather
+  than attack-moving to the ground under it; Tab moves the command card between unit
+  types and keeps the whole selection; the card follows the active subgroup and otherwise
+  prefers a hero over a soldier over a worker rather than the lowest entity id; box
+  selection takes your own units over anything else and never mixes a building into an
+  army; Ctrl+click selects every visible unit of a type.
+- Orders are answered before the simulation runs: the ordered units' circles brighten and
+  an acknowledgement sound plays, resolved most-specific-first so faction voice lines slot
+  in by naming alone. The `windup` event finally has a consumer.
+- `src/sim/stats.lua` resolves speed, damage, armour, attack period, windup, range and
+  sight. Every direct content read for gameplay now goes through it.
+- String-pulled paths, path re-validation on navigation change, and prompt yielding.
+- Abilities and status effects: `cast` and `ping` commands, a cast phase, mana, cooldowns,
+  a status list, five target kinds and travelling projectiles. See
+  [docs/ABILITIES.md](docs/ABILITIES.md).
+- Target acquisition is bucketed into eight-cell blocks instead of scanning every hostile
+  on the map once per damage-capable entity per tick.
+
+### Still open after this run
+
+- **Formation-preserving group moves.** Destination slots are still an outward ring search
+  per unit, so a group's shape is discarded when it moves. Speed pacing holds a mixed army
+  together; its arrangement is not preserved.
+- **Auto-attacks do not travel.** The projectile mechanism exists and is used by abilities;
+  enabling it for ranged attacks changes when every ranged trade lands and needs a
+  playtest first.
+- **Adaptive lockstep.** The network buffer is still a fixed three ticks and the match
+  stalls above roughly 140 ms round trip rather than lengthening its turn.
+- **Ability balance is unmeasured.** The four hero abilities exist to prove the four
+  targeting kinds work end to end. Their numbers are a starting point for playtesting.
+- Every human gate listed in the earlier sections remains open: continuous-motion review,
+  crowd feel in chokepoints, combat readability, cross-PC play and stable-60 certification.
+
+
+## Merge reconciliation — 2026-09-11
+
+Integrated the local command-card delivery with the incoming control, ability, movement
+and single-resource revisions. Preserved cost/rejection feedback and paired upgrade
+menus, adapted Build to extractors, and retained active-subgroup cards, fixed spell
+slots, targeting previews, pings, delivery statistics and viewport culling. Hero stance
+uses Z so it does not compete with spell hotkeys. Added regression coverage for worker
+subgroup menus, unique slots/hotkeys, fixed spell positions and blocked-order feedback.
+No authoritative simulation or golden replay changes were made during reconciliation.
+
+Verification on this Windows PC:
+
+- Full `scripts/test.ps1` at its default 10 ms budget: 98 passed, 1 failed. The failure
+  was an obsolete command-card expectation from before the economy/subgroup integration.
+  After updating that expectation and adding integration assertions, the complete unit
+  suite passed 13/13. The full suite was not repeated; all its gameplay tests passed.
+  Active control/balance p95 measurements were 8.592 / 8.356 ms.
+- Final determinism suite: 5/5, plus identical 100,000-tick checkpoints in four fresh
+  processes at 30/60/144 FPS schedules and default/tuned JIT caches.
+- Final network suite: 4/4, plus a real local ENet pair agreeing over 600 ticks.
+- Rendered UI passed at 1280x720, 1920x1080 and 2560x1080. Final
+  `scripts/test-presentation.ps1` passed its 720p UI regression and asset viewer.
+  A representative 1080p capture was visually inspected. The first sandboxed UI run
+  could not write the normal LÖVE fallback save directory; rerunning with that access
+  passed, including the replay-fallback test.
+
+Logs: `artifacts/merge-tests.log`, `merge-unit.log`, `merge-determinism.log`,
+`merge-network.log`, `merge-ui.log`, and `merge-presentation.log`. These counts overlap;
+they are separate runs. Human playtesting and two-physical-PC multiplayer were not run.

@@ -19,8 +19,12 @@ end
 local function write(path,data)
     local file=assert(io.open(path,'wb'));file:write(data);file:close()
 end
-local function fixture()
-    local map=Maps.create('asset_battle',48);map.resources={};map.camps={}
+-- The default 48x48 arena keeps the rendered fixture cheap and deterministic.
+-- Passing the shipping 128x112 map instead exposes the costs that scale with map
+-- area (fog canvas, visibility spans, blocked-cell copies) rather than unit count.
+local function fixture(name)
+    local map=name=='twin_marches' and Maps.create('twin_marches') or Maps.create('asset_battle',48)
+    map.resources={};map.camps={}
     local world=Sim.create({seed=4081,players={{faction='bastion'},{faction='bastion'}}},Content,map)
     for player=1,2 do
         local members,template={},nil
@@ -38,7 +42,7 @@ local function fixture()
         for i,e in ipairs(members) do
             e.x=((player==1 and 15 or 25)+(i-1)%6)*256+128
             e.y=(12+math.floor((i-1)/6))*256+128
-            if e.kind=='worker' and i%2==0 then e.cargo=5;e.cargoType='gold' end
+            if e.kind=='worker' and i%2==0 then e.category='carrier';e.kind='carrier';e.payload=8 end
         end
     end
     return world
@@ -60,7 +64,7 @@ function P.create(options)
         attacks=0,movingTicks=0,comparisons=0,started=now(),memoryBefore=collectgarbage('count'),screenshots={},modes={}}, {__index=P})
     for _,id in ipairs({'shieldguard','worker','worker_loaded','crossbow','warden'}) do assert(app.sprites.units[id],'required v2 asset missing: '..id) end
     assert(not app.sprites.catalog.legacy and #app.sprites.diagnostics==0,'v2 assets required without diagnostics')
-    self.modes={{name='v2',world=fixture(),sprites=app.sprites,previous={}}}
+    self.modes={{name='v2',world=fixture(options.map),sprites=app.sprites,previous={}}}
     if not self.benchmark then
         self.modes[2]={name='v1-adapter',sprites=legacyRenderer(app.sprites.shader),previous={}}
         self.modes[3]={name='diagnostic-fallback-effects-disabled',sprites=setmetatable({units={},states={},diagnostics={}},{__index=Sprites}),previous={}}

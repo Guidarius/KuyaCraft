@@ -16,3 +16,8 @@
 Current cancellation default: 50% construction refund, rounded down per resource; 100% refund for the last queued recruit. Current hero progression thresholds: 60/160/320 XP; revival: 120 gold and 200 ticks. These are provisional balance values.
 
 The initial data validator checks faction references and upgrade shape. Add deeper validation as new mechanics introduce constraints. There is no arbitrary content scripting language or downloaded-mod execution path.
+
+Abilities and status effects have their own authoring reference:
+[ABILITIES.md](ABILITIES.md). The experience and revival numbers quoted earlier in this
+file predate the `marches-v1` profile; `src/content.lua` is authoritative and
+[BALANCE_AND_PACING.md](BALANCE_AND_PACING.md) records the current values.
