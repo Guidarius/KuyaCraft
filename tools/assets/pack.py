@@ -47,7 +47,7 @@ def extrude(image, gutter=2):
         result.paste(Image.new('RGBA',(gutter,gutter),image.getpixel((sx,sy))), (dx,dy))
     return result
 
-def pack(stage, output, build_id, game_prefix):
+def pack(stage, output, build_id, game_prefix, raw_root=None):
     stage, output = Path(stage), Path(output)
     spec = json.loads((stage / 'render.json').read_text(encoding='utf8'))
     if spec['directions'] != DIRECTIONS: raise ValueError('Expected canonical eight directions')
@@ -77,6 +77,12 @@ def pack(stage, output, build_id, game_prefix):
     meta = dict(version=2, unitId=spec['unitId'], buildId=build_id, profileId=spec['profileId'], directions=DIRECTIONS,
                 bodyHeightPixels=spec['bodyHeightPixels'], pages=[], frames=[], clips={})
     if 'referenceStride' in spec: meta['referenceStride'] = spec['referenceStride']
+    pixel_style=spec.get('pixelStyle')
+    if pixel_style:
+        import pixel
+        meta['pixelStyle']=pixel_style
+        meta['sourceRevision']=spec['sourceRevision']
+        cleanup=pixel.cleanup_manifest(spec['cleanupRoot'],spec['sourceRevision'])
     for name, clip in sorted(spec['clips'].items()):
         meta['clips'][name] = {k:v for k,v in clip.items() if k not in ('samples','frames')}
         meta['clips'][name]['frames'] = {d:[] for d in DIRECTIONS}
@@ -89,13 +95,18 @@ def pack(stage, output, build_id, game_prefix):
         color_page, mask_page = (Image.new('RGBA', (page_w, page_h)) for _ in range(2))
         page_id = len(meta['pages']) + 1
         for j, raw in enumerate(batch):
-            color = Image.open(contained(stage, raw['color'])).convert('RGBA')
-            mask = Image.open(contained(stage, raw['mask'])).convert('RGBA')
-            if color.size != (width * 2, height * 2) or mask.size != color.size: raise ValueError('Raw color/mask size mismatch')
+            color = Image.open(contained(raw_root or stage, raw['color'])).convert('RGBA')
+            mask = Image.open(contained(raw_root or stage, raw['mask'])).convert('RGBA')
+            if color.size != (spec.get('rawCellSize',width) * 2, spec.get('rawCellSize',height) * 2) or mask.size != color.size: raise ValueError('Raw color/mask size mismatch')
             bbox = color.getchannel('A').getbbox()
             if not bbox: raise ValueError('Empty raw frame')
             if bbox[0] == 0 or bbox[1] == 0 or bbox[2] == color.width or bbox[3] == color.height: raise ValueError('Clipped raw frame: ' + raw['color'])
-            color, mask = reduced(color, mask, (width, height))
+            if pixel_style:
+                color,mask=pixel.finish(color,mask,(width,height),pixel_style)
+                key=str(spec['bodyHeightPixels'])+'/'+raw['clip']+'/'+raw['direction']+'/'+str(raw['sample'])
+                color,mask=pixel.override(spec['cleanupRoot'],cleanup,key,color,mask,pixel_style)
+            else:
+                color, mask = reduced(color, mask, (width, height))
             x, y = (j % columns) * pitch_x + gutter, (j // columns) * pitch_y + gutter
             color_page.paste(extrude(color,gutter), (x-gutter,y-gutter))
             mask_page.paste(extrude(mask,gutter), (x-gutter,y-gutter))
@@ -137,7 +148,7 @@ def validate_unit(root, metadata_path):
     for name, expected in report['files'].items():
         if digest(contained(file.parent, name)) != expected: raise ValueError('Corrupt asset: ' + name)
     if not meta['pages'] or not meta['frames']: raise ValueError('Empty asset')
-    required_clips = {'idle','move','attack','death'}
+    required_clips = {'idle','move','work'} if meta['profileId']=='woodland_pixel_v1' else {'idle','move','attack','death'}
     if meta['unitId'] in ('worker','worker_loaded'): required_clips.add('work')
     if not required_clips.issubset(meta['clips']): raise ValueError('Missing required clips')
     def integer(value): return type(value) is int

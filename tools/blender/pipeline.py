@@ -243,6 +243,10 @@ def mask_material(team):
 
 
 def run(options):
+    if options.unit == 'mouse_builder':
+        sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+        import woodland_export
+        return woodland_export.run(options)
     start=time.monotonic();output=Path(options.output).resolve();output.mkdir(parents=True,exist_ok=True)
     source=Path(options.source).resolve();rig=import_source(source)
     info=inventory(source,rig);write_json(output/'inventory.json',info)

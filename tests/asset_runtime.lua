@@ -48,6 +48,13 @@ function T.run()
     files['assets/generated/catalog.lua']={version=17};loaded=C.load(read,exists);eq(#loaded.diagnostics,1)
     files['assets/generated/catalog.lua']=nil;files['assets/generated/shieldguard.lua']=old
     loaded=C.load(read,exists);assert(loaded.legacy);eq(loaded.units.shieldguard.profileId,'legacy_v1')
+    loaded=C.load(read,exists,'assets/generated/woodland/catalog.lua');eq(next(loaded.units),nil);eq(loaded.legacy,nil)
+    local pilot=fixture('mouse_builder_48');pilot.profileId='woodland_pixel_v1'
+    pilot.clips.attack=nil;pilot.clips.death=nil
+    bad(function() C.validate(pilot,'mouse_builder_48') end)
+    pilot.pixelStyle={palette={'#292323','#233c62','#315b89','#497eac','#71a4c7','#a8cedb'},teamStart=1,teamRamps={{'#233c62','#315b89','#497eac','#71a4c7','#a8cedb'}}}
+    pilot.sourceRevision='test';C.validate(pilot,'mouse_builder_48')
+    pilot.pixelStyle.teamRamps[1][1]='broken';bad(function() C.validate(pilot,'mouse_builder_48') end)
     local Sprites=require('src.sprites')
     local renderer=setmetatable({states={[1]={direction='E',moveMs=300}}},{__index=Sprites})
     local attacker={id=1,kind='worker',x=0,y=0,alive=true,attackTick=20,order={kind='attack_move'}}

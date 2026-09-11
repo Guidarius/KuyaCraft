@@ -1,0 +1,15 @@
+{
+  "version":1,
+  "unitId":"mouse_builder",
+  "sourceHash":"efb90208d845fd180917e2d59a8a30a2e86755cf1c030ae9211191ca20379308",
+  "profileId":"woodland_pixel_v1",
+  "bodyHeights":[32,48,64],
+  "clips":{
+    "idle":{"action":"Idle_Loop","samples":8,"durationMs":1000,"loop":true},
+    "move":{"action":"Walk_Loop","samples":12,"durationMs":1000,"loop":true},
+    "work":{"action":"Idle_Loop","samples":12,"durationMs":1000,"loop":true}
+  },
+  "palette":["#292323","#463329","#634632","#845a3b","#a7754a","#c69660","#e4b981","#f4d9aa","#714b46","#a96c64","#d18f80","#edb3a0","#293a2c","#405238","#607048","#879557","#adb875","#3c3430","#61503e","#8e7150","#b79868","#dfc18b","#44494a","#717777","#a7aaa0","#e2ddc9","#10191c","#233c62","#315b89","#497eac","#71a4c7","#a8cedb"],
+  "teamStart":27,
+  "teamRamps":[["#233c62","#315b89","#497eac","#71a4c7","#a8cedb"],["#642f31","#8f403b","#ba5c49","#d98767","#edb494"],["#39402a","#526239","#73854e","#9bac70","#c5d59a"]]
+}

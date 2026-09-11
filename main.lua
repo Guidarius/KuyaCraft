@@ -17,7 +17,10 @@ else
             assert(love.window.setMode(assert(tonumber(options.width)),assert(tonumber(options.height)),{resizable=true}))
         end
         print('LoveRTS 0.1 | LOVE '..table.concat({love.getVersion()},'.')..' | save directory: '..love.filesystem.getSaveDirectory())
-        if options['ui-benchmark'] then app=require('tests.ui_benchmark').create(options)
+        if options['woodland-viewer'] then
+            if not options.width then love.window.setMode(1600,1000,{resizable=true}) end
+            app=require('src.woodland_viewer').create(options)
+        elseif options['ui-benchmark'] then app=require('tests.ui_benchmark').create(options)
         elseif options['asset-test'] or options['asset-benchmark'] then
             app=require('tests.asset_presentation').create(options)
         elseif options['asset-viewer'] then

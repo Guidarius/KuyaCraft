@@ -135,9 +135,14 @@ def main(argv=None):
     ap.add_argument('--source',type=Path)
     ap.add_argument('--blender',default=r'C:\Program Files\Blender Foundation\Blender 5.1\blender.exe')
     ap.add_argument('--mode',choices=['build','preview','inspect','validate','legacy','package'],default='build')
-    ap.add_argument('--unit',action='append'); ap.add_argument('--roster',choices=['bastion'],default='bastion')
+    ap.add_argument('--unit',action='append'); ap.add_argument('--roster',choices=['bastion','woodland'],default='bastion')
     ap.add_argument('--force',action='store_true'); ap.add_argument('--destination',type=Path)
     args = ap.parse_args(argv); root = args.root.resolve()
+    if args.roster == 'woodland':
+        if args.mode not in ('build','preview','validate') or args.unit:
+            raise ValueError('Woodland pilot supports Build/Preview/Validate with its three fixed variants')
+        from woodland import build
+        return build(root,(args.source or root/'art/source/rig-library/RTSAssets.blend').resolve(),args.blender,args.mode,args.force)
     units = args.unit or ROSTER
     if any(u not in ROSTER for u in units): raise ValueError('Unknown unit; choose '+', '.join(ROSTER))
     if args.mode == 'package':

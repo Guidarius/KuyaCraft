@@ -637,3 +637,27 @@ Verification on this Windows PC:
 Logs: `artifacts/merge-tests.log`, `merge-unit.log`, `merge-determinism.log`,
 `merge-network.log`, `merge-ui.log`, and `merge-presentation.log`. These counts overlap;
 they are separate runs. Human playtesting and two-physical-PC multiplayer were not run.
+## Woodland pixel pilot — 2026-09-11
+
+- Added isolated Mouse Builder source recipes, a derived 65-bone rig, idle/move/work,
+  all eight independently rendered directions, and 32/48/64 nominal crown-height variants.
+  256 poses per size; 768 frame entries. The source blend and production catalog hashes
+  are unchanged. Reopening the derived blend confirms two 65-bone rigs and 123 actions.
+- Added deterministic 32-color finishing, binary alpha, one-pixel outer outline and five
+  discrete team shades; isolated nearest/integer comparison viewer with terrain swatches
+  and a mixed crowd. The production game camera, zoom and simulation are unchanged.
+- Optional Aseprite preparation/check/import supports tagged two-layer source files,
+  preserved edit revisions, palette/mask validation and stale-baseline rejection.
+  Installed Aseprite 1.3.17 round-tripped 256 frames with zero changes. No manual art
+  cleanup is claimed; automated builds do not require an editor.
+- Validation: 28 Python asset tests and 13 Lua unit tests pass; all three atlases validate;
+  cached rebuild reused all variants. LÖVE pilot and production viewer smoke checks pass.
+- Full scripts/test.ps1 run: 98 passed, 1 failed, active-unit p95 13.168 ms against 10 ms.
+  Isolated unchanged-limit recheck also failed at 23.567 ms. This performance failure
+  remains unresolved; the failed full run did not reach its separate-process follow-ups.
+  No gameplay/golden tests were modified to excuse it.
+- Contact-sheet inspection covers complete sample sequences and wrap transitions;
+  human motion approval, final native resolution and other-PC testing remain outstanding.
+  Other woodland species and full-game pixel alignment are subsequent work.
+
+Workflow and review instructions: [Woodland pixel pilot](docs/art/WOODLAND_PIXEL_PILOT.md).

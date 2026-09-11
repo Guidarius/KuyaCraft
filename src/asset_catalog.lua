@@ -10,7 +10,19 @@ function C.validate(m,expected)
     assert(type(m)=='table' and m.version==2,'unsupported asset version')
     assert(type(m.unitId)=='string' and m.unitId==expected,'unit identity mismatch')
     assert(type(m.buildId)=='string' and #m.buildId>0,'missing build identity')
-    assert(m.profileId=='bastion_overhead_v1' or m.profileId=='legacy_v1','unsupported render profile')
+    assert(m.profileId=='bastion_overhead_v1' or m.profileId=='legacy_v1' or m.profileId=='woodland_pixel_v1','unsupported render profile')
+    if m.profileId=='woodland_pixel_v1' then
+        local s=m.pixelStyle
+        assert(type(s)=='table' and type(s.palette)=='table' and #s.palette<=32 and integer(s.teamStart,1) and s.teamStart+5==#s.palette,'invalid pixel palette')
+        local function color(c) return type(c)=='string' and c:match('^#%x%x%x%x%x%x$') end
+        for _,c in ipairs(s.palette) do assert(color(c),'invalid palette color') end
+        assert(type(s.teamRamps)=='table' and #s.teamRamps>0,'missing team ramps')
+        for _,r in ipairs(s.teamRamps) do
+            assert(type(r)=='table' and #r==5,'invalid team ramp')
+            for _,c in ipairs(r) do assert(color(c),'invalid team shade') end
+        end
+        assert(type(m.sourceRevision)=='string' and #m.sourceRevision>0,'missing source revision')
+    end
     assert(type(m.directions)=='table' and #m.directions==8,'eight directions required')
     for i,d in ipairs(C.directions) do assert(m.directions[i]==d,'direction order mismatch') end
     assert(type(m.pages)=='table' and #m.pages>0,'missing atlas pages')
@@ -27,7 +39,7 @@ function C.validate(m,expected)
         assert(integer(f.anchorX) and integer(f.anchorY) and f.anchorX<=f.width and f.anchorY<=f.height,'invalid anchor')
     end
     assert(type(m.clips)=='table','missing clips')
-    for _,name in ipairs({'idle','move','attack','death'}) do assert(m.clips[name],'missing clip '..name) end
+    for _,name in ipairs(m.profileId=='woodland_pixel_v1' and {'idle','move','work'} or {'idle','move','attack','death'}) do assert(m.clips[name],'missing clip '..name) end
     if expected=='worker' or expected=='worker_loaded' then assert(m.clips.work,'missing worker work clip') end
     for name,c in pairs(m.clips) do
         assert(type(name)=='string' and type(c)=='table' and integer(c.durationMs,1) and type(c.loop)=='boolean','invalid clip')
@@ -60,18 +72,20 @@ local function defaultRead(path)
     if setfenv then setfenv(chunk,{}) end
     return chunk()
 end
-function C.load(read,exists)
+function C.load(read,exists,catalogPath)
+    catalogPath=catalogPath or 'assets/generated/catalog.lua'
+    assert(C.safePath(catalogPath),'unsafe catalog path')
     read=read or defaultRead;exists=exists or function(p) return love.filesystem.getInfo(p)~=nil end
     local result={units={},diagnostics={},version=2}
     local function report(id,err) result.diagnostics[#result.diagnostics+1]=id..': '..tostring(err) end
-    if not exists('assets/generated/catalog.lua') then
-        if exists('assets/generated/shieldguard.lua') then
+    if not exists(catalogPath) then
+        if catalogPath=='assets/generated/catalog.lua' and exists('assets/generated/shieldguard.lua') then
             local ok,m=pcall(function() return C.adaptV1(read('assets/generated/shieldguard.lua')) end)
             if ok then result.units.shieldguard=m;result.legacy=true else report('shieldguard',m) end
         end
         return result
     end
-    local ok,catalog=pcall(read,'assets/generated/catalog.lua')
+    local ok,catalog=pcall(read,catalogPath)
     if not ok or type(catalog)~='table' or catalog.version~=2 or type(catalog.units)~='table' then report('catalog',ok and 'invalid version/units' or catalog);return result end
     local ids={};for id in pairs(catalog.units) do if type(id)=='string' then ids[#ids+1]=id else report('catalog','invalid unit key') end end;table.sort(ids)
     for _,id in ipairs(ids) do

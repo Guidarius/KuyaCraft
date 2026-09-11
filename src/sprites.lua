@@ -12,8 +12,19 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 pixel) {
     return base*color;
 }
 ]]
-function S.load()
-    local self=setmetatable({catalog=Catalog.load(),units={},states={},lastTick=nil},{__index=S})
+local pixelShaderSource=[[
+extern Image teamMask;
+extern Image teamPalette;
+extern float teamRow;
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 pixel) {
+    vec4 base=Texel(tex,uv);
+    float index=floor(Texel(teamMask,uv).r*5.0+0.5);
+    if(index>0.0) base.rgb=Texel(teamPalette,vec2((index-0.5)/5.0,teamRow)).rgb;
+    return base*color;
+}
+]]
+function S.load(catalogPath)
+    local self=setmetatable({catalog=Catalog.load(nil,nil,catalogPath),units={},states={},lastTick=nil},{__index=S})
     self.diagnostics=self.catalog.diagnostics
     local ok,shader=pcall(love.graphics.newShader,shaderSource)
     if ok then self.shader=shader else self.diagnostics[#self.diagnostics+1]='shader: '..tostring(shader) end
@@ -28,11 +39,19 @@ function S.load()
                 local mask=love.graphics.newImage(p.mask,{mipmaps=false})
                 local w,h=color:getDimensions();local mw,mh=mask:getDimensions()
                 assert(w==p.width and h==p.height and mw==w and mh==h,'atlas/mask dimensions mismatch')
-                local filter=m.profileId=='legacy_v1' and 'nearest' or 'linear'
+                local filter=(m.profileId=='legacy_v1' or m.pixelStyle) and 'nearest' or 'linear'
                 color:setFilter(filter,filter);mask:setFilter(filter,filter)
                 u.pages[i]={color=color,mask=mask}
             end
             for i,f in ipairs(m.frames) do local p=m.pages[f.page];u.quads[i]=love.graphics.newQuad(f.x,f.y,f.width,f.height,p.width,p.height) end
+            if m.pixelStyle then
+                u.pixelShader=love.graphics.newShader(pixelShaderSource)
+                local ramps=m.pixelStyle.teamRamps;local data=love.image.newImageData(5,#ramps)
+                for row,ramp in ipairs(ramps) do for i,hex in ipairs(ramp) do
+                    data:setPixel(i-1,row-1,tonumber(hex:sub(2,3),16)/255,tonumber(hex:sub(4,5),16)/255,tonumber(hex:sub(6,7),16)/255,1)
+                end end
+                u.teamPalette=love.graphics.newImage(data);u.teamPalette:setFilter('nearest','nearest')
+            end
             return u
         end)
         if valid then self.units[id]=unit else self.diagnostics[#self.diagnostics+1]=id..': '..tostring(unit) end
@@ -66,9 +85,17 @@ function S:drawFrame(unitId,frameId,x,y,zoom,team)
     local f=u.metadata.frames[frameId];if not f then return false end
     local page=u.pages[f.page];local g=love.graphics
     g.push('all')
-    self.shader:send('teamMask',page.mask);self.shader:send('teamColor',team or {0.38,0.75,0.96})
-    g.setShader(self.shader);g.setColor(1,1,1,1)
     local scale=(zoom or 1)*(u.metadata.drawScale or 1)
+    if u.pixelShader then
+        local row=type(team)=='number' and team or 1
+        assert(row>=1 and row<=#u.metadata.pixelStyle.teamRamps,'invalid pixel team')
+        u.pixelShader:send('teamMask',page.mask);u.pixelShader:send('teamPalette',u.teamPalette)
+        u.pixelShader:send('teamRow',(row-.5)/#u.metadata.pixelStyle.teamRamps)
+        g.setShader(u.pixelShader);scale=math.max(1,math.floor(scale+.5));x=math.floor(x+.5);y=math.floor(y+.5)
+    else
+        self.shader:send('teamMask',page.mask);self.shader:send('teamColor',team or {0.38,0.75,0.96});g.setShader(self.shader)
+    end
+    g.setColor(1,1,1,1)
     g.draw(page.color,u.quads[frameId],x,y,0,scale,scale,f.anchorX,f.anchorY)
     g.pop();return true
 end

@@ -143,3 +143,6 @@ The production workflow creates five source-rig-derived Bastion assets: shieldgu
 .\scripts\export-assets.ps1 -Mode Validate -Roster bastion
 .\scripts\run.ps1 -AssetViewer
 ```
+Experimental art workflow: [Woodland pixel pilot](docs/art/WOODLAND_PIXEL_PILOT.md).
+Build with `scripts/export-assets.ps1 -Roster woodland`; compare with
+`scripts/run.ps1 -WoodlandViewer`. The pilot has its own catalog.
