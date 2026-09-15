@@ -976,3 +976,76 @@ Verified:
 - The new bot unit test failed on the old bot and passes now. It covers claiming, moving on, not
   parking on owned points, and retaking an enemy hold.
 - quick **75/75**; balance **4/4** with both replays re-verified.
+
+## Crowd movement: squeeze, push and detour searches — simulation version 14
+
+Crowds in narrow gaps used to lock up. Three causes, three changes, all in `src/sim/movement.lua`:
+
+- **Allies crossing each other.** Two moving allies whose next steps each pass through the other
+  waited for ever, because only idle allies step aside. A unit blocked for **10 ticks** may now
+  squeeze past a moving ally that is not heading the same way, down to **65%** of their combined
+  radii (usual spacing 75%). It never squeezes into the queue in front of it: an early version did,
+  and packed whole queues down to the floor until nothing could move.
+- **Gentle push.** Allies closer than their usual spacing are eased apart by up to **8 subunits a
+  tick** (units walk 26–44), moving units included. Pushes never press anyone closer, never leave a
+  keep-right lane, never carry an idle unit more than a cell, and never move held, building,
+  mid-swing, rooted or stunned units. Without the push, 26–36% of unit-ticks stayed squeezed.
+- **Detour searches starving.** A congested unit restarted its search every 20 ticks with its
+  path emptied. Behind a jam, ~85 searches shared a 64-expansion budget, none finished, and the
+  units waiting on them stood frozen. A running search is now left to finish, and the unit keeps
+  walking its old path meanwhile.
+
+Enemies, terrain and lanes stay solid. The numbers were chosen by sweeping 18 settings over a
+28-case crowd lab, then checked on 24 cases they were not chosen on. Every case runs twice: with
+the fixture's staggered path searches, and with every route ready on tick 1.
+
+| Crowd lab (deadlocked cases) | Before | After |
+|---|---|---|
+| Set 1 (28 cases; the tuning set) | **5** | **0** |
+| Set 2 (24 unseen cases) | **11** | **0** |
+
+Before, even staggered starts deadlocked 60v60, 80v80, 100v100 and mixed-size counterflows. Allies
+now come no closer than 64–65% of their combined radii. Normal crowds spend 0–5% of unit-ticks
+squeezed; only the 160–200 unit counterflows through one two-cell gap reach 13–14%.
+
+| Crowd suite, arrival ticks | Before | After |
+|---|---|---|
+| Chokepoint 5 / 20 / 100 | 340 / 460 / 1,326 | 340 / 459 / 1,193 |
+| 20 mixed sizes | 705 | 720 |
+| 50 v 50 counterflow | 849 | 856 |
+| Open 100 | 445 | 425 |
+| 50 v 50 counterflow, every route on tick 1 | never (38 stuck) | 832 |
+| 20 mixed, every route on tick 1 | 1,129 | 647 |
+
+**Cost.** The first version added ~50% more spacing and distance checks per tick in the 240-unit
+benchmark, because the push pass tested every allied neighbour. Rewritten for the common miss, it
+now adds about 2% (spacing checks 3,588 → 3,676 per tick), with identical attacks and movement
+before and after the rewrite. Wall-clock A/B, five alternating pairs of the 2,000-tick benchmark, was
+bimodal: every run was either near 6 ms p50 or throttled to 21–56 ms. Unthrottled runs: previous commit
+6.0 / 6.5 / 6.8 ms, this change 5.7 / 6.2 ms. The medians over all five (6.8 vs 21.2 ms) mostly
+record which runs were throttled, so the call counts are the evidence here.
+
+**Bot matches changed, and the cause is the bot.**
+
+| Balance match (one seed) | Before | After |
+|---|---|---|
+| Mirror | 14:03, player 2 by control | **7:16, player 1 by control** |
+| Asymmetric | 9:17, player 1 by control | **7:17, player 1 by control** |
+
+A capture timeline shows why. At 5:17 player 1 took the second point. Player 2's army was standing
+in the first, 109/200 of the way to capturing it, and walked off to cross the map to the other one,
+because the bot targets the unowned point nearest its *headquarters*. The hold ran out while it was
+on the road. Movement only changed which match history hit this. A bot fix (finish a capture under
+way, otherwise the point nearest the army) was tried and reverted: both matches then ran to the
+25-minute cap unfinished, with 23 holds started and all 23 broken, because both bots always go for
+points before bases. That is a bot-strategy and pacing question for the user, recorded in
+[docs/ITERATION_LOG.md](docs/ITERATION_LOG.md).
+
+Verified:
+- New crowd tests: allies that start together pass in a gap; a jam neither restarts searches nor
+  empties waiting units' paths. Both failed on the previous commit and pass now.
+- `S.clearance` now holds allies to the pressed floor rather than the usual spacing.
+- crowd **20/20**, quick **80/80**, balance **4/4**, determinism **5/5**, network **4/4**, scenario
+  **2/2**, soak **1/1**.
+
+Not verified: how 65% looks on screen with real sprites (generated art is absent on this machine).

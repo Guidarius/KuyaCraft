@@ -29,9 +29,19 @@ function G.terrain(w,x,y,r)
     end end
     return true
 end
+-- Allies compress to 75% of their combined radii. Exposed by radius so a hot loop that already
+-- has both radii in hand need not look them up again.
+function G.alliedGap(ra,rb) return math.floor((ra+rb)*3/4) end
 function G.separation(w,a,b)
+    local ra,rb=G.radius(w,a),G.radius(w,b)
+    return a.owner==b.owner and G.alliedGap(ra,rb) or ra+rb
+end
+-- How far allies may be pressed together by a unit squeezing past, as a percentage of their
+-- combined radii. Below G.separation, above this. Enemies never press: it equals separation.
+G.PRESS=65
+function G.pressedSeparation(w,a,b)
     local r=G.radius(w,a)+G.radius(w,b)
-    return a.owner==b.owner and math.floor(r*3/4) or r
+    return a.owner==b.owner and math.floor(r*G.PRESS/100) or r
 end
 local function blocks(w,e,x,y,r,except)
         if e.alive and e.category=='unit' and e.id~=except then

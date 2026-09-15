@@ -9,24 +9,15 @@ noisy, so compare A/B, alternating, medians of three.
 Ranked by value. Items marked *verified* were confirmed against the code during the skill evaluation
 on 2026-09-14.
 
-0. **Crowd liveness when a group starts together** (found in iteration 5; diagnosed in iteration 6).
-   - **Reproducer:** `scratchpad/liveness-probe` raises the path budget to 100,000, so every unit has its
-     whole route on tick 1, with no shared-search code involved.
-   - **Result:** 50-vs-50 counterflow never finishes (38 units stuck), while chokepoint-100 still
-     arrives (1,233 ticks).
-   - **Mechanism** (from `scratchpad/deadlock-dump`):
-     - It is *not* the two armies blocking each other. Every stalled front unit is blocked by an **ally**
-       at the 120-subunit allied separation, with lanes, terrain and lane clearance all passing.
-     - Two moving allies form a cross: each one's next step passes through the other's body.
-     - Yielding only asks *idle* units to step aside, so two units that both have goals never resolve it.
-     - Separately, a unit rerouting at the gap mouth briefly has no path and plugs its own side.
-   - **Why it matters:** this blocks both search speedups below.
-   - **Proposed fix** (needs the user, because crowds would visibly overlap): bounded allied passing, in
-     the spirit of Brood War's harvester hack. Allies blocked by each other past a wait threshold may
-     overlap until clear; enemies and terrain stay solid.
-   - **Group search.** One search per group removed a 600-tick wait for 12 units ordered around a
-     wall.
-   - **Budget accounting.** Stop charging the per-tick path budget for stale heap pops (~45% of it).
+0. **Crowd liveness** — fixed in iteration 8 (squeeze, push, detour searches; simulation version 14).
+   - **Now unblocked:** the two search speedups that deadlocked crowds in iteration 5.
+     - **Group search.** One search per group removed a 600-tick wait for 12 units ordered around a
+       wall.
+     - **Budget accounting.** Stop charging the per-tick path budget for stale heap pops (~45% of it).
+     - Retry either against both crowd-lab scenario sets, not only the crowd suite.
+   - **Still open:** two enemies meeting head-on in the wrong lane of a two-cell gap never give way,
+     because enemies never squeeze. The 65% floor leaves enough room that no lab case jams on it, but a
+     70% floor does.
 
 1. **Order acknowledgement parity** (UI, *verified*).
    - A second "accepted" tone plays when an order executes, so the input delay is audible
@@ -65,17 +56,20 @@ on 2026-09-14.
   - Options: leave it, move the natural closer, or change carrier numbers.
   - Recommendation: playtest first.
 - **Capture-point defaults are unconfirmed:** 10 s capture, ownership persists, workers count.
-- **Crowd deadlock at chokepoints: may allies briefly overlap?**
-  - Moving allies can deadlock each other in a narrow gap when a group starts together (backlog item 0).
-  - Options:
-    - (a) Bounded allied passing: allies blocked by each other for a while may overlap until clear, as
-      Brood War's harvesters do.
-    - (b) Moving allies also yield to each other by a deterministic priority, so there is no overlap,
-      but it is more complex and may still cycle.
-    - (c) Leave it, and keep searches staggered, so groups keep waiting ~600 ticks for routes around
-      obstacles.
-  - Recommendation: (a), limited to units that have waited 2+ seconds and only between allies. It is
-    small, deterministic and a proven genre precedent, and it unblocks the group-search speedup.
+- **Bot strategy around control points** (found in iteration 8).
+  - The bot goes for the unowned point nearest its headquarters, so its army can walk off a capture
+    seconds from done. That now decides both balance matches by 7:17.
+  - Fixing only that (finish a capture under way, else the point nearest the army) produces
+    stalemates: both bots answer every hold, never attack a base, and hit the 25-minute cap even at
+    35 units against 14.
+  - Options: (a) keep the fix and add a base attack when clearly ahead (e.g. twice the enemy's
+    visible army); (b) keep the fix and let only one of claim or retake preempt a base attack;
+    (c) leave the bot as it is.
+  - Recommendation: (a). It is the smallest rule that makes bot matches finish for a reason a player
+    would recognise. Decide together with control-win pacing, since both change match length.
+- **Crowd deadlock at chokepoints** — decided 2026-09-15: "a bit" of allied overlap plus gentle pushing
+  between allies. Implemented in iteration 8. Still to confirm in play: whether a 65% floor looks right
+  on screen (`G.PRESS` in `src/sim/geometry.lua`; 70% overlaps less but jams the largest counterflows).
 - **Control wins now decide bot matches early.**
   - Once bots take points (iteration 4), the mirror ends at 14:03 and the asymmetric match at 9:17,
     both by control and both below the 15-minute floor.
@@ -88,6 +82,55 @@ on 2026-09-14.
     lengthen the hold to 3 minutes first.
 
 ## Iterations
+
+### 8. Crowd lock-ups: squeeze, push and detour searches — kept (user-directed, newest)
+
+**Why.** The user decided backlog item 0: "a bit" of allied overlap and gentle pushing between
+allies, iterated on.
+
+**Tooling** (scratchpad, not committed): `crowd-lab` runs 14 crowd cases twice each, with the
+fixture's staggered searches and with every route ready on tick 1. It reports arrival, deadlock,
+closest allied distance, squeezed unit-ticks, direction reversals and walked/direct distance. A
+second set of 12 perturbed cases (sizes, widths, offsets, mixed-size counterflow) was used only to
+check tunings, never to choose them. `crowd-dump` explains a stall unit by unit.
+
+**Iterations inside the iteration.**
+1. **Squeeze past any moving ally after 6 ticks, 60% floor, push 12.** The tick-1 counterflow
+   arrived (never before), but staggered counterflow deadlocked and crowds slowed ~20%. The push
+   ignored lanes and shoved units into enemy traffic, and units squeezed into idle allies at their
+   destination.
+2. **Lanes for pushes, squeeze only past moving allies, sweep of 18 settings.** Push is essential
+   (without it 26–36% of unit-ticks stay squeezed). A 70% floor deadlocks counterflows. The best
+   setting on set 1 still failed 1–2 unseen cases in set 2.
+3. **Dump:** the jam was allies squeezing *into* the queue ahead until the whole queue sat at the
+   floor. **Fix:** squeeze only past an ally not heading the same way.
+4. **Dump of the last stubborn case** (mixed-size 50v50): 84 of 95 stuck units had *no path*. Every
+   congested unit restarted its detour search every 20 ticks with its path emptied, so none of ~85
+   searches sharing a 64-expansion budget ever finished. The same happened with squeeze and push
+   switched off: an old bug, not caused by this work. **Fix:** leave a running search alone and keep
+   walking the old path.
+5. **Result:** only squeeze after 10 ticks / 65% / push 8 passed all 52 cases. Chosen.
+6. **Cost:** operation counts in the 240-unit benchmark showed +48% spacing checks and +59% distance
+   checks from the push pass. Rewritten for the miss (box test first, radii from content, status
+   check only on overlap), the overhead fell to ~2%, with identical attacks and movement.
+
+**Bot side effect, investigated and not fixed.** Both balance matches now end at 7:16–7:17 by
+control (were 14:03 and 9:17). The bot picks the unowned point nearest its headquarters, so an army
+109/200 into a capture walked off to cross the map, and the hold ran out. The fix (finish a capture
+under way, else go to the point nearest the army; unit test proven to fail on the old bot) made both
+matches run to the 25-minute cap: 23 holds started, all 23 broken, and at 23:28 player 1 had 35
+units to 14 without ever attacking a base, because both bots always go for points first. Reverted:
+it needs a strategy decision (when a bot should attack a base rather than a point), which belongs
+with the control-pacing question.
+
+**Learned.**
+- Crowd outcomes are chaotic in the tuning numbers: neighbouring settings differ by whole deadlocks.
+  Choose on one scenario set and confirm on another, or the choice is luck.
+- A stall's cause is rarely the one guessed. Twice the dump showed a different mechanism, the second
+  time in pathfinding rather than steering.
+- Wall-clock A/B on this laptop could not separate a 50% cost from noise, and the sampling profiler
+  ran for over ten minutes and was stopped. Wrapped call counts, with identical behaviour counts, gave a
+  stable answer in one run each.
 
 ### 1. Acknowledge every order once, on the click
 

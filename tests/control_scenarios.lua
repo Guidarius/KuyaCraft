@@ -25,7 +25,7 @@ function S.clearance(w)
     local units={}
     for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' then
         assert(G.terrain(w,e.x,e.y,G.radius(w,e)),'terrain clearance unit '..id..' tick '..w.tick)
-        for _,other in ipairs(units) do local r=G.separation(w,e,other)
+        for _,other in ipairs(units) do local r=G.pressedSeparation(w,e,other)
             assert(F.distance2(e.x,e.y,other.x,other.y)>=r*r,'body overlap '..id..'/'..other.id..' tick '..w.tick)
         end
         units[#units+1]=e
@@ -164,6 +164,46 @@ function S.register(test)
     for _,n in ipairs({5,20,100}) do test('crowd','chokepoint '..n,function() S.crowd(n,true) end) end
     test('crowd','20 mixed sizes and speeds',function() S.crowd(20,true,false,true) end)
     test('crowd','50 versus 50 counterflow',function() S.crowd(50,true,true) end)
+    -- Every route ready on the first tick, so each side reaches the gap as one body. Allies whose
+    -- next steps each pass through the other used to wait for ever (38 units never arrived);
+    -- a unit blocked for a moment now squeezes past a moving ally and the push pass eases them
+    -- apart. S.crowd's clearance check still holds every pair to the pressed floor.
+    test('crowd','crowds that start together still pass each other in a gap',function()
+        local rules=C.rules;local budget=rules.pathBudget;rules.pathBudget=100000
+        local ok,err=pcall(function() S.crowd(50,true,true);S.crowd(20,true,false,true) end)
+        rules.pathBudget=budget
+        assert(ok,err)
+    end)
+    -- Behind a jam, dozens of congested units reroute at once and share one expansion budget. Each
+    -- used to restart its search every twenty ticks with its path emptied, so no search finished
+    -- and every unit waiting on one stood frozen. A running search must be left to finish, and the
+    -- unit must keep the path it was walking until the new one arrives.
+    test('crowd','a jam does not restart detour searches or empty the paths of units waiting on them',function()
+        local w=S.world(64);S.wall(w,31,0,29);S.wall(w,31,32,63)
+        local units,commands,seq={}, {}, {0,0}
+        for side=1,2 do for i=1,50 do
+            local e=S.unit(w,'worker',side,side==1 and 12+(i-1)%10 or 42+(i-1)%10,24+math.floor((i-1)/10))
+            units[#units+1]=e;seq[side]=seq[side]+1
+            commands[#commands+1]=S.command(w,e,'move',{x=F.center(side==1 and 48 or 16),y=F.center(30),group=1},seq[side])
+        end end
+        Sim.step(w,commands)
+        local reroutes=0
+        for _=1,1500 do
+            local before={}
+            for _,e in ipairs(units) do before[e.id]={search=w.searches[e.id],path=e.path,walking=e.path[e.pathIndex]~=nil} end
+            Sim.step(w,{})
+            for _,e in ipairs(units) do local b=before[e.id];local search=w.searches[e.id]
+                -- A search that finished this tick hands over a new path, and the unit may then
+                -- start its next reroute at once. Only a search replaced without finishing is a restart.
+                if b.search and search and search~=b.search and (e.path==b.path or not e.path[e.pathIndex]) then error('unit '..e.id..' restarted a running search at tick '..w.tick) end
+                if search and search~=b.search then
+                    reroutes=reroutes+1
+                    assert(not b.walking or e.path[e.pathIndex],'unit '..e.id..' lost its path while waiting on a detour at tick '..w.tick)
+                end
+            end
+        end
+        assert(reroutes>0,'the jam never made anyone reroute, so this proves nothing')
+    end)
     -- Reported, not asserted. A group ordered around an obstacle waits for one search per unit,
     -- so its wait grows with its size (12 units: ~600 ticks under the fixture budget). Sharing
     -- one search per group removed the wait but deadlocked the chokepoint and counterflow

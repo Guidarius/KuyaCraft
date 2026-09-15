@@ -30,7 +30,7 @@ Simulation version 3 implements the accepted core-control plan. The existing 20 
 
 
 
-- Ordinary units and heroes have an 80-subunit radius; rams and heavy beasts use 112. Allies can compress to 75% of combined radii; enemy bodies retain full separation. Terrain/buildings remain solid. Spawn, revival, construction footprints and recruitment exits use body clearance.
+- Ordinary units and heroes have an 80-subunit radius; rams and heavy beasts use 112. Allies keep 75% of combined radii apart, and can be pressed to 65% by a unit squeezing past (see crowds below); enemy bodies retain full separation. Terrain/buildings remain solid. Spawn, revival, construction footprints and recruitment exits use body clearance.
 
 - Weapon definitions now express edge range. Values are unchanged: ordinary unit-to-unit center reach therefore increases by 160 subunits (0.625 cells); an ordinary attacker gains 80 subunits against a building footprint. Large-unit combinations use their actual radii. These intentional range changes require human balance review.
 
@@ -41,6 +41,12 @@ Simulation version 3 implements the accepted core-control plan. The existing 20 
 - Two-cell passages and their two-cell approaches use a static keep-right rule to separate opposing traffic. Mid-passage reversals can leave their previous lane. This is deliberately a focused navigation rule, not a general traffic scheduler.
 
 - Ten ticks without waypoint progress trigger detour/yield attempts. Global congestion retries are limited to once per twenty ticks; unavailable firing-position retries are staggered deterministically over 20–26 ticks. Stopped allies can yield within one cell of their yield origin; Hold units cannot. After ten blocked ticks, a unit within its radius plus 32 subunits of its final slot may finish there; subsequent yielding stays within one cell of the slot. More distant temporary crowding keeps the order pending. Exhausted terrain searches report failure and advance the queue.
+
+- Crowds (simulation version 14):
+  - **Squeeze.** A unit blocked for 10 ticks may step inside an ally's usual spacing, down to 65% of their combined radii, but only past an ally that is itself moving and not heading the same way: a crossing, oncoming or re-routing ally. It never presses into the queue in front of it, since that packs the whole queue to the floor. Enemies, terrain and lanes stay solid.
+  - **Push.** Every tick, allies closer than their usual 75% spacing are eased apart by up to 8 subunits (units walk 26–44 a tick), including units that are going somewhere. A push never moves a unit closer to anyone, never leaves a keep-right lane, and never moves an idle unit more than a cell from where it was standing. Hold, building, mid-swing, rooted and stunned units are not pushed. All pushes are decided from one set of positions, then applied in world order.
+  - **Detours.** A congested unit does not restart a detour search that is still running, and keeps walking its old path until the new one arrives. Restarting every 20 ticks with an empty path starved every search behind a jam and froze the units waiting on them.
+  - The numbers were chosen from 18 settings over 28 crowd cases and checked on 24 cases they were not chosen on (`Movement.tuning`, `G.PRESS`). Tighter settings (70% floor, or later squeezing) still let the largest counterflows jam.
 
 - Searches beginning inside their destination cell still route to its center. This prevents a subcell-position retry from declaring arrival prematurely.
 

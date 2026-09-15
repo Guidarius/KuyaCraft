@@ -36,7 +36,12 @@ local Control=require('src.sim.control')
 -- Adds w.control, public in views and covered by authoritative checkpoints.
 -- Version 13: a unit that cannot move (rooted, stunned) is never asked to step aside for a
 -- passing ally. Movement results change where a held unit stood in someone's path.
-local Sim = { VERSION = 13 }
+-- Version 14: a unit blocked for 10 ticks may squeeze past a moving ally that is not heading
+-- the same way, down to 65% of their combined radii, and allies closer than their usual spacing
+-- are pushed apart by 8 subunits a tick. A congested unit no longer restarts a detour search
+-- that is still running, and keeps walking its old path meanwhile. Fixes crowds deadlocking in
+-- narrow gaps; crowd results change.
+local Sim = { VERSION = 14 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
