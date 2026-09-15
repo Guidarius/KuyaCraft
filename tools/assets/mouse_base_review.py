@@ -6,6 +6,8 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import pixel
 def run(root,out):
     m=json.loads((out/'manifest.json').read_text());assert not m['preview'],'Full render required'
+    verification=out/'saved-scene-validation.json'
+    if verification.exists():m['evaluatedTriangles']=json.loads(verification.read_text())['evaluatedTriangles']
     style=json.loads((root/'art/recipes/woodland/mouse_builder.json').read_text())
     frames={};pixel_frames={};columns=8
     for clip,spec in m['clips'].items():
@@ -18,7 +20,9 @@ def run(root,out):
             for n in range(1,count+1):
                 raw=Image.open(out/'game'/clip/f'{n:03}.png').convert('RGBA')
                 assert raw.size==(m['gameCell']*2,m['gameCell']*2)
-                c,mask=pixel.finish(raw,Image.new('RGBA',raw.size),(size,size),style)
+                mask_path=out/'mask'/clip/f'{n:03}.png'
+                coverage=Image.open(mask_path).convert('RGBA') if mask_path.exists() else Image.new('RGBA',raw.size)
+                c,mask=pixel.finish(raw,coverage,(size,size),style)
                 pixel.validate_pixels(c,mask,style);images.append(c)
             pixel_frames[key]=images
         for key,images,size in [(clip+'-review',frames[clip],384)]+[(f'{clip}-{h}',pixel_frames[f'{clip}-{h}'],m['gameCell']*h//64) for h in (32,48,64)]:
@@ -38,7 +42,7 @@ def run(root,out):
     sequence=out/'video';sequence.mkdir(exist_ok=True)
     for tick in range(144):
         canvas=Image.new('RGB',(960,800),(222,220,198));draw=ImageDraw.Draw(canvas)
-        draw.text((20,12),'MOUSE BASE / 1036 triangles / equipment-free animation test',fill=(32,46,35))
+        draw.text((20,12),m.get('videoTitle',f'MOUSE BASE / {m["triangles"]} triangles / equipment-free animation test'),fill=(32,46,35))
         for i,(clip,spec) in enumerate(m['clips'].items()):
             x=(i%3)*320;y=42+(i//3)*375;count=spec['frames']
             local=(tick*2)%(count+(0 if spec['loop'] else 24));n=min(local,count-1)

@@ -24,8 +24,10 @@ Open <a href="mouse_base.blend">mouse_base.blend</a> for the editable rig. The N
 <script>
 const manifest=__MANIFEST__;
 const $=id=>document.getElementById(id),names=Object.keys(manifest.clips),assets={},cards={};
+if(manifest.title){document.title=manifest.title;document.querySelector('h1').textContent=manifest.title;document.querySelector('header p').textContent=manifest.subtitle}
+if(manifest.blendFile){const link=document.querySelector('footer a');link.href=manifest.blendFile;link.textContent=manifest.blendFile}
 let time=0,last=performance.now(),playing=true,manual=null;
-$('stats').textContent=manifest.triangles.toLocaleString()+' triangles · '+manifest.derivedBones+' bones';
+$('stats').textContent=(manifest.evaluatedTriangles??manifest.triangles).toLocaleString()+' triangles · '+manifest.derivedBones+' bones';
 async function load(name){const im=new Image();im.src=name+'.png';await im.decode();assets[name]=im}
 async function start(){
  for(const name of names){

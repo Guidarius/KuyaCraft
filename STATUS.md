@@ -681,3 +681,24 @@ final native resolution or previous performance failure was changed.
 Dense pose sequences and live preview controls were inspected; human real-time motion
 approval, cross-PC checks and final guard animation tuning remain open. See
 [the base workflow](docs/art/MOUSE_BASE.md). Generated files remain ignored.
+
+## Modular mouse guard equipment — 2026-09-14
+
+Added removable sword, shield and open-ear helmet meshes on the mouse sockets, plus
+a weighted sleeveless armor shell. Four Equipment_* collections permit independent
+removal. The complete equipped mouse evaluates to 1,448 triangles. Six fitted guard
+actions preserve the bare actions and all 120 source-library actions; the punch clip
+is an equipment-thrust study, not final gameplay timing.
+
+The full build wrapper rendered 243 poses from two cameras with team masks and
+32/48/64 pixel previews, then reopened the saved blend. Checks passed for retained
+actions, normalized vest weights, finite geometry, palm/grip attachment, equipment
+floor clearance and blade surface crossings against the specified character parts.
+The initial ear crossing was corrected by an outward sword carry before the full
+render. Dense motion sequences and the interactive preview were visually inspected.
+
+This PC: 22 asset-tool tests plus six Woodland tests passed; existing catalog
+validation and rendered presentation checks passed. Source rig/base and production
+catalog were preserved. No gameplay or renderer integration was performed. Human
+motion approval and other-PC checks remain separate. See
+[equipment assembly and reproduction](docs/art/MOUSE_GUARD_EQUIPMENT.md).
