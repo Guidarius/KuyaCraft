@@ -1,0 +1,59 @@
+<!doctype html><meta charset="utf-8"><title>Mouse base · Motion review</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#ede9da;color:#253429;font:15px system-ui,sans-serif}
+main{max-width:1250px;margin:auto;padding:28px}header{display:flex;justify-content:space-between;align-items:center;gap:20px}
+h1{margin:0;font-size:29px}p{margin:8px 0 18px;color:#58644f}button,select{font:inherit;background:#fffdf5;color:#253429;border:1px solid #b9c0ac;border-radius:6px;padding:8px 12px}
+button{cursor:pointer}nav{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 0 20px;position:sticky;top:0;background:#ede9daf5;z-index:1}
+label{display:flex;align-items:center;gap:7px}#grid{display:grid;grid-template-columns:repeat(auto-fit,578px);gap:18px}
+article{border:1px solid #bbc3af;border-radius:12px;background:#dfddc7;overflow:hidden}
+h2{font-size:17px;padding:13px 18px;margin:0;background:#f8f5e9;display:flex;justify-content:space-between}
+h2 small{font-size:12px;color:#637058;font-weight:400}canvas{display:block;width:576px;height:320px}footer{padding:20px 0;color:#62705b}
+#error{color:#a12222}#scrub{width:150px}@media(max-width:760px){#grid{grid-template-columns:1fr}header{display:block}}
+</style>
+<main><header><div><h1>Mouse base · Motion review</h1><p>Broad forms. Bare paws. No equipment. Six motions on the shared rig.</p></div><span id="stats"></span></header>
+<nav><button id="play">Pause</button><button id="restart">Restart</button>
+<label>Speed <select id="speed"><option value=".5">½×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+<label>Body pixels <select id="size"><option>32</option><option selected>48</option><option>64</option></select></label>
+<label>Max pixel zoom <select id="zoom"><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+<label>Ground <select id="ground"><option value="#dfddc7">Light</option><option value="#293a30">Dark</option></select></label>
+<label>Pose <input id="scrub" type="range" min="0" max="100" value="0"></label></nav>
+<p id="status">Loading rendered frames…</p><p id="error"></p><section id="grid"></section>
+<footer>Left: Blender review camera · Right: 60° game camera, fixed palette, nearest pixels.
+One-shot clips hold briefly before replay. This is an animation review, not gameplay timing.<br>
+Open <a href="mouse_base.blend">mouse_base.blend</a> for the editable rig. The NLA timeline plays all six clips sequentially.</footer></main>
+<script>
+const manifest=__MANIFEST__;
+const $=id=>document.getElementById(id),names=Object.keys(manifest.clips),assets={},cards={};
+let time=0,last=performance.now(),playing=true,manual=null;
+$('stats').textContent=manifest.triangles.toLocaleString()+' triangles · '+manifest.derivedBones+' bones';
+async function load(name){const im=new Image();im.src=name+'.png';await im.decode();assets[name]=im}
+async function start(){
+ for(const name of names){
+  const spec=manifest.clips[name],card=document.createElement('article');
+  card.innerHTML='<h2>'+name.toUpperCase()+'<small>'+spec.frames+' frames · '+(spec.loop?'loop':'one-shot')+'</small></h2><canvas width="576" height="320"></canvas>';
+  $('grid').append(card);cards[name]=card.querySelector('canvas');
+ }
+ await Promise.all(names.flatMap(n=>[n+'-review',n+'-32',n+'-48',n+'-64']).map(load));
+ $('status').textContent='All six clips loaded. Pause and use Pose to inspect the same phase across motions.';
+ requestAnimationFrame(draw);
+}
+function stamp(ctx,key,n,size,x,y,scale,smooth){ctx.imageSmoothingEnabled=smooth;ctx.drawImage(assets[key],n%8*size,Math.floor(n/8)*size,size,size,Math.round(x),Math.round(y),size*scale,size*scale)}
+function draw(now){
+ if(playing)time+=(now-last)/1000*Number($('speed').value);last=now;
+ const h=Number($('size').value),s=manifest.gameCell*h/64,z=Math.min(Number($('zoom').value),Math.max(1,Math.floor(288/s)));
+ for(const name of names){
+  const spec=manifest.clips[name],period=spec.frames+(spec.loop?0:24);
+  const n=manual===null?Math.min(Math.floor(time*24)%period,spec.frames-1):Math.round(manual*(spec.frames-1));
+  const c=cards[name].getContext('2d');c.fillStyle=$('ground').value;c.fillRect(0,0,576,320);
+  stamp(c,name+'-review',n,384,0,12,.75,true);
+  stamp(c,name+'-'+h,n,s,432-s*z/2,160-s*z/2,z,false);
+  c.fillStyle=$('ground').value==='#293a30'?'#ebe8d3':'#495643';c.font='12px system-ui';
+  c.fillText('3D / '+(n+1)+' of '+spec.frames,18,304);c.fillText(h+' px body / '+z+'× pixels',350,304);
+ }
+ requestAnimationFrame(draw);
+}
+$('play').onclick=()=>{playing=!playing;manual=null;$('play').textContent=playing?'Pause':'Play'};
+$('restart').onclick=()=>{time=0;manual=null;$('scrub').value=0};
+$('scrub').oninput=()=>{playing=false;manual=Number($('scrub').value)/100;$('play').textContent='Play'};
+start().catch(e=>{$('error').textContent='Could not load showcase: '+e.message;$('status').textContent='Check that all generated PNGs are beside index.html.'});
+</script>

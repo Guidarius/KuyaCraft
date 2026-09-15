@@ -661,3 +661,23 @@ they are separate runs. Human playtesting and two-physical-PC multiplayer were n
   Other woodland species and full-game pixel alignment are subsequent work.
 
 Workflow and review instructions: [Woodland pixel pilot](docs/art/WOODLAND_PIXEL_PILOT.md).
+
+## Modular equipment-free mouse base — 2026-09-14
+
+Created an isolated 1,036-triangle mouse base with 17 mesh parts and no equipment.
+The derived skeleton retains the 65 source bone names plus two ear/four tail bones,
+eight future equipment sockets, and six editable clips: idle, walk, run, punch, hit,
+celebration. The saved source retains all original 120 actions. A 24 FPS NLA timeline,
+shaded/game-camera renders, 32/48/64 pixel previews, interactive review and MP4 source
+frames demonstrate motion before fitting armor.
+
+Saved-scene checks pass for bone/action retention, normalized weights, finite geometry,
+NLA motion, foot grounding and full game-camera bounds. Python asset tests: 28 passed.
+Existing catalog validation and presentation smoke checks pass; the initial sandboxed
+presentation failure was resolved by normal LÖVE save-directory access. The pinned
+blend and production catalog hashes are unchanged. No gameplay, production catalog,
+final native resolution or previous performance failure was changed.
+
+Dense pose sequences and live preview controls were inspected; human real-time motion
+approval, cross-PC checks and final guard animation tuning remain open. See
+[the base workflow](docs/art/MOUSE_BASE.md). Generated files remain ignored.
