@@ -10,6 +10,7 @@ local F=require('src.sim.fixed')
 -- inline require() is a package.loaded hash lookup on every single call.
 local Camera=require('src.ui.camera')
 local Minimap=require('src.ui.minimap')
+local Terrain=require('src.ui.terrain')
 local Hud=require('src.ui.hud')
 local Input=require('src.ui.input')
 local Frames=require('src.asset_frames')
@@ -467,8 +468,14 @@ function App:draw()
     if shakeX~=0 or shakeY~=0 then g.push();g.translate(shakeX,shakeY) end
     self.groupBadges=self:controlGroupBadges()
     local terrain=Minimap.cache(self)
-    g.setColor(1,1,1);g.draw(terrain.terrain,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
-    g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    -- The ground, baked per chunk from the map's terrain types (src/ui/terrain.lua). It used to
+    -- be the minimap's one-pixel-per-cell canvas stretched over the world.
+    if not self.terrainRenderer or self.terrainRenderer.map~=m then
+        if self.terrainRenderer then Terrain.release(self.terrainRenderer) end
+        self.terrainRenderer=Terrain.create(m)
+    end
+    Terrain.draw(self.terrainRenderer,self.camera.x,self.camera.y,26*z,CELL_Y*z,viewport)
+    g.setColor(1,1,1);g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
     -- Control points lie on the ground, under everything standing on them. The ring is the
     -- owner's colour; the fill grows with a capture in progress, in the capturer's colour.
     local control=self.view.control
@@ -704,5 +711,5 @@ function App:save(path)
     self.message='Replay saved: '..path;print(self.message)
     return true
 end
-function App:close() if not self.noAutoSave then self:save() end;self.audio:clear();if self.miniCache then self.miniCache.terrain:release();self.miniCache.fog:release();self.miniCache=nil end;if self.network then self.network:close() end end
+function App:close() if not self.noAutoSave then self:save() end;self.audio:clear();if self.miniCache then self.miniCache.terrain:release();self.miniCache.fog:release();self.miniCache=nil end;if self.terrainRenderer then Terrain.release(self.terrainRenderer);self.terrainRenderer=nil end;if self.network then self.network:close() end end
 return App

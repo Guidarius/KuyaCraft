@@ -1,6 +1,7 @@
 local Camera=require('src.ui.camera')
 local Content=require('src.content')
 local Selection=require('src.ui.selection')
+local Terrain=require('src.ui.terrain')
 local M={}
 -- Fog is one pixel per cell in an ImageData, uploaded to one Image with replacePixels and
 -- drawn scaled for both the world and the minimap. Each tick only the cells visible now or
@@ -69,7 +70,9 @@ function M.cache(app)
   app.miniCache=cache
   cache.terrain:setFilter('nearest','nearest');cache.fog:setFilter('nearest','nearest')
   g.push('all');g.setCanvas(cache.terrain);g.origin();g.setScissor();g.clear(.22,.32,.25)
-  for y=0,map.height-1 do for x=0,map.width-1 do local shade=(x*7+y*11)%5*.008;local key=y*map.width+x+1;if map.blocked[key] then g.setColor(.15,.26,.35) elseif map.unbuildable and map.unbuildable[key] then g.setColor(.38+shade,.32+shade,.22+shade) else g.setColor(.16+shade,.235+shade,.19+shade) end;g.rectangle('fill',x,y,1,1) end end;g.pop()
+  -- One pixel per cell in its terrain type's colour, so rock and forest read differently here too.
+  local grid=Terrain.grid(map)
+  for y=0,map.height-1 do for x=0,map.width-1 do local shade=(x*7+y*11)%5*.008;local c=Terrain.PALETTE[grid[y*map.width+x+1]];g.setColor(c[1]+shade,c[2]+shade,c[3]+shade);g.rectangle('fill',x,y,1,1) end end;g.pop()
  end
  -- A view is rebuilt every tick, but each player's visible set is one table the simulation
  -- reuses for the whole match, so its identity marks a change of perspective or of world.

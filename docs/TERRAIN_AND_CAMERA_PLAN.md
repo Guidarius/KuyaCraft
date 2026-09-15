@@ -1,10 +1,17 @@
 # LoveRTS — Terrain and camera plan
 
-Status: **planned, nothing implemented.** Decisions taken 2026-09-15: map authoring moves
+Status: **phases 2 and 3 are done** (map format and terrain on screen); phases 1, 4 and 5
+(camera, autotiling, Tiled extras) are not. Decisions taken 2026-09-15: map authoring moves
 to Tiled; the game will have many terrain types but starts with a basic set; there is no
 camera zoom; the camera is fixed at Brood War level. The defaults marked *accepted* below
 were proposed and accepted without a playtest, so each is open to revision once it can be
 seen.
+
+What exists now: `maps/twin_marches.tmx` is the map source, exported by `scripts/map.ps1` to
+`src/maps/twin_marches_tiled.lua` and converted by `src/maps/tiled.lua`, which derives
+`blocked` and `unbuildable` and a per-cell `terrain` string. `src/ui/terrain.lua` draws the
+ground from those types in chunks, procedurally, with no art. The camera is unchanged: it still
+zooms, and the ground is no longer the stretched minimap canvas.
 
 ## Where terrain is today
 

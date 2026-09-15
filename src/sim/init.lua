@@ -349,7 +349,7 @@ function Sim.view(w,player)
     local p=w.players[player]
     -- Control state is public: both players see who owns each point and the countdown.
     local out={tick=w.tick,result=w.result,control=w.control and Codec.copy(w.control),
-        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable},
+        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable,terrain=w.map.terrain},
         entities={},byId={},
         player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
             kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,

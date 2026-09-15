@@ -977,6 +977,74 @@ Verified:
   parking on owned points, and retaking an enemy hold.
 - quick **75/75**; balance **4/4** with both replays re-verified.
 
+## Terrain: Tiled map authoring and a drawn ground
+
+The ground used to be the minimap's one-pixel-per-cell canvas stretched over the world, in three
+flat colours, and Twin Marches was Lua code carving squares and rectangles out of a solid grid.
+Rock and forest were both just `blocked`, so nothing could tell them apart. Phases 2 and 3 of
+[docs/TERRAIN_AND_CAMERA_PLAN.md](docs/TERRAIN_AND_CAMERA_PLAN.md) are now done; the camera phase
+is not, so zoom is still there.
+
+**Map format.** `maps/twin_marches.tmx` is the source, edited in Tiled. `scripts/map.ps1` exports
+it to `src/maps/twin_marches_tiled.lua` (`-Mode Check` fails if a committed export no longer
+matches its `.tmx`, and skips when Tiled is absent). `src/maps/tiled.lua` converts the export into
+the table `Sim.create` already read, deriving `blocked` and `unbuildable` from four terrain types
+— grass, road, rock, forest — and adding a `terrain` string of one character per cell. The string
+copies and hashes as a single value, so worlds and snapshots cost the same as before. Gameplay
+objects (starts, gold, camps, unit starts, anchors, control points) come from the object layer in
+object-id order, which keeps entity ids stable when the map is edited.
+
+**The layout is the same map, reshaped.** A one-time generator (`tools/tiled/generate`) rebuilt it
+from the old code-authored version, kept at `tools/tiled/twin_marches_legacy.lua`. Every base,
+mine, road, camp, control point and anchor stayed in its cell, and the map is still symmetric under
+a 180-degree rotation. Rock edges became bays and promontories, forest rectangles became lobed
+groves, and bays three or more cells deep became woods, so coves read as forest instead of opening
+new buildable ground.
+
+| Cells | Before | After |
+|---|---|---|
+| Grass | 19,448 | 20,622 |
+| Road | 2,606 | 2,606 |
+| Rock | 13,840 | 8,548 |
+| Forest | 970 | 5,088 |
+
+A bay may only open where every open cell near it is a short walk from the bay's own side, so it
+can never become a passage between two routes. The generator then measures walking distance between
+all ten key places (both bases, both naturals, forwards, contested corners, both control points)
+against the old map, and restores terrain along any route that got more than 3% shorter or 6%
+longer. **Worst remaining route change: 1.1%**, with no repairs needed and 366 unreachable pocket
+cells filled.
+
+**Drawn ground.** `src/ui/terrain.lua` bakes the ground into chunks of 16 cells at 16 pixels per
+cell (about 37 MB for the whole map), draws only what is in view, and bakes one chunk of the
+surrounding ring per frame. Everything is procedural — no art: mottled grass with tufts, dirt roads
+with pebbles, rock with cracks, a lit rim, a dark south-facing cliff and a shadow below it, and
+forest crowns with shadows. Type edges wobble by up to 1.5 of the four sub-blocks per cell, so the
+middle of a cell always shows its true type. Variation comes from an integer hash of cell
+coordinates, never the simulation's PRNG. The minimap is coloured by terrain type too, and maps
+without a terrain string (the test fixtures) fall back to the old flags.
+
+Simulation version is unchanged: no rule changed. Map data did change, so `src/build.lua`'s
+fingerprint rejects older replays, which is expected.
+
+| Balance match (one seed) | Old map | Reshaped map |
+|---|---|---|
+| Mirror | 7:16, player 1 by control | **9:38, player 1 by control** |
+| Asymmetric | 7:17, player 1 by control | **8:17, player 1 by control** |
+
+Both matches still end by control, and both still end early for the reasons already recorded under
+the bot's control-point targeting in [docs/ITERATION_LOG.md](docs/ITERATION_LOG.md).
+
+Verified: quick **83/83** (including three new converter tests: cells, flags, terrain and object
+order; refusal of unknown tiles, classes, terrain, layers, external tilesets, empty cells and a
+missing start; and Twin Marches' terrain agreeing with its flags and symmetry), crowd **20/20**,
+balance **4/4**, determinism **5/5**, network **4/4**, scenario **2/2**, soak **1/1**, plus rendered
+UI and presentation suites with three terrain captures (`artifacts/ui-terrain-*.png`) that prove
+drawing leaves `Sim.serializeCanonical` unchanged and that closing the app releases the chunks.
+
+Not verified: how any of this looks with real tile art (none exists yet), bake cost on a Raspberry
+Pi, and the camera, which this work did not touch.
+
 ## Crowd movement: squeeze, push and detour searches — simulation version 14
 
 Crowds in narrow gaps used to lock up. Three causes, three changes, all in `src/sim/movement.lua`:

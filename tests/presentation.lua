@@ -103,7 +103,21 @@ function T.run(app)
  local controlState=Sim.serializeCanonical(marches.world)
  capture('control-hold',function() marches:draw() end)
  assert(Sim.serializeCanonical(marches.world)==controlState,'drawing control points mutated the simulation')
+ -- Terrain: the base, the open field with its forests and roads, and a stretch of coast, each
+ -- drawn through the chunked renderer. Drawing bakes chunks but must leave the world untouched.
+ -- The view's visible set is replaced by the whole map so the ground can be seen rather than fog.
+ -- A view is presentation data, so this reveals nothing in the world, which the check below proves.
+ marches.view=Sim.view(marches.world,1)
+ local everywhere={};for key=1,marches.world.map.width*marches.world.map.height do everywhere[key]=true end
+ marches.view.player.visible=everywhere;marches.view.player.explored=everywhere
+ for _,spot in ipairs({{'terrain-home',22,22},{'terrain-field',100,48},{'terrain-coast',30,120}}) do
+  Camera.center(marches,spot[2]*256+128,spot[3]*256+128)
+  capture(spot[1],function() marches:draw() end)
+ end
+ assert(marches.terrainRenderer and marches.terrainRenderer.baked>0,'the terrain renderer baked nothing')
+ assert(Sim.serializeCanonical(marches.world)==controlState,'drawing terrain mutated the simulation')
  marches:close()
+ assert(not marches.terrainRenderer,'closing the app kept the terrain chunks')
  -- The inspection card, captured so it can be looked at: the enemy hero brought into
  -- sight and selected. Pausing overlays stop ticks, so the overlay is lifted meanwhile.
  do

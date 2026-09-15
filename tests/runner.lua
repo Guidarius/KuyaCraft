@@ -28,6 +28,7 @@ test('unit','command costs and prerequisites',function() require('tests.command_
 require('tests.balance').register(test)
 require('tests.controls').register(test)
 require('tests.control_scenarios').register(test)
+require('tests.maps').register(test)
 test('balance','new-profile route report',function() require('tests.balance_scenarios').routes() end)
 test('balance','new-profile mirror match',function() require('tests.balance_scenarios').match(true) end)
 test('balance','new-profile asymmetric match',function() require('tests.balance_scenarios').match(false) end)
