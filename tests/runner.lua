@@ -262,7 +262,12 @@ for _,case in ipairs({
     {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
     {'hold','owning every control point for the full hold wins, not a tick sooner'},
     {'broken','losing a point cancels the countdown, and a new hold starts from nothing'},
-    {'snapshot','control state survives a snapshot and is covered by checkpoints'}}) do
+    {'snapshot','control state survives a snapshot and is covered by checkpoints'},
+    {'defeatedHolder','a holder that loses its headquarters loses, and its hold counts for nothing'},
+    {'sameTick','a hold completing on the tick its owner\'s headquarters falls is not a control win'},
+    {'capturerDies','a capture fades when its only capturing unit dies'},
+    {'thirdPlayer','a third player holding every control point wins'},
+    {'defeatedDoesNotContest','a defeated player\'s surviving unit does not contest a capture'}}) do
     test('simulation',case[2],function() require('tests.objective_scenarios')[case[1]]() end)
 end
 test('scenario','mirror bot match and replay',function() require('tests.scenarios').match(true) end)

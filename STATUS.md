@@ -931,6 +931,30 @@ Performance of the simulation after iterations 2 and 4, alternating `8a24190` ag
 - **Caveat:** the after medians are slightly higher, within this machine's noise. A small real cost is
   not ruled out.
 
+## Improvement loop, iterations 5–7 and stopping
+
+- **5, shared path search per group move: reverted.**
+  - Measured: 12 units ordered around a wall waited 607 ticks for routes, where one unit alone waits 53.
+    Sharing one search cut that to 53.
+  - But it deadlocked the 50-vs-50 counterflow crowd, and a narrower version then deadlocked the
+    100-unit chokepoint too.
+  - The measurement stays as a reported crowd test.
+- **6, the deadlock: diagnosed, not fixed.**
+  - A probe that gives every unit its route on tick 1 reproduces it with no sharing code: counterflow
+    never finishes.
+  - Every stalled front unit is blocked by an *ally*. Two moving allies each need the other's space, and
+    yielding only moves idle units.
+  - The likely fix, letting long-blocked allies briefly overlap as Brood War's harvesters do, changes
+    how crowds look, so it is a question for the user in
+    [docs/ITERATION_LOG.md](docs/ITERATION_LOG.md).
+- **7, control-point edge cases: five new simulation scenarios, no defect found.**
+  - Two of them were proven able to fail by deliberately breaking `control.lua`.
+  - Simulation suite **64/64**.
+
+The loop stopped here: the remaining high-value work needs user decisions (crowd overlap, control-win
+pacing, netcode, expansion income) or hardware this machine lacks (two PCs, generated art). Details are
+in [docs/ITERATION_LOG.md](docs/ITERATION_LOG.md).
+
 ## Improvement loop, iteration 4: bots take control points
 
 Bots used to retake a point only when the enemy held both, so no bot match ever exercised the

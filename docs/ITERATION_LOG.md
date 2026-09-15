@@ -9,13 +9,21 @@ noisy, so compare A/B, alternating, medians of three.
 Ranked by value. Items marked *verified* were confirmed against the code during the skill evaluation
 on 2026-09-14.
 
-0. **Crowd liveness when a group starts together** (found in iteration 5, confirmed latent afterwards).
-   - **Reproducer:** `scratchpad/liveness-probe` gives every unit its whole route on tick 1 by raising
-     the path budget to 100,000, with no shared-search code involved.
+0. **Crowd liveness when a group starts together** (found in iteration 5; diagnosed in iteration 6).
+   - **Reproducer:** `scratchpad/liveness-probe` raises the path budget to 100,000, so every unit has its
+     whole route on tick 1, with no shared-search code involved.
    - **Result:** 50-vs-50 counterflow never finishes (38 units stuck), while chokepoint-100 still
-     arrives (1,233 ticks). Opposing units end up in each other's keep-right lane at the gap, and nothing
-     breaks the stand-off.
+     arrives (1,233 ticks).
+   - **Mechanism** (from `scratchpad/deadlock-dump`):
+     - It is *not* the two armies blocking each other. Every stalled front unit is blocked by an **ally**
+       at the 120-subunit allied separation, with lanes, terrain and lane clearance all passing.
+     - Two moving allies form a cross: each one's next step passes through the other's body.
+     - Yielding only asks *idle* units to step aside, so two units that both have goals never resolve it.
+     - Separately, a unit rerouting at the gap mouth briefly has no path and plugs its own side.
    - **Why it matters:** this blocks both search speedups below.
+   - **Proposed fix** (needs the user, because crowds would visibly overlap): bounded allied passing, in
+     the spirit of Brood War's harvester hack. Allies blocked by each other past a wait threshold may
+     overlap until clear; enemies and terrain stay solid.
    - **Group search.** One search per group removed a 600-tick wait for 12 units ordered around a
      wall.
    - **Budget accounting.** Stop charging the per-tick path budget for stale heap pops (~45% of it).
@@ -57,6 +65,17 @@ on 2026-09-14.
   - Options: leave it, move the natural closer, or change carrier numbers.
   - Recommendation: playtest first.
 - **Capture-point defaults are unconfirmed:** 10 s capture, ownership persists, workers count.
+- **Crowd deadlock at chokepoints: may allies briefly overlap?**
+  - Moving allies can deadlock each other in a narrow gap when a group starts together (backlog item 0).
+  - Options:
+    - (a) Bounded allied passing: allies blocked by each other for a while may overlap until clear, as
+      Brood War's harvesters do.
+    - (b) Moving allies also yield to each other by a deterministic priority, so there is no overlap,
+      but it is more complex and may still cycle.
+    - (c) Leave it, and keep searches staggered, so groups keep waiting ~600 ticks for routes around
+      obstacles.
+  - Recommendation: (a), limited to units that have waited 2+ seconds and only between allies. It is
+    small, deterministic and a proven genre precedent, and it unblocks the group-search speedup.
 - **Control wins now decide bot matches early.**
   - Once bots take points (iteration 4), the mirror ends at 14:03 and the asymmetric match at 9:17,
     both by control and both below the 15-minute floor.
@@ -193,6 +212,75 @@ moves on.
 - quick 75/75, balance 4/4, with both replays re-verifying their final state.
 
 **Not decided here.** Whether control wins should end matches this early. See Questions for the user.
+
+## Loop stopped — 2026-09-15
+
+After iteration 7 the loop stopped for lack of progress, per ITERATION_LOOP.md:
+- Of the last three iterations, one was reverted (5), one stopped at a design question (6), and one
+  added coverage without finding a defect (7).
+- Every remaining high-value item needs a user decision or hardware this machine lacks:
+  - **Crowd overlap** at chokepoints. This also gates both path-search speedups.
+  - **Control-win pacing.**
+  - **Peer-to-peer input and per-match input delay.** Needs the user and two PCs.
+  - **Natural expansion income.**
+  - **Sprite batching.** Needs generated art.
+- The rest are low value or can't be measured reliably on this machine:
+  - more inspection coverage
+  - formations (large)
+  - worst-tick spikes (this laptop's timing noise spans 12–86 ms for identical code)
+  - carrier raids (change pacing on top of the open control-win question)
+
+Committed and kept:
+- 1: order acknowledgement
+- 2: held units never shoved aside
+- 3: fog repaint, about 55× cheaper
+- 4: bots take control points
+- 7: control edge-case coverage
+
+### 7. Control-point edge cases — coverage, no defect found
+
+**Why.** Control wins were new, and nothing tested the ways a wrong player could win.
+
+**Change.** Tests only, five new simulation scenarios:
+- a holder that loses its headquarters loses, and its hold counts for nothing
+- a hold completing on the tick its owner's headquarters falls is not a control win
+- a capture fades at half rate when its only capturing unit dies
+- a third player holding every point wins by control
+- a defeated player's surviving unit does not contest a capture
+
+**Verified.**
+- All pass; the simulation suite is 64/64.
+- **Deliberate breaks:** counting dead units in the circle fails the capturer test (progress rose to 120
+  instead of fading), and counting a defeated player's units fails the contest test (owner stayed 0).
+  `control.lua` was restored with `git restore` and confirmed clean.
+
+**Learned.**
+- The defeated-holder and same-tick cases are each guarded twice: the headquarters check runs first, and
+  `Control.step` refuses a defeated holder. No single break fails either test, so they guard the pair
+  rather than either check alone.
+- The rules already handled every case, so no code changed.
+
+### 6. Diagnose the counterflow deadlock — stopped at a design question
+
+**Why.** Backlog item 0 blocks every search speedup.
+
+**Done.**
+- A probe gives every unit its route on tick 1 and runs 50-vs-50 counterflow. It never finishes; 38
+  units stay stuck.
+- A second probe dumps each stalled front unit's straight step and which check rejects it:
+  - terrain, midpoint terrain, lane cell and lane body clearance: all pass
+  - the only blocker is an **allied** body at the compressed allied separation (120)
+- On each side, two moving allies form a cross in which each one's next step passes through the other.
+  Yielding only moves idle allies, so the cross never resolves.
+- A unit rerouting at the gap mouth also briefly has no path and plugs the entrance.
+
+**Not changed.** The obvious fix, bounded allied overlap for long-blocked movers, changes how crowds
+look in chokepoints, which is the user's call ("crowd feel" is a human gate in STATUS.md). It is
+recorded under Questions for the user with a recommendation.
+
+**Learned.**
+- Crowd liveness here depends on units never starting together.
+- The allied-separation compression that makes crowds feel tight is also what lets them lock.
 
 ### 5. Share one path search per group move — reverted
 
