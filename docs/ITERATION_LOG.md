@@ -9,6 +9,11 @@ noisy, so compare A/B, alternating, medians of three.
 Ranked by value. Items marked *verified* were confirmed against the code during the skill evaluation
 on 2026-09-14.
 
+Terrain, Tiled map authoring and the fixed camera are user-directed work with their own phase order in
+[TERRAIN_AND_CAMERA_PLAN.md](TERRAIN_AND_CAMERA_PLAN.md), not loop items. Until its camera phase lands,
+avoid loop changes to `src/ui/camera.lua`, zoom or the ground and fog drawing in `src/app.lua`, which
+that phase rewrites.
+
 0. **Crowd liveness** — fixed in iteration 8 (squeeze, push, detour searches; simulation version 14).
    - **Now unblocked:** the two search speedups that deadlocked crowds in iteration 5.
      - **Group search.** One search per group removed a 600-tick wait for 12 units ordered around a

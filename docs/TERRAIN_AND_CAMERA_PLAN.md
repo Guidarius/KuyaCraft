@@ -13,7 +13,9 @@ seen.
   points, mirrored by 180° rotation.
 - The simulation reads only `blocked` and `unbuildable` per cell, plus the object lists.
 - The battlefield ground is the minimap's one-pixel-per-cell canvas stretched over the
-  world (`src/ui/minimap.lua:36`, `src/app.lua:470`), in three flat colours.
+  world (`src/ui/minimap.lua:67`, `src/app.lua:470`), in three flat colours. Fog is the
+  same cache's one-pixel-per-cell fog texture drawn over it (`src/app.lua:471`), written
+  incrementally since improvement-loop iteration 3.
 - Rock and forest are both just `blocked`, so nothing can draw them differently.
 - The camera shows 24 cells vertically at any resolution, squashes the vertical axis to
   26 × sin 60°, and zooms 80–135% (`src/ui/camera.lua`).
