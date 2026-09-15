@@ -202,5 +202,33 @@ function B.register(test)
   assert(open*2>m.width*m.height,'less than half of the map is walkable ('..open..' cells)')
   local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,m);eq(#w.control.points,2);eq(w.control.holder,0)
  end)
+ -- The bot takes control points once it has an army, an outpost and nothing to defend, before
+ -- it marches on the enemy base. It still drops everything to break an enemy hold, and it does
+ -- not park its army on points it already owns.
+ test('unit','bot: claims control points, retakes a hold, and moves on once it owns both',function()
+  local Bot=require('src.bot')
+  local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,require('src.maps').create())
+  local hq=w.entities[w.players[1].hq]
+  for i=1,6 do S.unit(w,'shield',1,F.cell(hq.x)+6+i,F.cell(hq.y)+6) end
+  building(w,'outpost',12,30)
+  w.tick=6000
+  local function target()
+   local tx,ty
+   for _,c in ipairs(Bot.commands(Sim.view(w,1),C)) do if c.kind=='attack_move' then tx,ty=c.args.x,c.args.y end end
+   return tx,ty
+  end
+  local points=w.control.points
+  local near,far=points[1],points[2]
+  if F.sq(far.x-hq.x)+F.sq(far.y-hq.y)<F.sq(near.x-hq.x)+F.sq(near.y-hq.y) then near,far=far,near end
+  local tx,ty=target()
+  assert(tx==near.x and ty==near.y,'the bot did not send its army to the nearest control point it does not own')
+  near.owner=1
+  tx,ty=target();assert(tx==far.x and ty==far.y,'the bot did not move on to the other control point')
+  far.owner=1;w.control.holder=1
+  tx,ty=target();assert(tx and not (tx==near.x and ty==near.y) and not (tx==far.x and ty==far.y),'the bot kept its army on points it already owns')
+  -- An enemy hold is answered first.
+  near.owner=2;far.owner=2;w.control.holder=2
+  tx,ty=target();assert(tx==near.x and ty==near.y,'the bot did not retake the nearest point of an enemy hold')
+ end)
 end
 return B

@@ -866,3 +866,54 @@ Verified:
 - `scripts/test-ui.ps1` and `scripts/test-presentation.ps1` both exit 0.
 
 Not verified: no listening review; all cues are still synthesized placeholders.
+
+## Improvement loop, iteration 2: held units are never shoved aside — simulation version 13
+
+An idle ally standing in a passing unit's road is asked to step aside. `yieldable()` never checked
+whether that ally could move, so a rooted or stunned unit was pushed around against its own status.
+Two independent code readers found it during the skill evaluation. `yieldable()` now refuses any unit
+`Stats.canMove` rejects.
+
+This is a versioned break (12 → 13).
+
+All eight crowd arrival times are unchanged:
+- open: 318 / 321 / 393 / 445 ticks
+- chokepoints: 340 / 460 / 1,326
+- mixed: 705
+- counterflow: 849
+
+So crowds without held units behave exactly as before.
+
+Verified:
+- The new crowd test failed on the old code (a rooted ally pushed at tick 31) and passes now, for
+  both root and stun.
+- quick **74/74**; crowd **16/16**.
+- On a snapshot of the tree holding iterations 2–4:
+  - determinism **5/5**, plus 100,000-tick agreement across fresh processes at 30/60/144 FPS and
+    default/tuned JIT
+  - network **4/4**, plus a real ENet pair
+  - scenario **2/2**; soak **1/1**; balance **4/4**
+  - the performance suite result for this snapshot is recorded with iteration 3, whose change is the
+    one that needs a timing comparison
+
+## Improvement loop, iteration 4: bots take control points
+
+Bots used to retake a point only when the enemy held both, so no bot match ever exercised the
+control win. With an army of at least six, an outpost and nothing to defend, the bot now takes the
+nearest point it does not own before marching on the enemy base, and moves on once it owns them all.
+
+| Balance match (one seed) | Before | After |
+|---|---|---|
+| Mirror | 17:33, headquarters | **14:03, player 2 by control** |
+| Asymmetric | 13:23, headquarters | **9:17, player 1 by control** |
+
+This is the first time a full match has been decided by control, and the retake rule has now run in
+anger. In the asymmetric match the winner had the *smaller* army (peak food 49 against 56), so a hold
+works as a way back into a game. Both matches are now below the 15-minute floor. Whether that is right
+is a design question recorded in [docs/ITERATION_LOG.md](docs/ITERATION_LOG.md); no rule or number was
+changed.
+
+Verified:
+- The new bot unit test failed on the old bot and passes now. It covers claiming, moving on, not
+  parking on owned points, and retaking an enemy hold.
+- quick **75/75**; balance **4/4** with both replays re-verified.

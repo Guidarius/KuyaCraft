@@ -133,6 +133,18 @@ function B.commands(view,C)
    if point.owner==control.holder and (not nearest or distance<nearest) then retake=point;nearest=distance end
   end
  end
+ -- The control win is a second front. With a real army, an outpost and nothing to defend,
+ -- the bot takes the nearest point it does not own before marching on the enemy base; once it
+ -- owns them all it moves on, and ownership keeps the countdown running behind it. The enemy
+ -- bot's retake rule answers the same move, so a hold draws both armies into the open field.
+ local claim
+ if control and #army>=6 and #outposts>0 then
+  local nearest
+  for _,point in ipairs(control.points) do
+   local distance=F.sq(point.x-hq.x)+F.sq(point.y-hq.y)
+   if point.owner~=owner and (not nearest or distance<nearest) then claim=point;nearest=distance end
+  end
+ end
  if threat then tx,ty=threat.x,threat.y
  elseif retake then tx,ty=retake.x,retake.y
  elseif wantExpansion and view.map.anchors and #army>=3 then local anchor=view.map.anchors.naturals[owner];tx,ty=anchor.x*256,anchor.y*256
@@ -140,6 +152,7 @@ function B.commands(view,C)
  elseif #army>=3 and view.tick<3600 then
   local forward=view.map.anchors and view.map.anchors.forward and view.map.anchors.forward[owner]
   if forward then tx,ty=forward.x*256,forward.y*256 else tx,ty=(owner==1 and 28 or 100)*256,(owner==1 and 30 or 82)*256 end
+ elseif claim then tx,ty=claim.x,claim.y
  elseif #army>=6 or view.tick>=6000 then local start=view.map.starts and view.map.starts[owner==1 and 2 or 1];tx,ty=(start and start.x or (owner==1 and view.map.width-8 or 8))*256,(start and start.y or (owner==1 and view.map.height-8 or 8))*256 end
  -- Everything ordered forward on the same tick forms one wave and travels as one, so a
  -- mixed force arrives together instead of trickling into the enemy a unit at a time.
