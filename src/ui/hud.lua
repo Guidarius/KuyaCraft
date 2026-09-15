@@ -58,9 +58,10 @@ function H.draw(app)
   function() Input.selectIdleWorker(app) end,#idle==0 and 'No idle workers' or nil,
   'Select and centre on the next worker with no order and nothing to deliver.')
  local sx,sw=375,math.max(140,w-375-330);local e=app:entity(Selection.primary(app))
- text(#app.selected..' selected',sx,y+12,sw)
+ local inspected=Selection.inspecting(app)
+ text(inspected and 'Inspecting' or (#app.selected..' selected'),sx,y+12,sw)
  local groups=Selection.groups(app)
- for i,group in ipairs(groups) do local col=(i-1)%3;local row=math.floor((i-1)/3)
+ for i,group in ipairs(inspected and {} or groups) do local col=(i-1)%3;local row=math.floor((i-1)/3)
   -- Clicking a type makes it the active subgroup, the same as Tab, and leaves the rest
   -- of the army selected. Shift-click is the narrowing move, for when you actually want
   -- to split the crossbows out. The active type is marked so the card has an owner.
@@ -75,7 +76,8 @@ function H.draw(app)
  -- that three of twelve shieldguards are nearly dead. Click selects that one unit;
  -- shift-click drops it from the selection, which is what the tiles are really for.
  if #app.selected>1 then H.unitTiles(app,sx,y+35+math.ceil(#groups/3)*30,sw) end
- if e then
+ if inspected then H.inspect(app,inspected,sx,y,sw)
+ elseif e then
   text(e.hp..'/'..e.maxHp..' HP  |  '..(e.blockedReason or e.order.kind)..'  |  '..#(e.orders or {})..' queued',sx,y+104,sw)
   if e.queue then
    for i,q in ipairs(e.queue) do app.widgets:button('production-'..i,C.units[q.kind].label..' '..math.ceil(q.remaining/20)..'s  x',sx+(i-1)%3*(sw/3),y+127+math.floor((i-1)/3)*24,sw/3-4,22,function() app:command('cancel',e.id,{index=i}) end,nil,'Cancel: unstarted units refund 100%; training units refund 50%.') end
@@ -102,7 +104,8 @@ function H.draw(app)
   app.widgets:button(a.id,a.label,w-320+col*103,y+24+row*49,98,46,function() Actions.activate(app,a) end,a.reason,a.tip,a.id,a)
  end
  g.setFont(app.fonts.small)
- if #actions==0 then text(#app.selected>1 and 'Select a unit group or one building.' or 'Select units to see commands.',w-315,y+38,290) end
+ if #actions==0 then text(inspected and ('You cannot command '..(inspected.owner==0 and 'neutral' or 'enemy')..' '..(inspected.category=='node' and 'resources.' or inspected.category=='building' and 'buildings.' or 'units.'))
+  or #app.selected>1 and 'Select a unit group or one building.' or 'Select units to see commands.',w-315,y+38,290) end
  local pending=0;for _ in pairs(app.pending or {}) do pending=pending+1 end
  if app.uiNotice and app.uiNotice.kind=='rejected' and app.clock-app.uiNotice.time<2 then g.setColor(1,.4,.32);g.rectangle('fill',8,46,3,19) end
  text((pending>0 and (pending..' pending | ') or '')..(app.message or ''),16,48,w-32)
@@ -122,6 +125,28 @@ function H.draw(app)
  if app.overlay then require('src.ui.screens').overlay(app,w,h) end
  if app.banner then H.banner(app,w,h) end
  app.widgets:tooltip(w,h);g.pop()
+end
+-- The card for an inspected enemy, neutral or gold mine, drawn where your own unit's card
+-- goes: what it is, its health, and the statistics anyone could look up. Nothing about its
+-- orders, queue or experience, which a view does not carry for someone else's entity.
+function H.inspect(app,e,x,y,width)
+ local g=love.graphics
+ local d=C.units[e.kind] or C.buildings[e.kind]
+ local name=e.category=='node' and (e.resource=='gold' and 'Gold mine' or 'Resource') or (d and d.label) or e.kind
+ if e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.45,.38) end
+ g.printf((e.owner==0 and 'Neutral  ' or 'Enemy  ')..name,x,y+35,width)
+ if e.category=='node' then text((e.amount or 0)..' gold remaining',x,y+60,width);return end
+ text(e.hp..' / '..e.maxHp..' HP'..((e.remaining or 0)>0 and '   under construction' or ''),x,y+60,width)
+ bar(x,y+80,math.min(width-8,240),e.hp,e.maxHp)
+ if e.maxMana then text('Mana '..(e.mana or 0)..' / '..e.maxMana,x,y+104,width) end
+ if not d then return end
+ local first,second={},{}
+ if d.damage then first[#first+1]='Damage '..d.damage;first[#first+1]='Range '..string.format('%.1f',(d.range or 0)/256)..' cells' end
+ if e.category=='unit' then first[#first+1]='Speed '..(d.speed or 0) end
+ if d.damage and d.cooldown then second[#second+1]='Attack every '..string.format('%.2f',d.cooldown/20)..'s' end
+ second[#second+1]='Sight '..(d.sight or 0)..' cells'
+ if e.category=='unit' and d.food then second[#second+1]='Food '..d.food end
+ text(table.concat(first,'   '),x,y+124,width);text(table.concat(second,'   '),x,y+140,width)
 end
 H.TILES_PER_PAGE=12
 -- A page of up to twelve per-unit tiles, each with its own health. Paging keeps the

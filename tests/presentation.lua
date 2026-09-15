@@ -72,6 +72,17 @@ function T.run(app)
  capture('control-hold',function() marches:draw() end)
  assert(Sim.serializeCanonical(marches.world)==controlState,'drawing control points mutated the simulation')
  marches:close()
+ -- The inspection card, captured so it can be looked at: the enemy hero brought into
+ -- sight and selected. Pausing overlays stop ticks, so the overlay is lifted meanwhile.
+ do
+  local overlay=app.overlay;app.overlay=nil
+  local own=app.world.entities[app.view.player.hero];local foe=app.world.entities[app.world.players[2].hero]
+  local homeX,homeY=foe.x,foe.y;foe.x=own.x+768;foe.y=own.y;app:update(.05)
+  require('src.ui.selection').apply(app,{foe.id});Camera.center(app,foe.x,foe.y)
+  assert(require('src.ui.selection').inspecting(app),'the enemy hero could not be inspected for the capture')
+  capture('inspect',function() app:draw() end)
+  foe.x,foe.y=homeX,homeY;app:update(.05);app.overlay=overlay
+ end
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  require('tests.command_card').captures(app,capture)
  canvas:release();shell:close();app:draw()
@@ -311,6 +322,31 @@ function T.warcraftControls(app)
  Input.intent(app,9*256+128,9*256+128,nil,'attack_move')
  app:update(.05)
  assert(app.world.entities[mover].order.kind=='attack_move','A-click on open ground stopped being an attack-move')
+ -- Inspection. An enemy, a neutral or a mine can be selected to read and never commanded:
+ -- a click on one selects it alone, adding your own unit replaces it, an order goes
+ -- nowhere, the card offers no commands, and the selection lets go once it is out of sight.
+ do
+  local own=app.world.entities[app.view.player.hero]
+  local foe=app.world.entities[app.world.players[2].hero]
+  local homeX,homeY=foe.x,foe.y
+  foe.x=own.x+768;foe.y=own.y;app:update(.05)
+  local seen=app:entity(foe.id);assert(seen,'an enemy hero moved into sight is not in the view')
+  Camera.center(app,seen.x,seen.y);app:draw()
+  local fx,fy=app:screen(seen.x,seen.y);fy=fy-12*app.camera.zoom
+  app:mousepressed(fx,fy,1);app:mousereleased(fx,fy,1)
+  assert(#app.selected==1 and app.selected[1]==foe.id,'a click on an enemy did not select it alone')
+  assert(#require('src.ui.actions').list(app)==0,'an inspected enemy offered commands')
+  local queued=#app.queue;Input.intent(app,seen.x+256,seen.y,nil)
+  assert(#app.queue==queued,'an order was sent for an enemy unit')
+  app:draw()
+  Selection.apply(app,{own.id},true)
+  assert(#app.selected==1 and app.selected[1]==own.id,'an own unit was mixed into an inspected enemy')
+  for _,e in ipairs(app.view.entities) do
+   if e.category=='node' and e.alive then Selection.apply(app,{e.id});assert(Selection.inspecting(app)==e,'a mine could not be inspected');app:draw();break end
+  end
+  Selection.apply(app,{foe.id});foe.x,foe.y=homeX,homeY;app:update(.05)
+  assert(#app.selected==0,'the selection kept an enemy that left sight')
+ end
  -- Tab moves the command card between types and never shrinks the selection. The old
  -- behaviour replaced the selection with one subgroup, so a player who pressed Tab to
  -- look at one unit type lost the rest of their army with no way back.

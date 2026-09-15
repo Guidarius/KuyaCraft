@@ -48,7 +48,7 @@ function I.castAt(app,x,y,target,ability)
  local ordered={}
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  local d=e and e.alive and Content.units[e.kind]
+  local d=e and e.alive and e.owner==app.player and Content.units[e.kind]
   local owns=false
   if d and d.abilities then for _,name in ipairs(d.abilities) do if name==ability then owns=true end end end
   if owns then
@@ -117,7 +117,7 @@ function I.intent(app,x,y,target,kind)
  local ordered={}
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  if e and e.alive and e.category=='unit' then
+  if e and e.alive and e.category=='unit' and e.owner==app.player then
    local command=focus and 'attack' or kind;local args={append=shift(),group=app.commandGroup}
    if not command then
     if target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
@@ -130,6 +130,9 @@ function I.intent(app,x,y,target,kind)
    if app:command(command,id,args)==false then return end;count=count+1;ordered[#ordered+1]={id=id,kind=e.kind,command=command}
   end
  end
+ -- An inspected enemy or neutral is read, not ordered. Say so rather than doing nothing.
+ local inspected=count==0 and Selection.inspecting(app)
+ if inspected then Feedback.notify(app,'rejected',inspected.owner==0 and 'You cannot command neutrals' or 'You cannot command the enemy');return end
  if count>0 then
   app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=kind or 'move',group=app.commandGroup}
   I.acknowledge(app,ordered);app.message='Order issued'
@@ -152,7 +155,7 @@ function I.rally(app,x,y,target)
  local count=0
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  if e and e.alive and e.category=='building' and e.queue then
+  if e and e.alive and e.category=='building' and e.queue and e.owner==app.player then
    if target and target.id~=id then app:command('rally',id,{target=target.id})
    else app:command('rally',id,{x=x,y=y}) end
    count=count+1
@@ -316,12 +319,15 @@ function I.mousereleased(app,x,y,button)
  if app.capture=='pan' and button==3 or app.capture=='minimap' and button==1 then app.capture=nil;return end
  if button~=1 or not app.drag then return end
  local drag=app.drag;app.drag=nil;app.capture=nil
- if not shift() then app.selected={} end
- if math.abs(x-drag.x)+math.abs(y-drag.y)<8 then local e=app:pick(x,y,true);if e then if shift() then Selection.toggle(app.selected,e.id) else app.selected={e.id} end end
+ local picked
+ if math.abs(x-drag.x)+math.abs(y-drag.y)<8 then
+  -- Your own unit under the pointer wins; failing that, whatever is there, to inspect it.
+  local e=app:pick(x,y,true,true) or app:pick(x,y,false,true)
+  picked=e and {e.id} or {}
  else
-  local picked=I.boxSelect(app,math.min(x,drag.x),math.min(y,drag.y),math.max(x,drag.x),math.max(y,drag.y))
-  for _,id in ipairs(picked) do if shift() then Selection.toggle(app.selected,id) else app.selected[#app.selected+1]=id end end
+  picked=I.boxSelect(app,math.min(x,drag.x),math.min(y,drag.y),math.max(x,drag.x),math.max(y,drag.y))
  end
+ Selection.apply(app,picked,shift())
  table.sort(app.selected);Actions.context(app);app.audio:play('select')
 end
 -- Keys the match loop owns and that rebinding must not be able to take away.
@@ -399,7 +405,8 @@ function I.keypressed(app,key)
   app.lastTab=app.clock
  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
   local n=tonumber(key)
-  if love.keyboard.isDown('lctrl','rctrl') then app.groups[n]=Codec.copy(app.selected)
+  -- A control group is for commanding, so an inspected enemy is never bound to one.
+  if love.keyboard.isDown('lctrl','rctrl') then if not Selection.inspecting(app) then app.groups[n]=Codec.copy(app.selected) end
   elseif app.groups[n] then app.selected={};for _,id in ipairs(app.groups[n]) do local e=app:entity(id);if e and e.alive then app.selected[#app.selected+1]=id end end
    if app.lastGroup==n and app.clock-(app.lastGroupTime or -100)<.35 then local e=app:entity(app.selected[1]);if e then Camera.glide(app,e.x,e.y) end end
    app.lastGroup=n;app.lastGroupTime=app.clock

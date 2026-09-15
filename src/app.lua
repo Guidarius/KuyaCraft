@@ -213,6 +213,7 @@ function App:update(dt)
         local events=Sim.step(self.world,commands)
         local afterStep=love.timer.getTime();perf.step=(afterStep-mark)*1000
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
+        require('src.ui.selection').prune(self)
         perf.view=(love.timer.getTime()-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
         -- Once a tick as well as on motion: with the pointer held still, units walking
@@ -350,7 +351,11 @@ function App:drawEntity(e)
             local swell=1+(1-(self.clock-self.ackFlashAt)/ACK_FLASH)*0.35
             g.setColor(0.85,1,0.9);g.setLineWidth(2.5)
             g.ellipse('line',x,y,15*z*swell,7*z*swell)
-        else g.setColor(0.55,0.93,0.73);g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z) end
+        else
+            -- A selected enemy or neutral, being inspected, keeps its relation colour.
+            if e.owner==self.player then g.setColor(0.55,0.93,0.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+            g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+        end
     elseif self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
         elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
@@ -360,7 +365,10 @@ function App:drawEntity(e)
     if e.category=='building' then
         local w,h=e.size*26*z,e.size*CELL_Y*z
         x=x-13*z;y=y-(CELL_Y/2)*z
-        if isSelected then g.setColor(.55,.93,.73);g.rectangle('line',x,y,w,h) end
+        if isSelected then
+            if e.owner==self.player then g.setColor(.55,.93,.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+            g.rectangle('line',x,y,w,h)
+        end
         color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
         color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
         g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
@@ -628,10 +636,11 @@ function App:unitVisualScale(e)
     local target=d.hero and 38.4 or d.worker and 26.24 or 32
     return u and target/(u.metadata.bodyHeightPixels*(u.metadata.drawScale or 1)) or d.worker and .82 or 1
 end
-function App:pick(x,y,ownOnly)
+-- `selectable` leaves out what can be shot but never selected: carriers and shots in flight.
+function App:pick(x,y,ownOnly,selectable)
     local best,dist
     for _,e in ipairs(self.view.entities) do
-        if e.alive and (not ownOnly or e.owner==self.player) then
+        if e.alive and (not ownOnly or e.owner==self.player) and not (selectable and (e.category=='carrier' or e.category=='projectile')) then
             local z=self.camera.zoom;local sx,sy=self:screen(e.x,e.y);local hit,distance
             if e.category~='unit' then
                 local left,top=self:screen(F.cell(e.x)*256,F.cell(e.y)*256)

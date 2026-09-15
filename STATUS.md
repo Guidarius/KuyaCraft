@@ -807,3 +807,37 @@ again: behind on food from 6:00 through 14:00, ahead from 15:00. One seed per ma
 - The capture time, the fading of an empty point, and that workers count are defaults
   chosen here, not settled design; they want a playtest.
 - The minimap fog repaint and human playtesting remain as listed in the previous revision.
+
+## Inspecting enemy and neutral units
+
+An enemy unit or building, a neutral camp creature, or a gold mine can now be selected with
+a click to read it, as in Warcraft 3 and StarCraft, and never commanded. Box selection
+already took one foreign thing when the box held nothing of yours; a click now does the
+same, preferring your own unit under the pointer. Presentation only: the simulation and
+content are unchanged, and it already rejected commands for units a player does not own.
+
+- **One at a time.** Every click and box goes through `Selection.apply`: a foreign id
+  replaces the selection, and shift-adding your own unit to an inspected one replaces it
+  rather than mixing the two.
+- **The card.** "Inspecting", then Enemy or Neutral and the name, health with a bar, mana
+  when it has any, construction state, and the statistics anyone could look up: damage,
+  range, speed, attack rate, sight and food. A mine shows its gold remaining. Nothing about
+  orders, queues or experience, which a view does not carry for someone else's entity.
+- **No commands.** The command card says "You cannot command enemy units." Right-click
+  orders, rally points and ability casts now take only your own selected units, a right-click
+  while inspecting says why nothing happened, and Ctrl+number will not bind an inspected
+  unit to a control group.
+- **Relation colours.** A selected foreign unit's ring, and a selected foreign building's
+  outline, are red for an enemy and amber for a neutral instead of the friendly green.
+- **Out of sight.** When an inspected thing walks into fog or dies, the selection lets go.
+- Carriers and shots in flight can still be targeted but not selected.
+
+Verified: quick **74/74**; `scripts/test-ui.ps1` at 1280×720, 1920×1080 and 2560×1080 and
+`scripts/test-presentation.ps1` both exit 0. The rendered suite now clicks an enemy hero
+brought into sight and asserts it is selected alone, offers no commands, sends no order
+for a right-click, draws its card, is replaced by a shift-added own unit, that a mine can
+be inspected, and that the selection empties once the enemy leaves sight. The 1280 capture
+`artifacts/ui-inspect-1280.png` was inspected: red ring, "Enemy Beastkeeper", 900/900 HP,
+mana 200/200, its damage, range, speed, attack rate, sight and food, and "You cannot
+command enemy units." in the command card. Neutral camps and a foreign building's card were
+drawn by code review only, not captured.
