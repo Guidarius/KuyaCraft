@@ -34,7 +34,9 @@ local Control=require('src.sim.control')
 -- Version 12: control points. A map may name points; a player who owns every one of them
 -- for rules.control.holdTicks without a break wins, recorded as result.reason 'control'.
 -- Adds w.control, public in views and covered by authoritative checkpoints.
-local Sim = { VERSION = 12 }
+-- Version 13: a unit that cannot move (rooted, stunned) is never asked to step aside for a
+-- passing ally. Movement results change where a held unit stood in someone's path.
+local Sim = { VERSION = 13 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the

@@ -73,9 +73,12 @@ end
 -- Who may be asked to step aside. A unit that is going somewhere is not a bystander and
 -- is left alone; so is one holding position, one in the middle of a swing, one that has
 -- a target it is fighting, and a worker on a building site, which must stay in work
--- range or construction stalls. Everything else is scenery that can shuffle.
+-- range or construction stalls. A unit that cannot move -- rooted, stunned -- is not
+-- asked either: shoving it aside would move a unit its own status holds in place.
+-- Everything else is scenery that can shuffle.
 local function yieldable(w,e,other,yields)
     if other.id==e.id or other.owner~=e.owner then return false end
+    if not Stats.canMove(w,other) then return false end
     if other.goal or other.attack or other.combatTarget then return false end
     local kind=other.order.kind
     if kind=='hold' or kind=='build' then return false end
