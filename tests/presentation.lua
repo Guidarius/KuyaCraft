@@ -34,6 +34,38 @@ function T.run(app)
  app.overlay='pause';app.network={poll=function() end,ready=false,status='Lobby'}
  local polls=0;app.network.poll=function() polls=polls+1 end;app:update(.1);assert(polls==1,'multiplayer menu blocked network');app.network=nil;app.overlay=nil
  require('tests.command_card').rendered(app,click)
+ -- The fog texture must agree with the player's visible and explored sets pixel for pixel:
+ -- at the start, after ticks of incremental updates while units move, and after a change of
+ -- perspective, which rebuilds it. A fog that disagrees shows or hides the wrong ground.
+ do
+  local Minimap=require('src.ui.minimap')
+  local function fogAgrees(label)
+   local cache=Minimap.cache(app);local player=app.view.player;local map=app.view.map
+   for key=1,map.width*map.height do
+    local x,y=(key-1)%map.width,math.floor((key-1)/map.width)
+    local _,_,_,alpha=cache.fogData:getPixel(x,y)
+    local want=player.visible[key] and 0 or player.explored[key] and .6 or .96
+    assert(math.abs(alpha-want)<.01,label..': fog pixel '..x..','..y..' has alpha '..alpha..', expected '..want)
+   end
+   return cache
+  end
+  fogAgrees('start')
+  local uploads=Minimap.cache(app).uploads
+  for _=1,40 do app:update(.05);Minimap.cache(app) end
+  local cache=fogAgrees('after 40 ticks')
+  assert(cache.uploads-uploads<=40,'fog uploaded more than once per tick')
+  -- Ticks alone may leave every cell where it was. Send the hero far out and back, so ground it
+  -- revealed must fall back to explored: the incremental path's hardest case.
+  local hero=app.world.entities[app.view.player.hero];local homeX,homeY=hero.x,hero.y
+  local map=app.view.map
+  hero.x=math.min(map.width-2,math.floor(homeX/256)+24)*256+128
+  app:update(.05);fogAgrees('hero scouting far out')
+  hero.x,hero.y=homeX,homeY
+  app:update(.05);fogAgrees('hero back home')
+  local saved=app.player
+  app.player=2;app.view=Sim.view(app.world,2);fogAgrees('player two')
+  app.player=saved;app.view=Sim.view(app.world,saved);fogAgrees('back to player one')
+ end
  T.gamefeel(app)
  require('tests.control_input').run()
  -- Pinned to normal pacing. This compares a live match against a replay seek tick for

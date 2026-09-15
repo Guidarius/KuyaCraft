@@ -2,19 +2,52 @@ local Camera=require('src.ui.camera')
 local Content=require('src.content')
 local Selection=require('src.ui.selection')
 local M={}
--- Fog is repainted only when the fog actually changed. Detecting that by
--- canonically encoding the two key sets cost roughly fifty thousand
--- string.format calls per tick to produce a value that was then thrown away.
--- Counting and summing the integer keys answers the same question with plain
--- arithmetic. explored only ever grows, so its size alone identifies it; visible
--- is rebuilt each tick, so it also contributes a sum and a sum of squares.
--- A missed change would delay one cosmetic repaint by a tick, never gameplay.
-local function fogSignature(player)
- local count,sum,squares=0,0,0
- for key in pairs(player.visible) do count=count+1;sum=sum+key;squares=squares+key%977*key end
- local explored=0
- for _ in pairs(player.explored) do explored=explored+1 end
- return count..':'..sum..':'..squares..':'..explored
+-- Fog is one pixel per cell in an ImageData, uploaded to one Image with replacePixels and
+-- drawn scaled for both the world and the minimap. Each tick only the cells visible now or
+-- visible last tick are looked at, so the work follows how much a player can see rather
+-- than the size of the map. The previous version walked every visible and every explored
+-- key to build a change signature, then cleared a canvas and drew one rectangle for every
+-- unseen cell -- 36,864 on Twin Marches -- on almost every tick anything moved.
+--
+-- Levels: 0 visible, 1 explored, 2 never seen. A cell only becomes explored by being
+-- visible, so the incremental pass is exact; a map change or a change of perspective
+-- (replays switch player) rebuilds every pixel once.
+local FOG_ALPHA={[0]=0,[1]=.6,[2]=.96}
+local function fogPixel(cache,key,level)
+ local width=cache.width
+ cache.fogData:setPixel((key-1)%width,math.floor((key-1)/width),0,0,0,FOG_ALPHA[level])
+end
+local function rebuildFog(cache,player)
+ local visible,explored,levels=player.visible,player.explored,cache.levels
+ local count,list=0,cache.list
+ for key=1,cache.width*cache.height do
+  local level=visible[key] and 0 or explored[key] and 1 or 2
+  levels[key]=level;fogPixel(cache,key,level)
+  if level==0 then count=count+1;list[count]=key end
+ end
+ cache.count=count
+ cache.fog:replacePixels(cache.fogData)
+end
+local function updateFog(cache,player)
+ local visible,explored,levels=player.visible,player.explored,cache.levels
+ local previous,previousCount=cache.list,cache.count
+ local current,count=cache.spare,0
+ local changed=false
+ -- Presentation only, so the unordered walk over the visible set cannot affect gameplay.
+ for key in pairs(visible) do
+  count=count+1;current[count]=key
+  if levels[key]~=0 then levels[key]=0;fogPixel(cache,key,0);changed=true end
+ end
+ for i=1,previousCount do
+  local key=previous[i]
+  if not visible[key] then
+   local level=explored[key] and 1 or 2
+   if levels[key]~=level then levels[key]=level;fogPixel(cache,key,level);changed=true end
+  end
+ end
+ -- The lists swap roles; entries past `count` are stale and never read.
+ cache.list,cache.spare,cache.count=current,previous,count
+ if changed then cache.fog:replacePixels(cache.fogData);cache.uploads=cache.uploads+1 end
 end
 function M.bounds(map,panel)
  local cell=math.min(panel.w/map.width,panel.h/map.height)
@@ -30,18 +63,22 @@ function M.cache(app)
  local cache=app.miniCache
  if not cache or cache.map~=app.world.map then
   if cache then cache.terrain:release();cache.fog:release() end
-  cache={map=app.world.map,terrain=g.newCanvas(map.width,map.height,{dpiscale=1}),fog=g.newCanvas(map.width,map.height,{dpiscale=1})};app.miniCache=cache
+  local fogData=love.image.newImageData(map.width,map.height)
+  cache={map=app.world.map,width=map.width,height=map.height,terrain=g.newCanvas(map.width,map.height,{dpiscale=1}),
+   fogData=fogData,fog=g.newImage(fogData),levels={},list={},spare={},count=0,uploads=0}
+  app.miniCache=cache
   cache.terrain:setFilter('nearest','nearest');cache.fog:setFilter('nearest','nearest')
   g.push('all');g.setCanvas(cache.terrain);g.origin();g.setScissor();g.clear(.22,.32,.25)
   for y=0,map.height-1 do for x=0,map.width-1 do local shade=(x*7+y*11)%5*.008;local key=y*map.width+x+1;if map.blocked[key] then g.setColor(.15,.26,.35) elseif map.unbuildable and map.unbuildable[key] then g.setColor(.38+shade,.32+shade,.22+shade) else g.setColor(.16+shade,.235+shade,.19+shade) end;g.rectangle('fill',x,y,1,1) end end;g.pop()
  end
- local signature=cache.signature
- if cache.tick~=app.view.tick or cache.player~=app.player then signature=fogSignature(app.view.player);cache.tick=app.view.tick;cache.player=app.player end
- if cache.signature~=signature then
-  cache.signature=signature;g.push('all');g.setCanvas(cache.fog);g.origin();g.setScissor();g.clear(0,0,0,0)
-  for y=0,map.height-1 do for x=0,map.width-1 do local key=y*map.width+x+1
-   if not app.view.player.visible[key] then g.setColor(0,0,0,app.view.player.explored[key] and .6 or .96);g.rectangle('fill',x,y,1,1) end
-  end end;g.pop()
+ -- A view is rebuilt every tick, but each player's visible set is one table the simulation
+ -- reuses for the whole match, so its identity marks a change of perspective or of world.
+ if cache.player~=app.player or cache.fogVisible~=app.view.player.visible then
+  cache.player=app.player;cache.fogVisible=app.view.player.visible;cache.tick=app.view.tick
+  rebuildFog(cache,app.view.player)
+ elseif cache.tick~=app.view.tick then
+  cache.tick=app.view.tick
+  updateFog(cache,app.view.player)
  end
  return cache
 end

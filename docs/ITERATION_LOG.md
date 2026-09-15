@@ -9,10 +9,13 @@ noisy, so compare A/B, alternating, medians of three.
 Ranked by value. Items marked *verified* were confirmed against the code during the skill evaluation
 on 2026-09-14.
 
-0. **Crowd liveness when a group starts together** (found in iteration 5). Chokepoint-100 and 50-vs-50
-   counterflow deadlock at the gap as soon as units begin moving on the same tick: opposing units end
-   up in each other's keep-right lane and nothing breaks the stand-off. This blocks both search
-   speedups below.
+0. **Crowd liveness when a group starts together** (found in iteration 5, confirmed latent afterwards).
+   - **Reproducer:** `scratchpad/liveness-probe` gives every unit its whole route on tick 1 by raising
+     the path budget to 100,000, with no shared-search code involved.
+   - **Result:** 50-vs-50 counterflow never finishes (38 units stuck), while chokepoint-100 still
+     arrives (1,233 ticks). Opposing units end up in each other's keep-right lane at the gap, and nothing
+     breaks the stand-off.
+   - **Why it matters:** this blocks both search speedups below.
    - **Group search.** One search per group removed a 600-tick wait for 12 units ordered around a
      wall.
    - **Budget accounting.** Stop charging the per-tick path budget for stale heap pops (~45% of it).
@@ -120,6 +123,46 @@ own status holds it in place.
 - scenario 2/2, soak 1/1, balance 4/4.
 
 These ran on a snapshot of the tree holding iterations 2–4 together.
+
+### 3. Fog repaint: one texture, incremental writes
+
+**Why.** The minimap cache is also the world's fog layer. Every tick, `fogSignature` walked every
+visible and every explored key. On almost every tick anything moved, the cache cleared a canvas and
+drew one rectangle per unseen cell: 36,864 on Twin Marches.
+
+**Change.**
+- Fog is one pixel per cell in an `ImageData`, uploaded to one `Image` with `replacePixels`.
+- Each tick touches only cells visible now or visible last tick, and uploads only if something changed.
+- A change of map or perspective rebuilds it once, detected by the identity of the player's reused
+  `visible` table. A view is rebuilt every tick, so comparing views would rebuild every tick.
+- The `fog` field keeps its name, so world and minimap drawing are unchanged.
+
+**Measured.** UI benchmark on Twin Marches at 1920×1080, three alternating runs of `8a24190` against
+the change:
+
+| Measure | Before | After | Median change |
+|---|---|---|---|
+| Minimap cache p95 | 10.7 / 13.5 / 13.3 ms | 0.21 / 0.24 / 0.32 ms | about 55× faster |
+| Frame cadence p95 | 115 / 500 / 459 ms | 39 / 49 / 108 ms | |
+| Draw submission p95 | 10.9 / 12.1 / 13.1 ms | 9.8 / 10.6 / 11.1 ms | |
+
+**Verified.**
+- **New rendered test:** every fog pixel must match the visible and explored sets at start, after 40
+  ticks, with the hero sent far out and back, and after switching to player two and back.
+- **Test strength:** the first version passed against a deliberately broken update, because no cell
+  left sight in its 40 ticks. The hero round trip was added, and the strengthened test then failed the
+  broken code ("fog pixel 21,6 has alpha 0, expected 0.6"). With the break reverted it passes.
+- **Suites:** `scripts/test-ui.ps1` and `scripts/test-presentation.ps1` exit 0; quick 75/75.
+
+**Also measured (the combined tree for iterations 2–4).** The control benchmark, alternating `8a24190`
+against `332776d`:
+- p95: 13.6 / 16.8 / 14.8 against 19.0 / 32.8 / 13.1 ms.
+- p50: 5.1 / 3.8 / 5.4 against 6.1 / 5.0 / 6.0 ms.
+- Attacks were identical (28,972) in all six runs, and every run was under the 40 ms gate.
+- The single 126.5 ms failure in the heavy-suite run happened while other suites ran on the same
+  machine.
+- The medians are slightly higher after, within this machine's spread. A small real cost from the extra
+  `canMove` check is possible and unproven.
 
 ### 4. Bots take control points, not only retake them
 

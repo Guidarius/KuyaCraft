@@ -896,6 +896,41 @@ Verified:
   - the performance suite result for this snapshot is recorded with iteration 3, whose change is the
     one that needs a timing comparison
 
+## Improvement loop, iteration 3: fog repaint from one texture
+
+Fog, shared by the world and the minimap, used to clear a canvas and draw one rectangle for every
+unseen cell (36,864 on Twin Marches) on almost every tick. Deciding whether to repaint also walked
+every explored key.
+
+It is now one pixel per cell in an `ImageData` uploaded with `Image:replacePixels`. Each tick writes
+only the cells visible now or last tick, and a change of map or perspective rebuilds it once.
+Presentation only.
+
+UI benchmark, Twin Marches 1920×1080, three alternating runs against the parent commit:
+
+| Measure | Before | After |
+|---|---|---|
+| Minimap cache p95 | 10.7 / 13.5 / 13.3 ms | **0.21 / 0.24 / 0.32 ms** |
+| Frame cadence p95 | 115 / 500 / 459 ms | **39 / 49 / 108 ms** |
+| Draw submission p95 | 10.9 / 12.1 / 13.1 ms | 9.8 / 10.6 / 11.1 ms |
+
+Verified:
+- **Test strength:** a new rendered test checks every fog pixel against the player's visible and
+  explored sets (start, after ticks, the hero sent far out and back, a perspective switch there and
+  back). It was strengthened after its first version passed against deliberately broken code; the
+  strengthened version fails that code.
+- **Suites:** `scripts/test-ui.ps1` and `scripts/test-presentation.ps1` exit 0; quick **75/75**.
+
+Performance of the simulation after iterations 2 and 4, alternating `8a24190` against `332776d` on the
+240-unit control benchmark:
+- **Timings:** p95 13.6 / 16.8 / 14.8 against 19.0 / 32.8 / 13.1 ms; p50 5.1 / 3.8 / 5.4 against
+  6.1 / 5.0 / 6.0 ms.
+- **Behaviour unchanged:** identical 28,972 attacks in all six runs, all under the 40 ms gate.
+- **Earlier failure:** the heavy-suite run's one failure (126.5 ms p95) happened while other test
+  suites shared the machine.
+- **Caveat:** the after medians are slightly higher, within this machine's noise. A small real cost is
+  not ruled out.
+
 ## Improvement loop, iteration 4: bots take control points
 
 Bots used to retake a point only when the enemy held both, so no bot match ever exercised the
