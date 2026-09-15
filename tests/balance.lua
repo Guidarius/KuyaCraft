@@ -184,5 +184,23 @@ function B.register(test)
   local ok,reason=Sim.placement(view,C,'tower',30,21);assert(not ok,'a watchtower was allowed on a road');eq(reason,'Cannot build on a road')
   assert(Sim.placement(view,C,'extractor',m.resources[1].x,m.resources[1].y),'extractor refused on the home mine')
  end)
+ test('unit','Twin Marches: paired control points on open, unbuildable ground',function()
+  local m=require('src.maps').create();eq(#m.controlPoints,2)
+  local a,b=m.controlPoints[1],m.controlPoints[2];eq(b.x,191-a.x);eq(b.y,191-a.y)
+  local radius=C.rules.control.radius/256
+  for _,p in ipairs(m.controlPoints) do
+   for y=p.y-radius,p.y+radius do for x=p.x-radius,p.x+radius do
+    if (x-p.x)*(x-p.x)+(y-p.y)*(y-p.y)<=radius*radius then local k=P.key(m,x,y)
+     assert(not m.blocked[k],'control circle blocked at '..x..','..y);assert(m.unbuildable[k],'control circle buildable at '..x..','..y)
+    end
+   end end
+   for _,c in ipairs(m.camps) do assert((c.x-p.x)*(c.x-p.x)+(c.y-p.y)*(c.y-p.y)>(radius+6)*(radius+6),'a camp sits on a control point') end
+  end
+  -- The interior is open ground: most of the map can be walked, where the first 192-cell
+  -- layout was mostly rock.
+  local open=0;for y=0,m.height-1 do for x=0,m.width-1 do if not m.blocked[P.key(m,x,y)] then open=open+1 end end end
+  assert(open*2>m.width*m.height,'less than half of the map is walkable ('..open..' cells)')
+  local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,m);eq(#w.control.points,2);eq(w.control.holder,0)
+ end)
 end
 return B

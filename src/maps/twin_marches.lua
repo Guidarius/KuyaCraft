@@ -14,7 +14,8 @@ return function()
  local m={unitStarts={{},{}},id='twin_marches',width=W,height=H,blocked={},unbuildable={},resources={},camps={},
   starts={{x=20,y=20},{x=W-25,y=H-25}},
   anchors={naturals={{x=50,y=28},{x=W-1-50,y=H-1-28}},forward={{x=66,y=70},{x=W-1-66,y=H-1-70}},
-   contested={{x=168,y=24},{x=W-1-168,y=H-1-24}}}}
+   contested={{x=168,y=24},{x=W-1-168,y=H-1-24}}},
+  controlPoints={{x=128,y=62},{x=W-1-128,y=H-1-62}}}
  local function key(x,y) return y*W+x+1 end
  for _,p in ipairs({{28,18},{16,17},{17,17},{18,17},{19,17},{26,17}}) do
   m.unitStarts[1][#m.unitStarts[1]+1]={x=p[1],y=p[2]};m.unitStarts[2][#m.unitStarts[2]+1]={x=W-1-p[1],y=H-1-p[2]}
@@ -75,6 +76,23 @@ return function()
  local function unpave(x0,y0,size) for y=y0,y0+size-1 do for x=x0,x0+size-1 do m.unbuildable[key(x,y)]=nil end end end
  for _,n in ipairs(m.resources) do unpave(n.x,n.y,n.size) end
  for _,s in ipairs(m.starts) do unpave(s.x,s.y,5) end
+ -- The interior. The two triangles between the main diagonal and the outer corridors are
+ -- open ground broken up by forest, not rock: armies can leave the roads, reach a corner
+ -- the short way, and fight over the control point in each field. This one is bounded by
+ -- the diagonal and by the east corridor, the west corridor's rotation; carving mirrors, so
+ -- it opens the south-west field too.
+ for y=28,120 do
+  local edge=y<41 and 171+math.floor(4*(41-y)/22) or 136+math.floor(35*(114-y)/73)
+  for x=y+15,edge-5 do carve(x,y,0) end
+ end
+ -- A control point in each field. The circle a player must stand in is paved like a road,
+ -- so it can be fought over but never built over.
+ local radius=4
+ for _,p in ipairs(m.controlPoints) do
+  for y=p.y-radius,p.y+radius do for x=p.x-radius,p.x+radius do
+   if (x-p.x)*(x-p.x)+(y-p.y)*(y-p.y)<=radius*radius then m.unbuildable[key(x,y)]=true;m.blocked[key(x,y)]=nil end
+  end end
+ end
  -- Forests are terrain, not a resource. They block movement and, since sight is cast
  -- rather than radial, they block sight too, so they are cover for a raid on a carrier
  -- route. Marking the cells directly rather than spawning a node for each one keeps them
@@ -91,6 +109,10 @@ return function()
  end
  forest(9,9,17,15);forest(27,8,35,13)
  forest(46,13,52,17);forest(70,60,73,66);forest(92,17,98,18)
+ -- Tree lines in the open field: cover for flanking the control point, and sight blockers
+ -- so an army crossing the field is not seen from one side of it to the other.
+ forest(70,40,76,42);forest(96,34,103,37);forest(84,50,89,55);forest(110,44,116,47)
+ forest(140,40,145,46);forest(150,52,154,58);forest(100,62,104,66);forest(112,72,117,77);forest(134,78,139,83)
  local function camp(x,y,tier)
   local kinds=tier=='easy' and {'scout','scout'} or tier=='hard' and {'leader','neutral','neutral'} or {'neutral','neutral','neutral'}
   for i,kind in ipairs(kinds) do local cx,cy=x+(i-2)*2,y;carve(cx,cy,1)

@@ -1,6 +1,6 @@
 ﻿local T=require('src.content_time')
 local C = {
-    version = 6,
+    version = 7,
     rules = { profile='marches-v1', tickRate=20, population=80, pathBudget=256, directPathBudget=16384,
         -- Terrain samples per tick the path smoother may spend across every route
         -- completed that tick. A route that cannot be smoothed inside it is walked as
@@ -28,7 +28,11 @@ local C = {
         -- Sight is blocked by terrain, buildings and forests rather than passing
         -- straight through them. Set false for the cheaper radial visibility, which
         -- costs markedly less with a large army because overlapping fields share work.
-        lineOfSight=true },
+        lineOfSight=true,
+        -- Control points: stand in one's circle with no enemy there for captureTicks and it
+        -- is yours until the enemy does the same. Own every point on the map for holdTicks
+        -- without a break and you win. See src/sim/control.lua.
+        control={radius=T.cells(4),captureTicks=T.ticks(10),holdTicks=T.ticks(120)} },
     units = {},
     buildings = {
         hq={label='Headquarters',hp=2800,size=5,sight=14,cost={},buildTicks=1,dropoff=true,damage=30,range=2048,cooldown=30,windup=6,baseHeal=10},

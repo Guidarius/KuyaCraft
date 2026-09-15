@@ -210,4 +210,19 @@ function H.banner(app,w,h)
  g.setFont(app.fonts.body);g.setColor(.86,.88,.84,fade)
  g.printf(banner.detail or '',0,h/2+6,w,'center')
 end
+-- The control-point countdown is public, so both sides read the same clock: the holder to
+-- defend it, the other player to know how long they have to break the hold.
+function H.control(app)
+ local control=app.view and app.view.control
+ if not control or control.holder==0 or app.world.result then return end
+ local g=love.graphics;local w=g.getDimensions()
+ local rules=C.rules.control or require('src.sim.control').DEFAULT
+ local seconds=math.ceil(math.max(0,rules.holdTicks-(app.view.tick-control.since))/20)
+ local own=control.holder==app.player
+ local text=string.format('%s both control points   %d:%02d',own and 'You hold' or 'The enemy holds',math.floor(seconds/60),seconds%60)
+ g.setFont(app.fonts.body);local width=app.fonts.body:getWidth(text)+28
+ g.setColor(0,0,0,.6);g.rectangle('fill',(w-width)/2,44,width,26,4)
+ if own then g.setColor(.55,.95,.6) else g.setColor(1,.5,.4) end
+ g.printf(text,0,49,w,'center')
+end
 return H

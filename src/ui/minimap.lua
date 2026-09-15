@@ -73,6 +73,12 @@ function M.draw(app,panel)
   g.setLineWidth(1)
  end
  if app.orderMarker and app.clock-(app.orderMarker.time or 0)<.6 then local o=app.orderMarker;g.setColor(.65,1,.6);g.circle('line',r.x+o.x/256*r.cell,r.y+o.y/256*r.cell,4) end
+ -- Control points, ringed in their owner's colour so a hold reads from anywhere on the map.
+ local control=app.view.control
+ if control then for _,point in ipairs(control.points) do
+  if point.owner==app.player then g.setColor(.35,.78,1) elseif point.owner==0 then g.setColor(.9,.82,.45) else g.setColor(1,.35,.25) end
+  g.setLineWidth(2);g.circle('line',r.x+point.x/256*r.cell,r.y+point.y/256*r.cell,math.max(4,4*r.cell));g.setLineWidth(1)
+ end end
  local vp=Camera.rect(app);local x1,y1=app:position(vp.x,vp.y);local x2,y2=app:position(vp.x+vp.w,vp.y+vp.h)
  x1=math.max(0,x1);y1=math.max(0,y1);x2=math.min(map.width*256,x2);y2=math.min(map.height*256,y2)
  g.setColor(.95,.94,.79);g.setLineWidth(1);g.rectangle('line',r.x+x1/256*r.cell,r.y+y1/256*r.cell,(x2-x1)/256*r.cell,(y2-y1)/256*r.cell)

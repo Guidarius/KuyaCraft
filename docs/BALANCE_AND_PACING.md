@@ -46,13 +46,29 @@ Default skirmish map: **192×192 cells**, 1v1, with 180-degree paired terrain, r
 
 Footprint origins rotate as `(width-x-size, height-y-size)`; unit cells rotate as `(width-1-x, height-1-y)`. Approximate area anchors are not footprint origins. Using this distinction prevents one-cell symmetry errors for odd and even footprints.
 
-The layout is a base clearing, a natural to its east, a forward expansion on a fifteen-cell-wide main diagonal through a large central clearing, and two long outer corridors to the corners. Each corner is nearer one player — the north-east is reached along the north corridor from player one's natural, the south-west from player one's forward expansion — and the rotation makes that fair.
+The layout is a base clearing, a natural to its east, a forward expansion on the main diagonal, a large central clearing, and two long outer corridors to the corners. The two triangles between the diagonal and the outer corridors are open fields broken up by forest clumps, each holding a control point; about 60% of the map is walkable. Each corner is nearer one player — the north-east is reached along the north corridor from player one's natural, the south-west from player one's forward expansion — and the rotation makes that fair.
 
 ### Roads
 
 Roads are a map layer, `map.unbuildable`: walkable, three cells wide, and **nobody may build on them**. They run home mine to headquarters, headquarters to natural to corner, headquarters to forward mine to the other corner, and forward mine to the center, where they meet the other player's. Mines and headquarters are the junctions, so every gold mine is joined to every other and to both headquarters. The purpose is that no wall of buildings, yours or an enemy's, can cut a mine off from the bases.
 
 `Sim.placement` refuses a road cell with *Cannot build on a road*, and the build command revalidates through it, so the rule is authoritative rather than cosmetic. An extractor still goes on its own mine where a road ends. Roads change nothing about movement speed or sight. A regression test floods the road network from one headquarters and requires it to reach every mine and the other headquarters.
+
+### Control points
+
+A second way to win. Twin Marches has two control points, at (128,62) in the north-east field and its rotation (63,129) in the south-west, so each is nearer one player. The rules live in `rules.control` and `src/sim/control.lua`:
+
+| Rule | Value |
+|---|---|
+| Capture circle | 4 cells from the point's centre, paved so nothing can be built in it |
+| Capture | 10 s with your units inside and no other player's |
+| Contested | any other player's unit inside freezes progress |
+| Someone else's partial capture | unwinds at the same rate before yours begins |
+| Empty point with partial progress | fades at half rate |
+| Ownership | kept after your units leave, until another player captures it |
+| Win | own every point for 120 s without a break |
+
+Any player unit counts, workers and heroes included; carriers, projectiles and neutral camps do not. Losing either point cancels the countdown, and a new hold starts it again from zero. Destroying the last enemy headquarters still wins, and is decided first on a tick where both would. Ownership and the countdown are public: both players see the rings, the minimap markers and a countdown banner, and alerts announce captures and a hold. The bot sends its army to retake the nearest point when the enemy holds both, second only to defending its base; it does not yet try to win this way itself.
 
 Measured infantry routes use the actual pathfinder with speed 35, per-segment integer movement rounding, and no crowd delays. Strategic targets are the 128×112 targets scaled by 1.5 with the map width; the local approaches keep theirs:
 

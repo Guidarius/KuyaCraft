@@ -54,6 +54,12 @@ return function(C)
         if d.period then assert(F.integer(d.period,1,10000),'status '..id..' has an invalid period') end
         if d.maxStacks then assert(F.integer(d.maxStacks,1,64),'status '..id..' has an invalid stack cap') end
     end
+    if C.rules.control then
+        local control=C.rules.control
+        assert(F.integer(control.radius,256,8192),'invalid control point radius')
+        assert(F.integer(control.captureTicks,1,72000),'invalid control point capture time')
+        assert(F.integer(control.holdTicks,1,72000),'invalid control point hold time')
+    end
     -- Two abilities on the same unit may not claim the same command-card slot, or one of
     -- them would be unreachable.
     for id,d in pairs(C.units) do

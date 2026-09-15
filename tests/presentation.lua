@@ -58,6 +58,20 @@ function T.run(app)
  for _,screen in ipairs({'main','skirmish','multiplayer','settings','replays'}) do shell.screen=screen;if screen=='replays' then shell:replays();local found=false;for _,item in ipairs(shell.replayFiles) do if item.name=='ui-proof.replay' then found=true end end;assert(found,'saved replay absent from browser') end;capture(screen,function() shell:draw() end) end
  shell.screen='multiplayer';shell.focus='address';local old=shell.address;shell:keypressed('a');assert(shell.address==old and not shell.match,'text focus leaked');shell:textinput('1');assert(shell.address==old..'1');shell.focus=nil
  app.overlay='upgrade';app.upgradeMilestone=2;app.upgradeChoice=1;capture('upgrade',function() app:draw() end)
+ -- Control points are only drawn on a map that has them, which no fixture above uses. One
+ -- point owned with the other half captured by the enemy, then both held: ground rings,
+ -- capture fill, minimap rings and the public countdown banner, each actually drawn.
+ local marches=require('src.app').create({map='twin_marches'});marches.noAutoSave=true
+ local points=marches.world.control.points
+ points[1].owner=1;points[2].capturer=2;points[2].progress=100
+ marches.view=Sim.view(marches.world,1);Camera.center(marches,points[1].x,points[1].y)
+ capture('control-contest',function() marches:draw() end)
+ points[2].owner=1;points[2].capturer=0;points[2].progress=0;Sim.step(marches.world,{})
+ marches.view=Sim.view(marches.world,1);assert(marches.view.control.holder==1,'a hold is not visible in the view')
+ local controlState=Sim.serializeCanonical(marches.world)
+ capture('control-hold',function() marches:draw() end)
+ assert(Sim.serializeCanonical(marches.world)==controlState,'drawing control points mutated the simulation')
+ marches:close()
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  require('tests.command_card').captures(app,capture)
  canvas:release();shell:close();app:draw()

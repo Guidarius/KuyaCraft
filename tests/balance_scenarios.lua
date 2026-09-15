@@ -54,7 +54,7 @@ function M.match(mirror,ticks)
   end
   if w.result then break end
  end
- lines[#lines+1]='Outcome: '..(w.result and tostring(w.result.winner) or 'unfinished')..' at '..(w.tick/20)..'s'
+ lines[#lines+1]='Outcome: '..(w.result and tostring(w.result.winner) or 'unfinished')..' at '..(w.tick/20)..'s'..(w.result and ' by '..(w.result.reason or 'headquarters') or '')
  M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
  write('balance-'..label..'.txt',table.concat(lines,'\n')..'\n');Replay.write('artifacts/balance-'..label..'.replay',replay);if mirror then Replay.write('artifacts/sample.replay',replay) end
  local file=assert(io.open('artifacts/balance-'..label..'.state','wb'));file:write(Sim.serializeCanonical(w));file:close()

@@ -14,7 +14,7 @@ This is the accepted development roadmap. See [STATUS.md](STATUS.md) for impleme
 | Initial multiplayer | 1v1, starting with two local clients and progressing to LAN/direct-IP |
 | Scale | Approximately 20–60 units per player; architecture accommodates 2–4 players |
 | Match length | Target 15–25 minutes |
-| Victory | Destroy the enemy headquarters |
+| Victory | Destroy the enemy headquarters, or own every control point on the map for two minutes without a break |
 | Map activities | Harvesting, expansion, neutral camps, and attacking enemy bases |
 | Economy | Gold and lumber initially; resource design remains replaceable |
 | Construction | Workers place grid-snapped buildings anywhere legal |

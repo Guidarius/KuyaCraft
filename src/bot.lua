@@ -121,7 +121,20 @@ function B.commands(view,C)
    if distance<=F.sq(22*tuned) and (not threatDistance or distance<threatDistance) then threat=e;threatDistance=distance end
   end
  end
+ -- An enemy that owns every control point wins when its countdown runs out, and retaking
+ -- any one of them breaks it, so the army goes to the nearest one before anything but
+ -- defending home.
+ local retake
+ local control=view.control
+ if control and control.holder>0 and control.holder~=owner then
+  local nearest
+  for _,point in ipairs(control.points) do
+   local distance=F.sq(point.x-hq.x)+F.sq(point.y-hq.y)
+   if point.owner==control.holder and (not nearest or distance<nearest) then retake=point;nearest=distance end
+  end
+ end
  if threat then tx,ty=threat.x,threat.y
+ elseif retake then tx,ty=retake.x,retake.y
  elseif wantExpansion and view.map.anchors and #army>=3 then local anchor=view.map.anchors.naturals[owner];tx,ty=anchor.x*256,anchor.y*256
  elseif target then tx,ty=target.x,target.y
  elseif #army>=3 and view.tick<3600 then

@@ -250,8 +250,9 @@ function App:update(dt)
         if self.world.result and not self.banner then
             local won=self.world.result.winner==self.player
             local built,lost,kills=self:matchStats()
+            local reason=self.world.result.reason=='control' and (won and 'Held both control points   ' or 'The enemy held both control points   ') or ''
             self.banner={won=won,age=0,
-                detail=string.format('%02d:%02d   %d units built   %d lost   %d kills',
+                detail=reason..string.format('%02d:%02d   %d units built   %d lost   %d kills',
                     math.floor(self.world.tick/1200),math.floor(self.world.tick/20)%60,
                     built,lost,kills)}
             self.feedback.banner=self.banner
@@ -460,6 +461,24 @@ function App:draw()
     local terrain=Minimap.cache(self)
     g.setColor(1,1,1);g.draw(terrain.terrain,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
     g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    -- Control points lie on the ground, under everything standing on them. The ring is the
+    -- owner's colour; the fill grows with a capture in progress, in the capturer's colour.
+    local control=self.view.control
+    if control then
+        local rules=Content.rules.control or require('src.sim.control').DEFAULT
+        local rx,ry=rules.radius/256*26*z,rules.radius/256*CELL_Y*z
+        for _,point in ipairs(control.points) do
+            local px,py=self:screen(point.x,point.y)
+            if point.progress>0 then
+                local t=point.progress/rules.captureTicks
+                if point.capturer==self.player then g.setColor(.35,.78,1,.3) else g.setColor(1,.35,.25,.3) end
+                g.ellipse('fill',px,py,rx*t,ry*t)
+            end
+            if point.owner==self.player then g.setColor(.35,.78,1,.9) elseif point.owner==0 then g.setColor(.9,.82,.45,.9) else g.setColor(1,.35,.25,.9) end
+            g.setLineWidth(2*z);g.ellipse('line',px,py,rx,ry);g.setLineWidth(1)
+            g.ellipse('fill',px,py,5*z,3*z)
+        end
+    end
     selectionSet(self)
     -- Cull to the viewport before sorting. On the shipping 128x112 map most of the
     -- army is off-screen at normal zoom, and every off-screen entity previously paid a
@@ -588,7 +607,7 @@ function App:draw()
         g.rectangle('fill',viewport.x,viewport.y,viewport.w,viewport.h)
     end
     if shakeX~=0 or shakeY~=0 then g.pop() end
-    g.setScissor();Hud.draw(self)
+    g.setScissor();Hud.draw(self);Hud.control(self)
     self.feedback:drawText(self,width,height)
 end
 -- Which control group each selected unit belongs to, for the badge above it. Built once

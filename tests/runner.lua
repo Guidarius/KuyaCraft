@@ -257,6 +257,14 @@ test('simulation','casts are refused with a reason the player can act on',functi
 test('simulation','casts and statuses survive a snapshot identically',function() require('tests.ability_scenarios').snapshot() end)
 test('simulation','an area effect resolves in world order, not arrival order',function() require('tests.ability_scenarios').ordering() end)
 test('simulation','sight is blocked by terrain, buildings and forests',function() require('tests.vision_scenarios').run() end)
+for _,case in ipairs({
+    {'capture','a control point is captured by standing in it unopposed, and kept after leaving'},
+    {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
+    {'hold','owning every control point for the full hold wins, not a tick sooner'},
+    {'broken','losing a point cancels the countdown, and a new hold starts from nothing'},
+    {'snapshot','control state survives a snapshot and is covered by checkpoints'}}) do
+    test('simulation',case[2],function() require('tests.objective_scenarios')[case[1]]() end)
+end
 test('scenario','mirror bot match and replay',function() require('tests.scenarios').match(true) end)
 test('scenario','asymmetric bot match and replay',function() require('tests.scenarios').match(false) end)
 test('performance','240-unit four-player stress',function() require('tests.scenarios').performance() end)

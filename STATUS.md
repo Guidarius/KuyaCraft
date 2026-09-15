@@ -736,3 +736,74 @@ Run suite by suite with `scripts/test.ps1 -PerfBudget 40`, as established for th
 - The minimap fog repaint draws one rectangle per cell, now 36,864 on this map (14,336
   before). It was 0.6 ms on the old map and was not re-measured here.
 - Human playtesting, cross-PC play and the Pi remain untested, as before.
+
+## Control points and open interior — simulation version 12
+
+Owning every control point on the map for **two minutes** without a break now wins the
+game, alongside destroying the enemy headquarters. Twin Marches' two interior rock
+triangles were opened into fields with forest clumps, about 60% of the map now walkable,
+and a control point sits in each, as rotations of each other. The rules and the choices
+made where the request left room are in
+[docs/BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md#control-points).
+
+Versioned break: `Sim.VERSION` 11 → 12 and content 6 → 7. `w.control` is new world state:
+it is included in `Sim.serializeAuthoritative`, copied into every view because it is public,
+and snapshots carry it. A control victory is `result.reason='control'`; a headquarters
+victory is unchanged.
+
+Presentation: owner-coloured rings on the ground with a fill that grows during a capture,
+minimap rings, a public countdown banner under the resource bar, the reason on the
+victory/defeat banner, and alerts for captures and holds. Events `captured`,
+`control_started` and `control_broken` are there for audio to hook later.
+
+**Previous revision's performance check.** The control benchmark that missed 40 ms was run
+three times alternately against the parent commit (`3f7b956`): p95 before 85.9 / 18.4 /
+12.4 ms, after 54.5 / 30.0 / 14.5 ms, with 28,972 attacks every run and a lower p50 after
+in all three. The unchanged code alone ranged 12–86 ms, so this machine cannot separate
+the two: no evidence of a regression, and no proof of its absence either.
+
+### Measured on this machine
+
+| Measure | Rock interior (version 11) | Open interior with control points |
+|---|---:|---:|
+| Walkable share of the map | mostly rock | 59.8% |
+| Rally to enemy rally / center to rally | 76.30 / 38.65 s | 76.30 / 38.65 s |
+| Mirror bot match | 16:04, headquarters | **17:33, headquarters** |
+| Asymmetric bot match | 13:27 | **13:23**, headquarters |
+| First contact, asymmetric | 4:21 | 3:59 |
+| 240-unit balance benchmark p95 / max | 17.147 / 268.455 ms | 11.472 / 98.777 ms, single run |
+
+Both matches were won by destroying the headquarters, and in both final states neither
+control point was owned. The bots do not try to take points, so neither ever gave the
+other a hold to answer; the bot's retake behaviour is therefore unexercised by a full
+match and is covered only by reading it. Player one came back from behind in the mirror
+again: behind on food from 6:00 through 14:00, ahead from 15:00. One seed per matchup, as before.
+
+### Verified
+
+- quick (unit + simulation) **74/74**: five new control scenarios (capture and keep,
+  contest and unwind, exact two-minute win, a broken hold restarting from zero, snapshot
+  continuation and checkpoint coverage) and a Twin Marches check that the points are paired,
+  open, unbuildable and clear of camps, and that over half the map is walkable.
+- balance **4/4**.
+
+- determinism **5/5** plus 100,000-tick agreement across fresh processes at 30/60/144 FPS
+  schedules and default/tuned JIT caches; network **4/4** plus real ENet host/client
+  agreement; scenario **2/2**; crowd **15/15**; soak **1/1**.
+- performance **2/2**. The control benchmark that missed the budget last revision measured
+  35.016 ms p95 this time against 40 ms, with the same 28,972 attacks.
+- `scripts/test-ui.ps1` and `scripts/test-presentation.ps1` both exit 0. The rendered suite
+  now draws Twin Marches with one point owned and the other half captured by the enemy,
+  then with both held, at 1280×720, 1920×1080 and 2560×1080, and asserts drawing leaves
+  the simulation unchanged. The 1280 captures were inspected: an owner-coloured ring on the
+  ground, owner-coloured minimap rings, and the countdown banner reading
+  "You hold both control points 2:00" under the resource bar. The capture fill on the
+  enemy's half-taken point is drawn off-screen in that frame, so it was not visually checked.
+
+### Not done
+
+- The bots never take control points, only retake them, so no bot match has ended by
+  control and the retake behaviour has not run in a full match.
+- The capture time, the fading of an empty point, and that workers count are defaults
+  chosen here, not settled design; they want a playtest.
+- The minimap fog repaint and human playtesting remain as listed in the previous revision.

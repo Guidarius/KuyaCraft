@@ -9,6 +9,7 @@ local Abilities=require('src.sim.abilities')
 local Projectiles=require('src.sim.projectiles')
 local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
+local Control=require('src.sim.control')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
 -- replays store whole-world hashes and are rejected rather than misreported as
 -- divergence. See Sim.serializeAuthoritative.
@@ -30,7 +31,10 @@ local Vision=require('src.sim.vision')
 -- Version 11: maps may carry `unbuildable`, a set of road cells that stay walkable but
 -- refuse every building except an extractor on its own mine. Twin Marches is rebuilt at
 -- 192x192 with roads joining every mine to the others and to both headquarters.
-local Sim = { VERSION = 11 }
+-- Version 12: control points. A map may name points; a player who owns every one of them
+-- for rules.control.holdTicks without a break wins, recorded as result.reason 'control'.
+-- Adds w.control, public in views and covered by authoritative checkpoints.
+local Sim = { VERSION = 12 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -336,7 +340,8 @@ local function viewEntity(w,e,own)
 end
 function Sim.view(w,player)
     local p=w.players[player]
-    local out={tick=w.tick,result=w.result,
+    -- Control state is public: both players see who owns each point and the countdown.
+    local out={tick=w.tick,result=w.result,control=w.control and Codec.copy(w.control),
         map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable},
         entities={},byId={},
         player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
@@ -398,6 +403,7 @@ function Sim.create(config,content,map)
     for _,camp in ipairs(map.camps or {}) do
         local e=spawn(w,camp.kind or 'neutral',0,camp.x,camp.y); e.home={x=e.x,y=e.y};e.campTier=camp.tier
     end
+    Control.create(w,map)
     visibility(w)
     return w
 end
@@ -1164,7 +1170,11 @@ function Sim.step(w,commands)
         if not w.players[p].defeated then survivors[#survivors+1]=p end
     end
     -- w.result is retained world state; emit owns what it is given, so hand it a copy.
-    if #survivors<=1 then w.result={winner=survivors[1] or 0,tick=w.tick};emit(w,'victory',{winner=w.result.winner,tick=w.tick}) end
+    -- Headquarters are decided first, so destroying the last enemy one wins even on the
+    -- tick a control hold would have run out.
+    local controller=Control.step(w,emit)
+    if #survivors<=1 then w.result={winner=survivors[1] or 0,tick=w.tick};emit(w,'victory',{winner=w.result.winner,tick=w.tick})
+    elseif controller then w.result={winner=controller,tick=w.tick,reason='control'};emit(w,'victory',{winner=controller,tick=w.tick,reason='control'}) end
     G.endStep(w);return w.events
 end
 function Sim.snapshot(w)
@@ -1208,7 +1218,7 @@ function Sim.serializeAuthoritative(w)
     end
     local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,
         players=players,entities=w.entities,order=w.order,nextId=w.nextId,result=w.result,
-        searches=w.searches,pathCursor=w.pathCursor,navVersion=w.navVersion})
+        searches=w.searches,pathCursor=w.pathCursor,navVersion=w.navVersion,control=w.control})
     assert(ok,bytes);return bytes
 end
 -- Exposed so a regression test can prove w.blocked is recomputable, which is what
