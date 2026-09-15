@@ -45,7 +45,7 @@ function H.draw(app)
   -- Stance moved onto its own button label: the level/XP line has to stay one line,
   -- and printf wraps rather than clips, which pushed text under the button below.
   text('Level '..level..'    '..xpLabel,hx,y+87,160)
-  app.widgets:button('hero-stance','Stance '..hero.stance..': toggle',hx,y+111,145,24,function() app:command('toggle',hero.id) end,not hero.alive and 'Hero is dead' or nil)
+  app.widgets:button('hero-stance','Stance '..hero.stance..': toggle',hx,y+111,145,24,function() Actions.order(app,{hero},'toggle') end,not hero.alive and 'Hero is dead' or nil)
   local milestone
   for i,t in ipairs(C.rules.xpThresholds) do if hero.xp>=t and not hero.upgrades[i] then milestone=i;break end end
   if milestone and hero.alive then app.widgets:button('upgrade','Upgrade available',hx,y+140,145,28,function() Actions.openAbilities(app);app.audio:play('menu') end)

@@ -41,6 +41,17 @@ end
 function A.openAbilities(app)
  app.selected={app.view.player.hero};A.context(app);app.cardPage='abilities';app.overlay=nil
 end
+-- An order issued from the card, a hotkey or the HUD is answered exactly like a right-click: the
+-- ordered units flash and their acknowledgement plays, on the click, once.
+function A.order(app,units,kind)
+ Input=Input or require('src.ui.input')
+ local ordered={}
+ for _,unit in ipairs(units) do
+  if app:command(kind,unit.id)~=false then ordered[#ordered+1]={id=unit.id,kind=unit.kind,command=kind} end
+ end
+ if #ordered>0 then Input.acknowledge(app,ordered) end
+ return #ordered>0
+end
 function A.activate(app,action)
  local current;for _,candidate in ipairs(A.list(app)) do if candidate.id==action.id then current=candidate;break end end
  if not current then require('src.ui.command_feedback').notify(app,'rejected','Selection changed',action.id);return false end
@@ -48,7 +59,10 @@ function A.activate(app,action)
  if action.reason then require('src.ui.command_feedback').notify(app,'rejected',action.reason,action.id,action.costs);return false end
  if not action.run then return false end
  app.activeAction=action.id;action.run();app.activeAction=nil
- require('src.ui.command_feedback').notify(app,action.menu and 'menu' or 'click',nil,action.id)
+ -- An order has already been acknowledged by the units that received it; a UI click on top would
+ -- be a second cue for one command.
+ if action.acknowledges then app.uiNotice={kind='click',time=app.clock,action=action.id}
+ else require('src.ui.command_feedback').notify(app,action.menu and 'menu' or 'click',nil,action.id) end
  return true
 end
 function A.list(app)
@@ -80,8 +94,8 @@ function A.list(app)
  if #ctx.units>0 then
   add('move','Move','m',function() Input.arm(app,'move') end,nil,'Click a destination. Shift appends.')
   add('attack','Attack move',app.settings.bindings.attack,function() Input.arm(app,'attack_move') end,nil,'Engage enemies on the way.')
-  add('stop','Stop',app.settings.bindings.stop,function() for _,unit in ipairs(ctx.units) do app:command('stop',unit.id) end end,nil,'Stop and clear orders for selected units.')
-  add('hold','Hold',app.settings.bindings.hold,function() for _,unit in ipairs(ctx.units) do app:command('hold',unit.id) end end,nil,'Stand still and fire. Never chase or yield.')
+  add('stop','Stop',app.settings.bindings.stop,function() A.order(app,ctx.units,'stop') end,nil,'Stop and clear orders for selected units.');list[#list].acknowledges=true
+  add('hold','Hold',app.settings.bindings.hold,function() A.order(app,ctx.units,'hold') end,nil,'Stand still and fire. Never chase or yield.');list[#list].acknowledges=true
  end
  if ctx.canBuild then
   add('build-menu','Build',app.settings.bindings.build,function() app.cardPage='build' end,nil,'Choose a building. Costs and requirements appear on each card.',nil,true)
@@ -106,7 +120,7 @@ function A.list(app)
  end
  if ctx.hero then local hero=ctx.hero;local dead=not hero.alive and 'Hero is dead' or nil
   if hero.alive then
-   add('stance','Stance '..hero.stance,'z',function() app:command('toggle',hero.id) end,nil,'Switch defensive/recovery and offensive/pursuit stance.')
+   add('stance','Stance '..hero.stance,'z',function() A.order(app,{hero},'toggle') end,nil,'Switch defensive/recovery and offensive/pursuit stance.');list[#list].acknowledges=true
   else local gold,ticks=Sim.revival(C,hero);local costs=A.costs(app,{gold=gold},hero);local hq=app:entity(app.view.player.hq)
    add('revive','Revive','v',function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or (not hq or not hq.alive) and 'Requires living headquarters' or missing(costs),'Return at headquarters in '..ticks/C.rules.tickRate..' seconds.',costs)
   end

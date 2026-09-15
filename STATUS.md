@@ -841,3 +841,28 @@ be inspected, and that the selection empties once the enemy leaves sight. The 12
 mana 200/200, its damage, range, speed, attack rate, sight and food, and "You cannot
 command enemy units." in the command card. Neutral camps and a foreign building's card were
 drawn by code review only, not captured.
+
+## Improvement loop, iteration 1: every order acknowledged once, on the click
+
+The first item from [docs/ITERATION_LOG.md](docs/ITERATION_LOG.md). Two independent code
+readings found the same two faults:
+
+- **A second "accepted" tone** played when an order executed, so in multiplayer a player could
+  hear the ~200 ms input delay.
+- **Stop, Hold and stance** from the command card, their hotkeys or the HUD played a generic UI
+  click, with no unit flash and no acknowledgement.
+
+Warcraft 3 answers an order once, on the click.
+
+`Actions.order` now issues an order and acknowledges it exactly like a right-click, through
+`Input.acknowledge`, and all those paths use it. Accepted orders play nothing when they resolve.
+Rejections and learned upgrades keep their cues.
+
+Presentation only; no simulation, content or replay change.
+
+Verified:
+- The extended command-card test failed against the previous code and passes now.
+- quick **74/74**.
+- `scripts/test-ui.ps1` and `scripts/test-presentation.ps1` both exit 0.
+
+Not verified: no listening review; all cues are still synthesized placeholders.

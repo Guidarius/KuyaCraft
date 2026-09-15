@@ -2,7 +2,11 @@ local T={}
 local C=require('src.content');local Sim=require('src.sim');local Actions=require('src.ui.actions')
 local function fixture()
  local w=Sim.create({seed=12345,players={{faction='bastion'},{faction='wild'}}},C,require('src.maps').create('open_fields'))
- local app={world=w,view=Sim.view(w,1),player=1,selected={},settings={bindings={attack='a',stop='s',hold='h',build='b'}},clock=0,queue={},audio={play=function() end}}
+ -- The audio stub records what played, so tests can hear what a player would hear.
+ local audio={played={},acks={}}
+ function audio:play(name) self.played[#self.played+1]=name end
+ function audio:ack(kind,order) self.acks[#self.acks+1]=order end
+ local app={world=w,view=Sim.view(w,1),player=1,selected={},settings={bindings={attack='a',stop='s',hold='h',build='b'}},clock=0,queue={},audio=audio}
  function app:entity(id) for _,e in ipairs(self.view.entities) do if e.id==id then return e end end end
  function app:command(kind,id,args) self.queue[#self.queue+1]={kind=kind,id=id,args=args} end
  return app
@@ -17,6 +21,15 @@ function T.context()
  app.selected={hero,ids[1]};a=index(app);assert(not app.cardPage and a.move and a.stance and not a['build-menu'] and a.abilities)
  app.selected={ids[1],hero};local b=index(app);assert(b.move and not b['build-menu'],'selection order altered capabilities')
  Actions.activate(app,b.stop);assert(#app.queue==2)
+ -- Warcraft 3 answers an order once, on the click, whatever issued it. Stop from the card or its
+ -- hotkey must flash the ordered units and play the acknowledgement, not a generic UI click.
+ assert(#app.audio.acks==1 and app.audio.acks[1]=='stop','Stop was not acknowledged like a right-click order')
+ assert(app.ackFlash and app.ackFlash[ids[1]] and app.ackFlash[hero],'Stop did not flash the ordered units')
+ for _,name in ipairs(app.audio.played) do assert(name~='click','Stop played a generic click on top of its acknowledgement') end
+ -- And never a second time when the simulation accepts it: that cue would make the input delay audible.
+ local Feedback=require('src.ui.command_feedback');app.audio.played={}
+ Feedback.resolve(app,{kind='accepted'},{kind='move',group=1});Feedback.resolve(app,{kind='accepted'},{kind='toggle',group=2})
+ assert(#app.audio.played==0,'an accepted order was confirmed again when it executed: '..table.concat(app.audio.played,','))
  app.subgroupKind='worker';a=index(app);assert(a['build-menu'] and not a.stance);Actions.activate(app,a['build-menu']);assert(index(app).extractor,'worker subgroup lost build menu');app.subgroupKind=nil
  app.selected={hero};a=index(app);local slots={};local keys={};for _,action in pairs(a) do assert(action.slot<=9 and not slots[action.slot],'overlapping command slot');slots[action.slot]=true;if action.key~='' then assert(not keys[action.key],'duplicate hotkey');keys[action.key]=true end end
  for _,id in ipairs(C.units[app:entity(hero).kind].abilities) do assert(a['ability-'..id].slot==C.abilities[id].slot,'spell slot moved') end
