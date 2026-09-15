@@ -72,16 +72,21 @@ two thirds of the way across the map".
 | `carrierHp` | 40 | Dies to a couple of hits, never fights back |
 | carrier food | none | Uncontrollable, should not tax supply |
 
-On Twin Marches, measuring from player one's headquarters at (14,14):
+On the 192×192 Twin Marches, measuring from player one's headquarters at (20,20). Income is
+600 × min(1, 144 / trip) at 6.4 ticks per cell:
 
 | Mine | Distance | Trip | Income | Of near |
 |---|---:|---:|---:|---:|
-| Home (14,8) | ~6 cells | ~38 ticks | 600/min | 100% |
-| Natural (39,18) | ~25 cells | ~160 ticks | ~540/min | 90% |
-| Far (27,68) | ~55 cells | ~352 ticks | ~246/min | 41% |
-| Far, with an outpost beside it | ~8 cells | ~51 ticks | 600/min | 100% |
+| Home (21,10) | ~10 cells | ~64 ticks | 600/min | 100% |
+| Natural (58,14) | ~37 cells | ~237 ticks | ~365/min | 61% |
+| Forward (54,74) | ~62 cells | ~400 ticks | ~216/min | 36% |
+| Contested corner (174,14) | ~153 cells | ~980 ticks | ~88/min | 15% |
+| Any of them, with an outpost beside it | ~8 cells | ~51 ticks | 600/min | 100% |
 
-Real routes are longer than straight lines, so treat these as upper bounds.
+Real routes are longer than straight lines, so treat these as upper bounds. The larger map
+makes an outpost matter much more than it did on the 128×112 layout, where the natural
+paid 90% without one. Whether that is the right economy for the bigger map is a playtest
+question; no economic constant was changed with the map.
 
 **Measured**, by the two scenarios in `tests/balance.lua`, which build a real extractor and
 count real deliveries rather than evaluating the formula:

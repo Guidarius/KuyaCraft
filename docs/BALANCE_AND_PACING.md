@@ -30,33 +30,41 @@ At 1080p/100% UI, the ordinary sprite body target is about 51 pixels, workers ab
 
 ## Twin Marches
 
-Default skirmish map: 128×112 cells, with 180-degree paired terrain, resources, camps and starting units. Legacy `river_pass`, `open_fields` and `movement_lab` remain available as smaller scenarios.
+Default skirmish map: **192×192 cells**, 1v1, with 180-degree paired terrain, resources, camps, roads and starting units. It replaced the first 128×112 layout at simulation version 11 to give Warcraft 3-scale distances. Legacy `river_pass`, `open_fields` and `movement_lab` remain available as smaller scenarios. 256×256 is the largest map the simulation accepts; the collision bins, lane cache, bounded distance helper and path keys all assume it.
 
 | Feature | First side | Opposite side |
 |---|---|---|
-| HQ footprint origin | (14,14), 5×5 | (109,93), 5×5 |
-| Hero rally cell | (20,18) | (107,93) |
-| Natural area | around (40,20) | around (88,92) |
-| Easy camp areas | (28,30), (18,43) | rotated counterparts |
-| Route camp | around (45,40) | rotated counterpart |
-| Contested expansion | around (28,70) | around (100,42) |
-| Central hard camp | around (53,55) | rotated counterpart |
+| HQ footprint origin | (20,20), 5×5 | (167,167), 5×5 |
+| Hero rally cell | (28,18) | (163,173) |
+| Home mine origin | (21,10), 12,000 gold | (168,179) |
+| Natural mine origin / outpost anchor | (58,14) / (50,28) | (131,175) / (141,163) |
+| Forward mine origin / anchor | (54,74) / (66,70) | (135,115) / (125,121) |
+| Contested corner mine | (174,14) north-east | (15,175) south-west |
+| Easy camps | (48,31), (66,80) | rotated counterparts |
+| Medium camps | (110,26) north corridor, (25,118) west corridor | rotated counterparts |
+| Hard camps | (166,32) guarding a corner, (88,100) in the center | rotated counterparts |
 
 Footprint origins rotate as `(width-x-size, height-y-size)`; unit cells rotate as `(width-1-x, height-1-y)`. Approximate area anchors are not footprint origins. Using this distinction prevents one-cell symmetry errors for odd and even footprints.
 
-The authored layout has base clearings, a broad diagonal route, economic wings, longer outside flanks, and central battle clearings. Main corridors are approximately nine cells wide, secondary corridors approximately seven, with narrower camp approaches. Resource edges and existing camp clearings mean this first layout is not a certified set of uniformly clear 22×22 building plots or exact eight/six-cell exits. Keep production and hauling aprons open when building.
+The layout is a base clearing, a natural to its east, a forward expansion on a fifteen-cell-wide main diagonal through a large central clearing, and two long outer corridors to the corners. Each corner is nearer one player — the north-east is reached along the north corridor from player one's natural, the south-west from player one's forward expansion — and the rotation makes that fair.
 
-Measured infantry routes use the actual pathfinder with speed 35, per-segment integer movement rounding, and no crowd delays:
+### Roads
 
-| Route | Initial measurement | Target |
+Roads are a map layer, `map.unbuildable`: walkable, three cells wide, and **nobody may build on them**. They run home mine to headquarters, headquarters to natural to corner, headquarters to forward mine to the other corner, and forward mine to the center, where they meet the other player's. Mines and headquarters are the junctions, so every gold mine is joined to every other and to both headquarters. The purpose is that no wall of buildings, yours or an enemy's, can cut a mine off from the bases.
+
+`Sim.placement` refuses a road cell with *Cannot build on a road*, and the build command revalidates through it, so the rule is authoritative rather than cosmetic. An extractor still goes on its own mine where a road ends. Roads change nothing about movement speed or sight. A regression test floods the road network from one headquarters and requires it to reach every mine and the other headquarters.
+
+Measured infantry routes use the actual pathfinder with speed 35, per-segment integer movement rounding, and no crowd delays. Strategic targets are the 128×112 targets scaled by 1.5 with the map width; the local approaches keep theirs:
+
+| Route | Measurement | Target |
 |---|---:|---:|
-| Rally to enemy rally | 46.05 s | 40–55 s |
-| Center to rally | 23.30 s | 20–28 s |
-| Outside flank via (24,70) | 58.35 s, +26.7% | +20–35% |
-| Natural approach at (37,21) | 7.25 s | 10–15 s |
-| First easy camp | 6.00 s | 8–12 s |
+| Rally to enemy rally | 76.30 s | 60–83 s |
+| Center to rally | 38.65 s | 30–42 s |
+| Via the south-west corner (22,160) | 109.70 s, +43.8% | reported only: a detour, not a flank |
+| Natural approach at (54,26) | 9.95 s | 10–15 s |
+| First easy camp at (48,29) | 8.35 s | 8–12 s |
 
-The nearby natural/camp approaches are currently faster than the proposal. These are explicit tuning gaps. Do not slow all units to correct a local map distance: test local entrances and camp placement first. `artifacts/balance-routes.txt` is the regenerated source of measurements.
+The first layout measured 46.05 s rally to rally, 23.30 s center to rally, 7.25 s to the natural and 6.00 s to the first easy camp. `artifacts/balance-routes.txt` is the regenerated source of measurements.
 
 ## Economy and food
 

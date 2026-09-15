@@ -48,7 +48,7 @@ function S:draw()
   button('opponent','Bot: '..C.factions[self.opponent].label,3,function() self.opponent=self.opponent=='bastion' and 'wild' or 'bastion' end)
   label(self.faction=='bastion' and 'Bastion: protection and sustained combat near your Warden.' or 'Wild Pact: recovery, mobility and choosing engagements.',y+194)
   local map=require('src.maps').create(self.map);local cell=math.min(170/map.width,65/map.height);local mx=x+145;local my=y+240
-  for cy=0,map.height-1 do for cx=0,map.width-1 do if map.blocked[cy*map.width+cx+1] then g.setColor(.2,.35,.45) else g.setColor(.22,.35,.27) end;g.rectangle('fill',mx+cx*cell,my+cy*cell,cell,cell) end end
+  for cy=0,map.height-1 do for cx=0,map.width-1 do local key=cy*map.width+cx+1;if map.blocked[key] then g.setColor(.2,.35,.45) elseif map.unbuildable and map.unbuildable[key] then g.setColor(.42,.36,.25) else g.setColor(.22,.35,.27) end;g.rectangle('fill',mx+cx*cell,my+cy*cell,cell,cell) end end
   button('start','Start skirmish',7,function() self:start() end);button('back','Back',8,function() self.screen='main' end)
  elseif self.screen=='multiplayer' then
   label('PRIVATE MULTIPLAYER | direct IP',y)

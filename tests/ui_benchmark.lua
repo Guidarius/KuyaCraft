@@ -8,7 +8,7 @@ local function percentile(a,p) local s={};for i,v in ipairs(a) do s[i]=v end;tab
 local PHASES={'step','view','observation','events','feedback','replay'}
 function B.create(options)
  local app=require('src.app').create({map='open_fields'})
- -- --map twin_marches selects the shipping 128x112 map. stressWorld already
+ -- --map twin_marches selects the shipping 192x192 map. stressWorld already
  -- deploys 240 units on it with the battle clearings widened, so it is the
  -- shipping-map variant of this benchmark rather than a second fixture.
  local shipping=options['balance-benchmark'] or options.map=='twin_marches'
@@ -21,7 +21,7 @@ function B.create(options)
  end
  end
  app.balanceBenchmark=shipping;app.world=w;app.view=Sim.view(w,1);app.selected={w.players[1].hero};app.observation=require('src.ui.observation').create();app.observation:update(app.view)
- app.feedback:reset();app.previous={};require('src.ui.camera').center(app,(app.balanceBenchmark and 64 or 24)*256,(app.balanceBenchmark and 53 or 16)*256)
+ app.feedback:reset();app.previous={};require('src.ui.camera').center(app,(app.balanceBenchmark and 96 or 24)*256,(app.balanceBenchmark and 96 or 16)*256)
  local self=setmetatable({app=app,times={},drawTimes={},minimapTimes={},tickTimes={},cadence={},steps=0,frames=0,attacks=0,accumulator=0,
   target=tonumber(options['ui-samples']) or 600,start=love.timer.getTime(),initial=collectgarbage('count'),
   maxParticles=0,maxSources=0,maxBacklog=0,maxDrawCalls=0,drawCalls={},heapSamples={},
@@ -38,7 +38,7 @@ function B:update(dt)
  while self.accumulator>=.05 and count<8 and self.steps<self.target do
   local app=self.app;local commands={}
   if self.steps==0 then local sequence={0,0};for _,id in ipairs(app.world.order) do local e=app.world.entities[id];if e.category=='unit' and e.owner>0 then
-   sequence[e.owner]=sequence[e.owner]+1;commands[#commands+1]={tick=1,player=e.owner,sequence=sequence[e.owner],kind='attack_move',args={entity=id,x=(app.balanceBenchmark and (e.owner==1 and 66 or 62) or (e.owner==1 and 30 or 18))*256+128,y=(app.balanceBenchmark and 53 or 17)*256+128}}
+   sequence[e.owner]=sequence[e.owner]+1;commands[#commands+1]={tick=1,player=e.owner,sequence=sequence[e.owner],kind='attack_move',args={entity=id,x=(app.balanceBenchmark and (e.owner==1 and 98 or 94) or (e.owner==1 and 30 or 18))*256+128,y=(app.balanceBenchmark and 96 or 17)*256+128}}
   end end end
   app.previous={};for _,e in ipairs(app.view.entities) do app.previous[e.id]={x=e.x,y=e.y} end
   local tickStart=love.timer.getTime();local mark=tickStart

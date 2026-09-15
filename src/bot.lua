@@ -62,6 +62,10 @@ function B.commands(view,C)
   return false
  end
  local hx,hy=math.floor(hq.x/256),math.floor(hq.y/256)
+ -- The distances below were tuned on a 128-cell map. One of those cells, in subunits,
+ -- stretched to this map's width, so "its own half" still means its own half on a larger
+ -- map. Never shrunk, so the small fixture maps keep exactly their old behaviour.
+ local tuned=2*math.max(128,view.map.width)
  local wantTech=view.tick>=4800 and not view.player.tech and not hq.researchRemaining
  -- Earlier than it used to be: an outpost is no longer just ground, it shortens a
  -- carrier route and is the only way to make a distant mine pay full rate.
@@ -86,7 +90,7 @@ function B.commands(view,C)
  for _,n in ipairs(mines) do
   -- Only mines on its own half of the map. Anything further is a fight, not an economy
   -- decision, and the outpost push below is what opens that ground up.
-  local reach=F.sq(30*256);for _,b in ipairs(outposts) do if b.remaining==0 then reach=F.sq(44*256) end end
+  local reach=F.sq(30*tuned);for _,b in ipairs(outposts) do if b.remaining==0 then reach=F.sq(44*tuned) end end
   if F.sq(n.x-hq.x)+F.sq(n.y-hq.y)<=reach then
    local d=C.buildings.extractor
    if afford(d.cost) then
@@ -114,13 +118,15 @@ function B.commands(view,C)
  local tx,ty;local threat,threatDistance
  for _,e in ipairs(view.entities) do
   if e.alive and e.owner>0 and e.owner~=owner then local distance=F.sq(e.x-hq.x)+F.sq(e.y-hq.y)
-   if distance<=F.sq(22*256) and (not threatDistance or distance<threatDistance) then threat=e;threatDistance=distance end
+   if distance<=F.sq(22*tuned) and (not threatDistance or distance<threatDistance) then threat=e;threatDistance=distance end
   end
  end
  if threat then tx,ty=threat.x,threat.y
  elseif wantExpansion and view.map.anchors and #army>=3 then local anchor=view.map.anchors.naturals[owner];tx,ty=anchor.x*256,anchor.y*256
  elseif target then tx,ty=target.x,target.y
- elseif #army>=3 and view.tick<3600 then tx,ty=(owner==1 and 28 or 100)*256,(owner==1 and 30 or 82)*256
+ elseif #army>=3 and view.tick<3600 then
+  local forward=view.map.anchors and view.map.anchors.forward and view.map.anchors.forward[owner]
+  if forward then tx,ty=forward.x*256,forward.y*256 else tx,ty=(owner==1 and 28 or 100)*256,(owner==1 and 30 or 82)*256 end
  elseif #army>=6 or view.tick>=6000 then local start=view.map.starts and view.map.starts[owner==1 and 2 or 1];tx,ty=(start and start.x or (owner==1 and view.map.width-8 or 8))*256,(start and start.y or (owner==1 and view.map.height-8 or 8))*256 end
  -- Everything ordered forward on the same tick forms one wave and travels as one, so a
  -- mixed force arrives together instead of trickling into the enemy a unit at a time.

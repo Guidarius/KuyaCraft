@@ -27,7 +27,10 @@ local Vision=require('src.sim.vision')
 -- Version 7: write-only entity state removed (reversals, maxWaitTicks, blockedTicks,
 -- harvestStatus, lastMove) along with the unused PRNG, so checkpoints stop hashing
 -- fields nothing reads. No rule changes.
-local Sim = { VERSION = 10 }
+-- Version 11: maps may carry `unbuildable`, a set of road cells that stay walkable but
+-- refuse every building except an extractor on its own mine. Twin Marches is rebuilt at
+-- 192x192 with roads joining every mine to the others and to both headquarters.
+local Sim = { VERSION = 11 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -334,7 +337,7 @@ end
 function Sim.view(w,player)
     local p=w.players[player]
     local out={tick=w.tick,result=w.result,
-        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked},
+        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable},
         entities={},byId={},
         player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
             kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,
@@ -350,6 +353,8 @@ function Sim.view(w,player)
 end
 function Sim.create(config,content,map)
     F.check(map.width,8,256); F.check(map.height,8,256)
+    -- Checked, not ordered: an out-of-range road key is a broken map, whatever order it is found in.
+    for key in pairs(map.unbuildable or {}) do F.check(key,1,map.width*map.height) end
     assert(#config.players>=2 and #config.players<=4,'two to four players required')
     -- Content is a shared, immutable definition table: nothing in the simulation
     -- writes to it, and 'content references and definition isolation' fails if that
@@ -448,6 +453,9 @@ function Sim.placement(view,content,kind,x,y)
         -- per-cell rule would arbitrarily rule out some of them.
         if not mine and not view.player.visible[key] then return false,'Unseen footprint' end
         if not mine and view.map.blocked[key] then return false,'Impassable terrain' end
+        -- Roads keep every mine's way to the bases open, so nothing stands on one. The
+        -- build command revalidates through here, which makes this authoritative.
+        if not mine and view.map.unbuildable and view.map.unbuildable[key] then return false,'Cannot build on a road' end
         for _,other in ipairs(view.entities) do
             if other.alive and other.category=='unit' and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
             -- An extractor is placed on its mine, so the mine it covers is not in its way.

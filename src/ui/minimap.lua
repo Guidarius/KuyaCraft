@@ -33,7 +33,7 @@ function M.cache(app)
   cache={map=app.world.map,terrain=g.newCanvas(map.width,map.height,{dpiscale=1}),fog=g.newCanvas(map.width,map.height,{dpiscale=1})};app.miniCache=cache
   cache.terrain:setFilter('nearest','nearest');cache.fog:setFilter('nearest','nearest')
   g.push('all');g.setCanvas(cache.terrain);g.origin();g.setScissor();g.clear(.22,.32,.25)
-  for y=0,map.height-1 do for x=0,map.width-1 do local shade=(x*7+y*11)%5*.008;if map.blocked[y*map.width+x+1] then g.setColor(.15,.26,.35) else g.setColor(.16+shade,.235+shade,.19+shade) end;g.rectangle('fill',x,y,1,1) end end;g.pop()
+  for y=0,map.height-1 do for x=0,map.width-1 do local shade=(x*7+y*11)%5*.008;local key=y*map.width+x+1;if map.blocked[key] then g.setColor(.15,.26,.35) elseif map.unbuildable and map.unbuildable[key] then g.setColor(.38+shade,.32+shade,.22+shade) else g.setColor(.16+shade,.235+shade,.19+shade) end;g.rectangle('fill',x,y,1,1) end end;g.pop()
  end
  local signature=cache.signature
  if cache.tick~=app.view.tick or cache.player~=app.player then signature=fogSignature(app.view.player);cache.tick=app.view.tick;cache.player=app.player end

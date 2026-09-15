@@ -102,6 +102,23 @@ test('simulation','build, production, cancellation, population reservation',func
     step(w,1,{command(w,1,'recruit',b.id,{unit='crossbow'})});step(w,1,{command(w,1,'cancel',b.id)})
     eq(w.players[1].resources.gold,gold)
 end)
+test('simulation','nothing is built on a road, except an extractor on its own mine',function()
+    local Path=require('src.sim.path')
+    local m=Maps.create('road',24);m.resources={};m.camps={};m.unbuildable={}
+    -- Across the war hall's first row, whatever footprint size the fixture content gives it.
+    for x=0,23 do m.unbuildable[Path.key(m,x,4)]=true end
+    local w=Sim.create({seed=12345,players={{faction='bastion'},{faction='wild'}}},Content,m);local worker=find(w,1,'worker')
+    local valid,reason=Sim.placement(Sim.view(w,1),Content,'barracks',7,4)
+    assert(not valid,'a war hall was allowed on a road');eq(reason,'Cannot build on a road')
+    step(w,1,{command(w,1,'build',worker.id,{building='barracks',x=7,y=4})})
+    eq(w.events[1].kind,'rejected');assert(not find(w,1,'barracks'));assert(Path.walkable(w,7,4),'a road must stay walkable')
+    -- A road may run up to and across a mine's footprint; the extractor still goes on it.
+    local e=Maps.create('extract',20);e.resources={{x=6,y=6,resource='gold',amount=16,size=3}};e.camps={};e.unbuildable={}
+    for x=0,19 do e.unbuildable[Path.key(e,x,7)]=true end
+    local x=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,e);local builder=find(x,1,'worker')
+    step(x,1,{command(x,1,'build',builder.id,{building='extractor',x=6,y=6})})
+    assert(find(x,1,'extractor'),'extractor refused on a mine a road crosses')
+end)
 test('simulation','exclusive upgrades and revival retention',function()
     local w=world(24);local hero=w.entities[w.players[1].hero];hero.xp=400
     step(w,1,{command(w,1,'upgrade',hero.id,{milestone=1,choice=2})});eq(hero.upgrades[1],2)

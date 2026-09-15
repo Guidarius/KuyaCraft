@@ -144,10 +144,45 @@ function B.register(test)
   local cycle={};cycle.self=cycle;assert(not pcall(Codec.copy,cycle));assert(not pcall(Codec.copy,{fraction=.1}));assert(not pcall(Codec.copy,{fn=function() end}))
  end)
  test('unit','Twin Marches: footprint safety, symmetry and finite resources',function()
-  local m=require('src.maps').create();eq(m.width,128);eq(m.height,112);local cells={}
+  local m=require('src.maps').create();eq(m.width,192);eq(m.height,192);local cells={}
   for _,n in ipairs(m.resources) do for y=n.y,n.y+(n.size or 1)-1 do for x=n.x,n.x+(n.size or 1)-1 do local k=P.key(m,x,y);assert(not cells[k],'overlapping resources at '..x..','..y);cells[k]=n.resource end end end
-  for y=0,111 do for x=0,127 do eq(m.blocked[P.key(m,x,y)],m.blocked[P.key(m,127-x,111-y)]);eq(cells[P.key(m,x,y)],cells[P.key(m,127-x,111-y)]) end end
+  for y=0,191 do for x=0,191 do local k,r=P.key(m,x,y),P.key(m,191-x,191-y)
+   eq(m.blocked[k],m.blocked[r]);eq(m.unbuildable[k],m.unbuildable[r]);eq(cells[k],cells[r])
+  end end
   local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,m);S.clearance(w)
+ end)
+ test('unit','Twin Marches: roads join every gold mine to the others and to both headquarters',function()
+  local m=require('src.maps').create();local width,height=m.width,m.height
+  -- The network's nodes are road cells and the footprints roads end against. A mine or a
+  -- headquarters is a junction: a carrier walking a road arrives at its doorstep.
+  local junction,names={},{}
+  local function footprint(x0,y0,size,name)
+   names[#names+1]=name
+   for y=y0,y0+size-1 do for x=x0,x0+size-1 do local k=P.key(m,x,y);assert(not m.unbuildable[k],name..' is paved over');junction[k]=name end end
+  end
+  for i,n in ipairs(m.resources) do if n.resource=='gold' then footprint(n.x,n.y,n.size,'gold mine '..i) end end
+  for p,s in ipairs(m.starts) do footprint(s.x,s.y,C.buildings.hq.size,'headquarters '..p) end
+  for y=0,height-1 do for x=0,width-1 do local k=P.key(m,x,y)
+   if m.unbuildable[k] then assert(not m.blocked[k],'road cell '..x..','..y..' is impassable') end
+  end end
+  for _,c in ipairs(m.camps) do assert(not m.unbuildable[P.key(m,c.x,c.y)],'a camp stands on a road at '..c.x..','..c.y) end
+  local s=m.starts[1];local queue={{s.x,s.y}};local seen={[P.key(m,s.x,s.y)]=true};local reached={};local head=1
+  while queue[head] do
+   local x,y=queue[head][1],queue[head][2];head=head+1
+   local here=junction[P.key(m,x,y)];if here then reached[here]=true end
+   for _,d in ipairs({{1,0},{-1,0},{0,1},{0,-1}}) do
+    local nx,ny=x+d[1],y+d[2]
+    if nx>=0 and ny>=0 and nx<width and ny<height then local k=P.key(m,nx,ny)
+     if not seen[k] and (m.unbuildable[k] or junction[k]) then seen[k]=true;queue[#queue+1]={nx,ny} end
+    end
+   end
+  end
+  for _,name in ipairs(names) do assert(reached[name],name..' is not on the road network') end
+  -- Enforced by the simulation, not just drawn: a watchtower on the natural road is
+  -- refused, and an extractor still goes on the home mine at the end of its road.
+  local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,m);local view=Sim.view(w,1)
+  local ok,reason=Sim.placement(view,C,'tower',30,21);assert(not ok,'a watchtower was allowed on a road');eq(reason,'Cannot build on a road')
+  assert(Sim.placement(view,C,'extractor',m.resources[1].x,m.resources[1].y),'extractor refused on the home mine')
  end)
 end
 return B

@@ -8,7 +8,7 @@ local M={}
 local function write(name,text) local f=assert(io.open('artifacts/'..name,'wb'));f:write(text);f:close();print(text) end
 function M.routes()
  local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,Maps.create())
- local e=S.unit(w,'shield',1,20,18)
+ local e=S.unit(w,'shield',1,28,18)
  local function route(ax,ay,bx,by)
   e.x=F.center(ax);e.y=F.center(ay);e.path={};e.goal=nil;w.metrics.directChecks=0;assert(P.request(w,e,bx,by),'blocked route endpoint')
   for _=1,1000 do w.metrics.pathExpansions=0;P.step(w);if not w.searches[e.id] then break end end
@@ -17,10 +17,12 @@ function M.routes()
   for _,p in ipairs(e.path) do local distance=F.isqrt((p.x-x)^2*65536+(p.y-y)^2*65536);ticks=ticks+math.ceil(distance/C.units.shield.speed);x,y=p.x,p.y end
   return ticks/20
  end
- local main=route(20,18,107,93);local natural=route(20,18,37,21);local easy=route(20,18,28,30);local center=route(64,56,20,18)
- local flank=route(20,18,24,70)+route(24,70,107,93)
- local report=string.format('Twin Marches infantry route estimates (actual A* cell paths, speed 35, rounded step ticks; no crowd waits):\nRally (20,18) to enemy rally (107,93): %.2fs [target 40–55]\nNatural approach (37,21): %.2fs [target 10–15]\nEasy camp (28,30): %.2fs [target 8–12]\nCenter to rally: %.2fs [target 20–28]\nSouthern flank via (24,70): %.2fs (+%.1f%%) [target +20–35%%]\n',main,natural,easy,center,flank,100*(flank/main-1))
- write('balance-routes.txt',report);assert(main>=40 and main<=55 and center>=20 and center<=28,'strategic route time outside target')
+ -- The strategic targets are the 128x112 map's scaled by 1.5 with the map's width: the
+ -- 192x192 map was made larger on purpose, so a longer march is the change, not a regression.
+ local main=route(28,18,163,173);local natural=route(28,18,54,26);local easy=route(28,18,48,29);local center=route(96,96,28,18)
+ local corner=route(28,18,22,160)+route(22,160,163,173)
+ local report=string.format('Twin Marches infantry route estimates (actual A* cell paths, speed 35, rounded step ticks; no crowd waits):\nRally (28,18) to enemy rally (163,173): %.2fs [target 60–83]\nNatural approach (54,26): %.2fs [target 10–15]\nEasy camp (48,29): %.2fs [target 8–12]\nCenter to rally: %.2fs [target 30–42]\nVia the south-west corner (22,160): %.2fs (+%.1f%%) [reported only: a detour, not a flank]\n',main,natural,easy,center,corner,100*(corner/main-1))
+ write('balance-routes.txt',report);assert(main>=60 and main<=83 and center>=30 and center<=42,'strategic route time outside target')
 end
 function M.match(mirror,ticks)
  local config={seed=725,players={{faction='bastion'},{faction=mirror and 'bastion' or 'wild'}}}
@@ -126,8 +128,8 @@ end
 function M.stressWorld()
  local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,Maps.create())
  for _,id in ipairs(w.order) do local e=w.entities[id];if e.category=='unit' then e.alive=false end end
- -- Two adjacent main-route battle clearings; keep casualties from reducing the workload.
- local units={};for p=1,2 do for i=1,120 do local x=(p==1 and 54 or 66)+(i-1)%10;local y=46+math.floor((i-1)/10)
+ -- Two adjacent blocks in the center clearing; keep casualties from reducing the workload.
+ local units={};for p=1,2 do for i=1,120 do local x=(p==1 and 84 or 99)+(i-1)%10;local y=90+math.floor((i-1)/10)
   for cy=y-1,y+1 do for cx=x-1,x+1 do w.blocked[P.key(w.map,cx,cy)]=nil;w.map.blocked[P.key(w.map,cx,cy)]=nil end end
   local e=S.unit(w,i%3==0 and 'crossbow' or 'shield',p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
  end end
@@ -139,7 +141,7 @@ function M.performance()
  local times={};local attacks=0;local moved=0
  for tick=1,2000 do local commands={}
   if tick%400==1 or tick%400==301 then local seq={w.players[1].sequence,w.players[2].sequence};local attack=tick%400==1
-   for _,e in ipairs(units) do seq[e.owner]=seq[e.owner]+1;commands[#commands+1]=S.command(w,e,attack and 'attack_move' or 'move',{x=F.center(attack and (e.owner==1 and 66 or 62) or (e.owner==1 and 57 or 72)),y=F.center(53),group=tick},seq[e.owner]) end
+   for _,e in ipairs(units) do seq[e.owner]=seq[e.owner]+1;commands[#commands+1]=S.command(w,e,attack and 'attack_move' or 'move',{x=F.center(attack and (e.owner==1 and 98 or 94) or (e.owner==1 and 87 or 102)),y=F.center(96),group=tick},seq[e.owner]) end
   end
   local old=units[1].x;local start=love.timer.getTime();Sim.step(w,commands);times[#times+1]=(love.timer.getTime()-start)*1000
   if old~=units[1].x then moved=moved+1 end
@@ -147,7 +149,7 @@ function M.performance()
   assert(w.metrics.pathExpansions<=C.rules.pathBudget)
  end
  if stopProfile then stopProfile() end
- table.sort(times);write('balance-performance.txt',string.format('128x112 map, 240 live mobiles, 2000 active ticks, new combat/sight profile. Clearings widened for fixture deployment.\nSim.step p95 %.3fms; max %.3fms; attacks %d; lead moving ticks %d. Excludes bot/replay/rendering.\n',times[1900],times[2000],attacks,moved))
+ table.sort(times);write('balance-performance.txt',string.format('192x192 map, 240 live mobiles, 2000 active ticks, new combat/sight profile. Clearings widened for fixture deployment.\nSim.step p95 %.3fms; max %.3fms; attacks %d; lead moving ticks %d. Excludes bot/replay/rendering.\n',times[1900],times[2000],attacks,moved))
  assert(attacks>100 and moved>100)
  local budget=M.perfBudget or 10
  assert(times[1900]<budget,string.format('new-profile simulation exceeds %g ms p95 (%.3f ms)',budget,times[1900]))
