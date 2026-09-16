@@ -1012,6 +1012,66 @@ scenario **2/2**, soak **1/1**, plus the rendered UI and presentation suites. Fo
 takeover release, the single stall report and its clearing on resume, owner-only visibility, and
 the bot's return — were each run against the previous commit and failed there.
 
+## Tooltips, Warcraft 3 style — no simulation change
+
+One module, `src/ui/tooltip.lua`, replaces the single fixed box. The rules are in
+`docs/COMMAND_CARDS.md`. In short:
+
+- **Command card tooltips** appear at once, anchored above the card.
+- **Everything else** waits 0.35 s, then sits beside the pointer. After one has shown, the next
+  within 0.4 s shows at once.
+- **Row order:** hotkey in the title, then the reason in red, the description, stats, and costs
+  showing what you have when short.
+
+What it covers that it did not before:
+- the gold, food, units and clock readouts
+- hero health, experience, stance, upgrade and revive
+- the minimap
+- selection tiles (which had a blank title)
+- the production queue
+- alerts
+- anything the pointer rests on in the world: name, owner, health, and what your unit is doing
+
+Build and train tooltips now give the build time and stats from content, plus what each building
+is for. Spells show cooldown and range, and no longer repeat the mana cost in the text.
+
+Two bugs fixed on the way:
+- A tooltip from a HUD button stayed visible through the pause panel, because the modal cleared
+  the buttons but not the hover.
+- A disabled action coloured its whole description red, not just the reason.
+
+Iterations, judged from captures (`artifacts/ui-tooltip-{card,gold,world,spell}-*.png`):
+1. The first build showed the build tooltip repeating its own title ("Place Outpost.") with the
+   time buried in prose. It now says what the building is for, with the time as a stat.
+2. "Order: move" became "Moving".
+3. The spell tooltip carried its aiming hint and mana cost inside the description. The hint now
+   has its own dim line, and the cost is shown once.
+
+Checks in `T.tooltips` (`tests/presentation.lua`), each confirmed to fail with its rule removed
+in a scratch worktree:
+- the card answers on the first frame
+- a modal hides what is under it
+- the 0.35 s delay
+- placement is pushed back on screen on a narrow screen
+- no world tooltip during a box drag
+- an enemy hero shows no level
+
+The same test also checks:
+- the card tooltip stays put while the pointer moves along the card
+- the grace period, and that it expires
+- the corner flip
+- that the canonical world is unchanged
+
+Verified: quick **89/89**, `scripts/test-ui.ps1` at 1280, 1920 and 2560, and
+`scripts/test-presentation.ps1`.
+
+Not verified:
+- how the 0.35 s delay feels with a real mouse
+- tooltips in the main-menu settings screen, which now also wait 0.35 s but have no test of
+  their own
+
+Not done: icons in tooltips (there are no icons for costs yet).
+
 ## Game feel, first pass: fourteen of fifteen backlog items — no simulation change
 
 `docs/GAME_FEEL.md` sets the standard and holds the backlog; its table now records where each

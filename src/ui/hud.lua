@@ -22,13 +22,25 @@ function H.draw(app)
   local flash=app.costFlash and app.clock-app.costFlash.time<.9 and app.costFlash.keys[r.key]
   g.setColor(flash and 1 or .83,flash and .38 or .86,flash and .32 or .81);g.print(r.label..'  '..p.resources[r.key],r.x,13)
  end
- text('Food  '..require('src.sim').population(app.world,app.player)..' / '..C.rules.population..'   Units '..require('src.sim').unitCount(app.world,app.player),430,13,300)
- text(string.format('%02d:%02d',math.floor(app.world.tick/1200),math.floor(app.world.tick/20)%60),w-220,13,100)
+ local food,units=require('src.sim').population(app.world,app.player),require('src.sim').unitCount(app.world,app.player)
+ local foodText,unitText='Food  '..food..' / '..C.rules.population,'   Units '..units
+ text(foodText..unitText,430,13,300)
+ local clockText=string.format('%02d:%02d',math.floor(app.world.tick/1200),math.floor(app.world.tick/20)%60)
+ text(clockText,w-220,13,100)
+ -- The resource bar explains itself on hover, the way Warcraft 3's does.
+ local font=g.getFont()
+ app.widgets:region('gold',131,6,font:getWidth('Gold  '..p.resources.gold)+8,28,{title='Gold',
+  lines={'Pays for units, buildings, hero revival and HQ advancement.','Carriers bring it from Extractors built on gold mines.'}})
+ app.widgets:region('food',426,6,font:getWidth(foodText)+8,28,{title='Food',stats={food..' used','cap '..C.rules.population},
+  lines={'Every living unit and every unit in training takes food. Nothing more can be trained past the cap.'},reason=food>=C.rules.population and 'Food cap reached' or nil})
+ app.widgets:region('units',430+font:getWidth(foodText),6,font:getWidth(unitText)+4,28,{title='Units',lines={'You have '..units..' living units.'}})
+ app.widgets:region('clock',w-224,6,font:getWidth(clockText)+8,28,{title='Match time',lines={'Game time. It runs at the fixed simulation rate, whatever the game speed setting.'}})
  app.widgets:button('menu','Menu',w-98,6,86,28,function() app.overlay='pause' end)
  Minimap.draw(app,{x=10,y=y+10,w=190,h=160})
+ app.widgets:region('minimap',10,y+10,190,160,{title='Minimap',lines={'Click or drag to move the camera. Right-click to send the selection there.',{'Alt-click pings the spot for everyone.',{.62,.66,.62}}}})
  local hero=app:entity(p.hero);local hx=214
  if hero then
-  app.widgets:button('hero',C.units[hero.kind].label..' [F1]',hx+42,y+12,103,42,function() app.selected={hero.id};Actions.context(app);app.audio:selected(hero.kind);Camera.center(app,hero.x,hero.y) end)
+  app.widgets:button('hero',C.units[hero.kind].label..' [F1]',hx+42,y+12,103,42,function() app.selected={hero.id};Actions.context(app);app.audio:selected(hero.kind);Camera.center(app,hero.x,hero.y) end,nil,{title=C.units[hero.kind].label,key=app.settings.bindings.hero or 'f1',subtitle='Your hero',subtitleColor={.45,.8,1},lines={'Select your hero and centre the camera on it.',{'Ctrl+'..(app.settings.bindings.hero or 'f1'):upper()..' keeps the camera following it.',{.62,.66,.62}}}})
   require('src.ui.icons').portrait(hero.kind,hx,y+12)
   text(hero.hp..' / '..hero.maxHp..' HP',hx,y+59,145);bar(hx,y+77,145,hero.hp,hero.maxHp)
   -- Experience toward the next milestone, with the level number, so progression is
@@ -45,18 +57,25 @@ function H.draw(app)
   -- Stance moved onto its own button label: the level/XP line has to stay one line,
   -- and printf wraps rather than clips, which pushed text under the button below.
   text('Level '..level..'    '..xpLabel,hx,y+87,160)
-  app.widgets:button('hero-stance','Stance '..hero.stance..': toggle',hx,y+111,145,24,function() Actions.order(app,{hero},'toggle') end,not hero.alive and 'Hero is dead' or nil)
+  app.widgets:region('hero-hp',hx,y+57,145,28,{title='Hero health',stats={hero.hp..' / '..hero.maxHp},lines={hero.alive and 'Heals near your headquarters when out of combat.' or 'Dead. Revive it from the button below.'}})
+  app.widgets:region('hero-xp',hx,y+85,145,24,{title='Level '..level,stats={'XP '..hero.xp},lines={ceiling and ('Next upgrade at '..ceiling..' XP.') or 'Every upgrade tier is unlocked.','Heroes gain experience when enemies die nearby.'}})
+  app.widgets:button('hero-stance','Stance '..hero.stance..': toggle',hx,y+111,145,24,function() Actions.order(app,{hero},'toggle') end,not hero.alive and 'Hero is dead' or nil,
+   {title='Stance '..hero.stance,key='z',lines={'Switch between the defensive, recovering stance and the offensive, pursuing one.'}})
   local milestone
   for i,t in ipairs(C.rules.xpThresholds) do if hero.xp>=t and not hero.upgrades[i] then milestone=i;break end end
-  if milestone and hero.alive then app.widgets:button('upgrade','Upgrade available',hx,y+140,145,28,function() Actions.openAbilities(app);app.audio:play('menu') end)
-  elseif not hero.alive then app.widgets:button('revive',hero.reviveRemaining and ('Reviving '..math.ceil(hero.reviveRemaining/20)..'s') or ('Revive: '..require('src.sim').revival(C,hero)..' gold'),hx,y+140,145,28,function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or p.resources.gold<require('src.sim').revival(C,hero) and 'Insufficient gold' or nil) end
+  if milestone and hero.alive then app.widgets:button('upgrade','Upgrade available',hx,y+140,145,28,function() Actions.openAbilities(app);app.audio:play('menu') end,nil,
+   {title='Hero upgrade',subtitle='Tier '..milestone,subtitleColor={.56,.9,.6},lines={'Your hero has enough experience for a permanent upgrade. Open the choices.'}})
+  elseif not hero.alive then app.widgets:button('revive',hero.reviveRemaining and ('Reviving '..math.ceil(hero.reviveRemaining/20)..'s') or ('Revive: '..require('src.sim').revival(C,hero)..' gold'),hx,y+140,145,28,function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or p.resources.gold<require('src.sim').revival(C,hero) and 'Insufficient gold' or nil,
+   (function() local cost,ticks=require('src.sim').revival(C,hero)
+    return {title='Revive hero',lines={'Your hero returns at your headquarters after '..math.ceil(ticks/20)..' seconds. Cost and time grow with each experience milestone reached.'},
+     costs=not hero.reviveRemaining and Actions.costs(app,{gold=cost}) or nil} end)()) end
  end
  -- Idle workers are the most common thing a player loses track of, so the count is
  -- always on screen and one click takes you to the next one.
  local idle=Input.idleWorkers(app)
  app.widgets:button('idle-worker','Idle: '..#idle..' ['..(app.settings.bindings.idle or 'f9'):upper()..']',745,6,150,28,
   function() Input.selectIdleWorker(app) end,#idle==0 and 'No idle workers' or nil,
-  'Select and centre on the next worker with no order and nothing to deliver.')
+  {title='Idle workers',key=app.settings.bindings.idle or 'f9',stats={#idle..' idle'},lines={'Select and centre on the next worker with no order and nothing to deliver.'}})
  local sx,sw=375,math.max(140,w-375-330);local e=app:entity(Selection.primary(app))
  local inspected=Selection.inspecting(app)
  text(inspected and 'Inspecting' or (#app.selected..' selected'),sx,y+12,sw)
@@ -80,7 +99,7 @@ function H.draw(app)
  elseif e then
   text(e.hp..'/'..e.maxHp..' HP  |  '..(e.blockedReason or e.order.kind)..'  |  '..#(e.orders or {})..' queued',sx,y+104,sw)
   if e.queue then
-   for i,q in ipairs(e.queue) do app.widgets:button('production-'..i,C.units[q.kind].label..' '..math.ceil(q.remaining/20)..'s  x',sx+(i-1)%3*(sw/3),y+127+math.floor((i-1)/3)*24,sw/3-4,22,function() app:command('cancel',e.id,{index=i}) end,nil,'Cancel: unstarted units refund 100%; training units refund 50%.') end
+   for i,q in ipairs(e.queue) do app.widgets:button('production-'..i,C.units[q.kind].label..' '..math.ceil(q.remaining/20)..'s  x',sx+(i-1)%3*(sw/3),y+127+math.floor((i-1)/3)*24,sw/3-4,22,function() app:command('cancel',e.id,{index=i}) end,nil,{title=C.units[q.kind].label,subtitle=i==1 and 'Training, '..math.ceil(q.remaining/20)..'s left' or 'Waiting in queue',lines={'Click to cancel. A unit still waiting refunds in full; the one training refunds half.'}}) end
    -- Progress of whatever is actually training, under the queue tiles.
    local head=e.queue[1]
    if head then
@@ -99,17 +118,19 @@ function H.draw(app)
  local title=app.cardPage=='build' and 'BUILD STRUCTURES' or app.cardPage=='abilities' and 'HERO ABILITIES' or 'COMMANDS'
  text(title,w-320,y+6,310)
  g.setFont(app.fonts.card)
+ app.widgets.anchor='card'
  for i,a in ipairs(actions) do
   local slot=a.slot or i;local col=(slot-1)%3;local row=math.floor((slot-1)/3)
   app.widgets:button(a.id,a.label,w-320+col*103,y+24+row*49,98,46,function() Actions.activate(app,a) end,a.reason,a.tip,a.id,a)
  end
+ app.widgets.anchor=nil
  g.setFont(app.fonts.small)
  if #actions==0 then text(inspected and ('You cannot command '..(inspected.owner==0 and 'neutral' or 'enemy')..' '..(inspected.category=='node' and 'resources.' or inspected.category=='building' and 'buildings.' or 'units.'))
   or #app.selected>1 and 'Select a unit group or one building.' or 'Select units to see commands.',w-315,y+38,290) end
  local pending=0;for _ in pairs(app.pending or {}) do pending=pending+1 end
  if app.uiNotice and app.uiNotice.kind=='rejected' and app.clock-app.uiNotice.time<2 then g.setColor(1,.4,.32);g.rectangle('fill',8,46,3,19) end
  text((pending>0 and (pending..' pending | ') or '')..(app.message or ''),16,48,w-32)
- for i,a in ipairs(app.alerts.items) do app.widgets:button('alert-'..i,a.text..(a.count and (' x'..a.count) or ''),16,72+(i-1)*31,285,27,function() if a.x then Camera.center(app,a.x,a.y) end end) end
+ for i,a in ipairs(app.alerts.items) do app.widgets:button('alert-'..i,a.text..(a.count and (' x'..a.count) or ''),16,72+(i-1)*31,285,27,function() if a.x then Camera.center(app,a.x,a.y) end end,nil,a.x and {title=a.text,lines={'Click to centre the camera here.'}} or nil) end
  if app.playback then
   local ry=42
   app.widgets:button('replay-pause',app.replayPaused and 'Play' or 'Pause',w-410,ry,70,26,function() app.replayPaused=not app.replayPaused end)
@@ -124,7 +145,22 @@ function H.draw(app)
  if app.debugOrders then require('src.ui.order_debug').draw(app,w,h) end
  if app.overlay then require('src.ui.screens').overlay(app,w,h) end
  if app.banner then H.banner(app,w,h) end
- app.widgets:tooltip(w,h);g.pop()
+ H.tooltip(app,w,h,y);g.pop()
+end
+-- The one tooltip for the frame, drawn last so nothing covers it. A widget under the pointer wins;
+-- otherwise whatever the pointer rests on in the world. Nothing shows while the pointer is doing
+-- something else with the world: dragging a box, panning, or placing a building.
+function H.tooltip(app,w,h,cardTop)
+ local world,worldId
+ local busy=app.capture or app.drag or app.building
+ if not app.overlay and app.hoverId then
+  local e=app:entity(app.hoverId)
+  if e and e.kind~='projectile' then
+   world=require('src.ui.tooltip').entity(app,e);worldId='e:'..e.id
+  end
+ end
+ app.widgets:tooltip(w,h,{card={x=w-322,y=cardTop,w=306,h=180},top=44,world=world,worldId=worldId,
+  titleFont=app.fonts.body,hidden=busy and not app.widgets.hover})
 end
 -- The card for an inspected enemy, neutral or gold mine, drawn where your own unit's card
 -- goes: what it is, its health, and the statistics anyone could look up. Nothing about its
@@ -174,7 +210,8 @@ function H.unitTiles(app,x,y,width)
     app.widgets:button('tile-'..id,'',tx,y,tile,tile,function()
      if love.keyboard.isDown('lshift','rshift') then Selection.toggle(app.selected,id)
      else app.selected={id};local unit=app:entity(id);if unit then Camera.glide(app,unit.x,unit.y) end end
-    end,nil,(C.units[e.kind] or C.buildings[e.kind] or {}).label..'  '..e.hp..' / '..e.maxHp..' HP\nClick selects only this unit; shift-click removes it.')
+    end,nil,{title=(C.units[e.kind] or C.buildings[e.kind] or {}).label or e.kind,stats={'HP '..e.hp..' / '..e.maxHp},
+     lines={'Click selects only this unit. Shift-click removes it from the selection.'}})
    end
   end
  end

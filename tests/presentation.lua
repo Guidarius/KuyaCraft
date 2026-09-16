@@ -134,6 +134,7 @@ function T.run(app)
  end
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  require('tests.command_card').captures(app,capture)
+ T.tooltips(app,capture)
  canvas:release();shell:close();app:draw()
  print('PASS rendered UI: scales, capture, minimap drag, transforms, pause, commands, upgrades, recruitment, replay seek')
 end
@@ -733,4 +734,101 @@ function T.abilities(app)
  print('PASS abilities: command card, arming, ground and instant casts, smart cast, ping, cooldown and mana refusals')
 end
 function eqAbility(a,b) assert(a==b,'wrong ability: '..tostring(a)..' != '..tostring(b)) end
+-- Tooltips: the card answers at once and above the card; the rest wait, then sit by the pointer
+-- and stay on screen; a modal hides what is under it; the world tooltip only says what a view
+-- carries. The pointer is stubbed, because a test cannot move the real one.
+function T.tooltips(app,capture)
+ local Sim=require('src.sim');local Tooltip=require('src.ui.tooltip');local C=require('src.content')
+ local g=love.graphics;local s=app.settings.scale/100;local width,height=g.getDimensions();local w,h=width/s,height/s
+ local realPosition=love.mouse.getPosition
+ local px,py=0,0
+ love.mouse.getPosition=function() return px*s,py*s end
+ local function at(x,y) px,py=x,y end
+ local state=Sim.serializeCanonical(app.world)
+ local world=app.world;local player=world.players[1];local gold=player.resources.gold
+ local clock=app.clock
+ local function frame(dt) app.clock=app.clock+(dt or 0);app:draw();return app.widgets.shownTip end
+ local function item(id) for _,b in ipairs(app.widgets.items) do if b.id==id then return b end end end
+ local function inside(tip,x,y) return x>=tip.x and x<tip.x+tip.w and y>=tip.y and y<tip.y+tip.h end
+ local function onScreen(tip,what) assert(tip.x>=0 and tip.y>=0 and tip.x+tip.w<=w and tip.y+tip.h<=h,what..' tooltip left the screen') end
+ app.overlay=nil;app.building=nil;app.targeting=nil;app.drag=nil;app.capture=nil;app.hoverId=nil
+ local workers={}
+ for _,e in ipairs(app.view.entities) do if e.owner==1 and e.kind=='worker' and e.alive then workers[#workers+1]=e.id end end
+ -- A command card button: instant, anchored above the card, hotkey, costs, stats, reason.
+ player.resources.gold=100;app.view=Sim.view(world,1)
+ app.selected={workers[1]};require('src.ui.actions').context(app);app.cardPage='build'
+ at(10,60);frame(1)
+ local hall=assert(item('barracks'),'the build card has no War hall')
+ at(hall.x+hall.w/2,hall.y+hall.h/2)
+ local tip=frame(0)
+ assert(tip and tip.id=='w:barracks','a command card tooltip did not show on the first frame')
+ assert(tip.spec.key=='q' and tip.spec.reason=='Insufficient gold','the card tooltip lost its hotkey or its reason')
+ assert(tip.spec.costs[1].short and tip.spec.stats and table.concat(tip.spec.stats,','):find('HP '..C.buildings.barracks.hp,1,true),'the card tooltip lost its cost or its stats')
+ local cardTop=h-180
+ assert(tip.y+tip.h<=cardTop and tip.x+tip.w>w-40,'the card tooltip is not anchored above the card')
+ assert(not inside(tip,px,py),'the card tooltip covers the pointer')
+ local anchoredBottom=tip.y+tip.h
+ -- It stays put while the pointer moves along the card.
+ local outpost=assert(item('outpost'))
+ at(outpost.x+5,outpost.y+5);tip=frame(0)
+ assert(tip.id=='w:outpost' and tip.y+tip.h==anchoredBottom and tip.x+tip.w==w-16,'the card tooltip moved with the pointer')
+ assert(type(tip.spec.lines[1])=='string' and tip.spec.lines[1]:find('drop%-off') and tip.spec.stats[1]=='Build 90s','the Outpost tooltip does not say what it is for or how long it takes')
+ capture('tooltip-card',function() app:draw() end)
+ player.resources.gold=gold;app.view=Sim.view(world,1);app.cardPage=nil
+ -- A hero spell: its own name as the title, whatever the button shows, with cooldown and aim.
+ app.selected={app.view.player.hero};require('src.ui.actions').context(app);at(10,60);frame(1)
+ local spell
+ for _,b in ipairs(app.widgets.items) do if b.details and b.details.title then
+  at(b.x+4,b.y+4);tip=frame(0)
+  assert(tip and tip.spec.title==b.details.title and tip.spec.stats[1]:find('^Cooldown') and #tip.spec.lines==2,'a spell tooltip lost its name, cooldown or aim')
+  assert(not tip.spec.lines[1]:find('mana'),'a spell tooltip repeats its mana cost')
+  spell=b;capture('tooltip-spell',function() app:draw() end)
+  break
+ end end
+ assert(spell,'the hero card has no spell to hover');app.selected={}
+ -- A readout waits, then sits beside the pointer; the next one within the grace is immediate.
+ at(60,20);frame(0);assert(not frame(1),'a tooltip showed over plain text')
+ at(150,20);assert(not frame(0),'the gold tooltip showed with no delay')
+ assert(not frame(Tooltip.DELAY*.5),'the gold tooltip showed before its delay')
+ tip=frame(Tooltip.DELAY*.6)
+ assert(tip and tip.id=='w:gold' and tip.spec.title=='Gold','the gold tooltip did not show after the delay')
+ onScreen(tip,'the gold');assert(not inside(tip,px,py),'the gold tooltip covers the pointer')
+ capture('tooltip-gold',function() app:draw() end)
+ at(440,20);tip=frame(0.05)
+ assert(tip and tip.id=='w:food','moving to the next readout did not show its tooltip at once')
+ at(60,20);frame(0);assert(not frame(Tooltip.GRACE+.1),'a tooltip lingered')
+ at(470,20);assert(not frame(0),'the grace outlived its window')
+ -- Near the bottom-right corner the panel flips to stay on screen.
+ local big={title='Corner',lines={string.rep('word ',60)},costs={{key='gold',label='gold',amount=999,available=1,short=true}}}
+ local layout=Tooltip.layout(big,app.fonts.small,app.fonts.body)
+ assert(layout.width<=Tooltip.MAX_WIDTH,'a long tooltip grew past its width')
+ local x,y=Tooltip.place(layout,nil,{w=w,h=h,top=44},w-2,h-2)
+ assert(x>=4 and y>=44 and x+layout.width<=w-4 and y+layout.height<=h-4,'a corner tooltip left the screen')
+ -- On a screen too narrow to flip into, it is pushed back on rather than off the left edge.
+ x,y=Tooltip.place(layout,nil,{w=layout.width+40,h=h,top=44},layout.width/2,50)
+ assert(x>=4 and x+layout.width<=layout.width+36 and y>=44,'a tooltip on a narrow screen left it')
+ -- A modal takes the pointer: the hero button under the pause panel keeps no tooltip.
+ local hero=assert(item('hero'),'the hero button is missing')
+ at(hero.x+5,hero.y+5);frame(0);frame(1);assert(app.widgets.shownTip and app.widgets.shownTip.id=='w:hero','the hero button had no tooltip')
+ app.overlay='pause';tip=frame(1);assert(not tip,'a tooltip from under the pause panel showed through it');app.overlay=nil
+ -- The world: after the delay, what the pointer rests on. Nothing while dragging a box.
+ at(w/2,h/2-100);frame(1)
+ local unit=app:entity(workers[1])
+ app.hoverId=unit.id;assert(not frame(0),'the world tooltip showed with no delay')
+ tip=frame(Tooltip.DELAY+.05)
+ assert(tip and tip.id=='e:'..unit.id and tip.spec.title=='Worker' and tip.spec.subtitle=='Yours','the world tooltip did not describe the unit')
+ onScreen(tip,'the world')
+ capture('tooltip-world',function() app:draw() end)
+ app.drag={x=0,y=0};assert(not frame(0),'the world tooltip showed during a box drag');app.drag=nil
+ local mine;for _,e in ipairs(app.view.entities) do if e.category=='node' then mine=e;break end end
+ if mine then assert(Tooltip.entity(app,mine).title=='Gold mine','a gold mine was not named') end
+ -- Only what a view carries: an enemy hero's experience is private, so no level is shown.
+ local ownHero=app:entity(app.view.player.hero)
+ assert(Tooltip.entity(app,ownHero).title:find('level'),'your own hero tooltip lost its level')
+ local enemy={kind=ownHero.kind,owner=2,category='unit',alive=true,hp=10,maxHp=20}
+ local spec=Tooltip.entity(app,enemy)
+ assert(not spec.title:find('level') and spec.subtitle=='Enemy','the enemy tooltip claimed private detail')
+ app.hoverId=nil;app.selected={};love.mouse.getPosition=realPosition;app.clock=clock
+ assert(Sim.serializeCanonical(app.world)==state,'tooltips changed the simulation')
+end
 return T

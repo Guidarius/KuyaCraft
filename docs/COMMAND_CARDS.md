@@ -25,3 +25,30 @@ Selection, menu navigation, movement, attack orders, building orders, cancellati
 - Generated evidence: `artifacts/command-card-unit.log`, `command-card-rendered.log`, `ui-build-card-<width>.png`, `ui-ability-card-<width>.png` and `ui-mixed-card-<width>.png`.
 
 Static captures are visually reviewed. Subjective audio mix, continuous play feel and two-PC multiplayer remain human checks. No authoritative gameplay code or balance definitions change in this delivery; the full long-running gameplay/performance suites are not rerun for these presentation changes.
+
+## Tooltips
+
+`src/ui/tooltip.lua` builds and draws every tooltip; `src/ui/widgets.lua` decides which one is
+showing. The rules:
+
+- **Command card: at once, above the card.** The panel's bottom-right corner sits just above the
+  card, so sweeping the pointer across the buttons swaps the text in place, as in Warcraft 3.
+- **Everything else waits 0.35 s, then sits beside the pointer**: the resource bar, the hero
+  panel, the minimap, selection tiles, the production queue, alerts, menu buttons, and whatever
+  the pointer rests on in the world. After a tooltip has shown, the next one within 0.4 s
+  shows at once.
+- **Order of rows:** title and hotkey; whose it is or its tier; why it is unavailable (red);
+  what it does; stats (dim); costs, each red with what you have when it is short. A learned
+  hero upgrade is green, not an error.
+- **Placement:** the panel never covers the pointer and never leaves the screen. It flips left
+  or up at an edge and is pushed back on when even that is not enough.
+- **Hidden** while dragging a selection box, panning, dragging the minimap, or placing a
+  building. A modal panel (pause, settings, upgrade choice) clears anything under it.
+- **World tooltips only show what the view carries.** An enemy hero's experience is private, so
+  its level is not shown.
+- Build and train tooltips take their stats and purposes from content (`Tooltip.statsFor`,
+  `Tooltip.purpose`), so they cannot drift from the rules. Spell tooltips show cooldown and
+  range, with how to aim on a dim line; the mana cost is in the cost row only.
+
+A widget can pass a full spec as its `tip` instead of a string; see the comment at the top of
+`src/ui/tooltip.lua`.

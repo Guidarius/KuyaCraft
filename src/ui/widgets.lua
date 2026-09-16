@@ -1,10 +1,11 @@
+local Tooltip=require('src.ui.tooltip')
 local W={}
 function W.create() return setmetatable({items={}}, {__index=W}) end
-function W:begin(scale) self.items={};self.scale=scale or 1;self.hover=nil end
+function W:begin(scale) self.items={};self.scale=scale or 1;self.hover=nil;self.hoverRegion=nil end
 function W:button(id,label,x,y,w,h,action,reason,tip,icon,details)
  local g=love.graphics;local mx,my=love.mouse.getPosition();mx=mx/self.scale;my=my/self.scale
  local over=mx>=x and mx<x+w and my>=y and my<y+h
- local item={id=id,x=x,y=y,w=w,h=h,action=action,reason=reason,label=label,tip=tip,details=details};self.items[#self.items+1]=item
+ local item={id=id,x=x,y=y,w=w,h=h,action=action,reason=reason,label=label,tip=tip,details=details,anchor=self.anchor};self.items[#self.items+1]=item
  if over then self.hover=item end
  g.setColor(reason and .1 or over and .22 or .12,reason and .13 or over and .27 or .17,reason and .14 or over and .27 or .19);g.rectangle('fill',x,y,w,h,4)
  g.setColor(.47,.41,.27,reason and .35 or .8);g.rectangle('line',x,y,w,h,4)
@@ -34,20 +35,37 @@ function W:click(x,y)
  for i=#self.items,1,-1 do local b=self.items[i];if x>=b.x and x<b.x+b.w and y>=b.y and y<b.y+b.h then if not b.reason and b.action then b.action() end;return true,b.reason,b end end
  return false
 end
-function W:tooltip(width,height)
- local b=self.hover;if not b then return end
- local g=love.graphics;local costs=b.details and b.details.costs or {}
- local body=b.tip or '';if b.reason then body=b.reason..(body~='' and ('\n'..body) or '') end
- if body=='' and #costs==0 then return end
- local _,lines=g.getFont():getWrap(body,280);local heightNeeded=40+#lines*g.getFont():getHeight()+#costs*18
- local mx,my=love.mouse.getPosition();local x=math.max(4,math.min(mx/self.scale+12,width-310));local y=math.max(42,math.min(my/self.scale-heightNeeded-10,height-heightNeeded-4))
- g.setColor(.04,.06,.08,.98);g.rectangle('fill',x,y,300,heightNeeded,4)
- g.setColor(.94,.9,.75);g.print(b.label,x+10,y+8)
- g.setColor(b.reason and 1 or .84,b.reason and .53 or .86,b.reason and .42 or .8);g.printf(body,x+10,y+28,280)
- local cy=y+32+#lines*g.getFont():getHeight()
- for _,c in ipairs(costs) do
-  if c.short then g.setColor(1,.38,.32) else g.setColor(.8,.83,.7) end
-  g.print(c.amount..' '..c.label..'  (available '..math.max(0,c.available)..')',x+10,cy);cy=cy+18
- end
+-- Hover-only areas: a readout that explains itself but does nothing when clicked. Kept apart from
+-- buttons so a click on one still reaches whatever it would have reached before.
+function W:region(id,x,y,w,h,tip)
+ local mx,my=love.mouse.getPosition();mx=mx/self.scale;my=my/self.scale
+ if mx>=x and mx<x+w and my>=y and my<y+h then self.hoverRegion={id=id,x=x,y=y,w=w,h=h,tip=tip} end
+end
+-- A modal panel takes the pointer: nothing drawn under it may keep a tooltip.
+function W:clearHover() self.hover=nil;self.hoverRegion=nil end
+-- Draws the tooltip for whatever the pointer is over. `opts` may give the command card rectangle,
+-- the top edge of the usable area, a world spec to fall back on, and `hidden` to suppress it.
+function W:tooltip(width,height,opts)
+ opts=opts or {}
+ self.tipState=self.tipState or {}
+ local clock=self.clock or (love.timer and love.timer.getTime()) or 0
+ local item=self.hover or self.hoverRegion
+ local spec,id,instant
+ if item then
+  spec=Tooltip.fromWidget(item);id='w:'..tostring(item.id or item.label)
+  -- The card answers at once; so does a widget a test or caller marks as instant.
+  instant=item.anchor=='card' or item.instant
+ elseif opts.world then spec=opts.world;id=opts.worldId end
+ if opts.hidden or not spec or not (spec.lines or spec.reason or spec.status or (spec.costs and #spec.costs>0) or (spec.stats and #spec.stats>0)) then Tooltip.ready(self.tipState,nil,clock);self.shownTip=nil;return end
+ if not Tooltip.ready(self.tipState,id,clock,instant) then self.shownTip=nil;return end
+ local g=love.graphics
+ local font=g.getFont();local titleFont=opts.titleFont or font
+ local layout=Tooltip.layout(spec,font,titleFont)
+ local mx,my=love.mouse.getPosition();mx=mx/self.scale;my=my/self.scale
+ local x,y=Tooltip.place(layout,spec.anchor or item and item.anchor,{w=width,h=height,top=opts.top},mx,my,opts.card)
+ Tooltip.draw(spec,x,y,layout,font,titleFont)
+ g.setFont(font)
+ -- What was drawn, for tests and for anything that needs to avoid it.
+ self.shownTip={id=id,spec=spec,x=x,y=y,w=layout.width,h=layout.height}
 end
 return W

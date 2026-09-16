@@ -80,7 +80,7 @@ function T.rendered()
  for i=1,100 do feedback.notify(app,'rejected','Blocked',nil,nil,0,0) end;assert(#app.commandMarks<=16 and #app.audio.pool<=32)
  local audio=require('src.ui.audio');audio.manifest.menu.path='assets/audio/missing-test-cue.ogg';local fallback=audio.create(app.settings);audio.manifest.menu.path=nil;assert(fallback.templates.menu,'missing audio file disabled cue fallback');fallback:clear()
  -- Both drawing a disabled tooltip and feedback must leave canonical gameplay untouched.
- app:draw();app.widgets.hover={label='Cost proof',tip='Requirements',reason='Insufficient mana',details={costs=Actions.costs(app,{mana=30},{mana=10})}};app.widgets:tooltip(1280,720)
+ app:draw();app.widgets.hover={instant=true,label='Cost proof',tip='Requirements',reason='Insufficient mana',details={costs=Actions.costs(app,{mana=30},{mana=10})}};app.widgets:tooltip(1280,720);assert(app.widgets.shownTip,'the cost proof tooltip was not drawn')
  assert(Sim.serializeCanonical(app.world)==state);app:close()
  print('PASS command card: selection context, build submenu, costs, keyboard parity, hero choices, late acknowledgements, bounded feedback')
 end

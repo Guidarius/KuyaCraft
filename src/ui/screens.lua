@@ -47,7 +47,7 @@ end
 function S.overlay(app,w,h)
  local g=love.graphics;g.setColor(0,0,0,.7);g.rectangle('fill',0,0,w,h)
  -- Discard underlying hit targets while a modal panel owns input.
- app.widgets.items={}
+ app.widgets.items={};app.widgets:clearHover()
  if app.overlay=='settings' then return S.settings(app,w,h,function() app.overlay='pause' end) end
  local x,y=w/2-220,h/2-170;g.setColor(.07,.1,.12);g.rectangle('fill',x-20,y-25,480,355,6)
  if app.overlay=='upgrade' then

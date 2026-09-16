@@ -77,6 +77,7 @@ function A.list(app)
   for i,kind in ipairs({'barracks','tower','outpost','extractor'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
    add(kind,d.label,({'q',app.settings.bindings.tower or 't','e','r'})[i],function() app.building=kind;app.targeting=nil end,missing(costs),
     'Place '..d.label..'. '..(d.buildTicks/C.rules.tickRate)..' seconds. Shift queues another site. One selected worker builds each site.',costs)
+   list[#list].stats=require('src.ui.tooltip').statsFor(d,'building');list[#list].lines=require('src.ui.tooltip').purpose(kind,d)
   end
   back();return list
  elseif app.cardPage=='abilities' then
@@ -109,6 +110,7 @@ function A.list(app)
    local reason=dead or e.remaining>0 and 'Building unfinished' or #e.queue>=5 and 'Production queue full' or d.tech and not app.view.player.tech and 'Requires HQ advancement' or missing(costs)
    add('recruit-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('recruit',e.id,{unit=kind}) end,reason,
     'Train '..d.label..'; '..(d.buildTicks/C.rules.tickRate)..' seconds.'..(d.tech and ' Requires HQ advancement.' or ''),costs)
+   list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit');list[#list].lines=d.tech and {'Requires HQ advancement.'} or {}
   end
   if e.kind=='hq' then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
    add('research',e.researchRemaining and ('Advancing '..math.ceil(e.researchRemaining/20)..'s') or app.view.player.tech and 'Advanced HQ' or 'Advance HQ','t',function() app:command('research',e.id) end,
@@ -143,12 +145,12 @@ function A.list(app)
     if not reason and cost>0 and (e.mana or 0)<cost then reason='Needs '..cost..' mana' end
     local label=spec.label
     if remaining>0 then label=label..' '..math.ceil(remaining/20)..'s' end
-    local tip=(spec.tip or '')..(cost>0 and ('  Costs '..cost..' mana.') or '')
-    if spec.target=='none' then tip=tip..'  Cast where you stand.'
-    elseif spec.target=='unit' then tip=tip..'  Click a target.'
-    elseif spec.target=='direction' then tip=tip..'  Click to aim the line.'
-    else tip=tip..'  Click the ground.' end
+    local how=spec.target=='none' and 'Cast where you stand.' or spec.target=='unit' and 'Click a target.'
+     or spec.target=='direction' and 'Click to aim the line.' or 'Click the ground.'
+    local tip=(spec.tip or '')..'  '..how
     add('ability-'..id,label,spec.hotkey or '',function() Input.arm(app,'cast',id) end,reason,tip,A.costs(app,spec.cost,e));list[#list].slot=spec.slot
+    list[#list].title=spec.label;list[#list].lines={spec.tip or '',{how,{.62,.66,.62}}}
+    list[#list].stats={'Cooldown '..string.format('%g',(spec.cooldown or 0)/20)..'s',(spec.range or 0)>0 and ('Range '..string.format('%g',spec.range/256)) or nil}
    end
   end
  end
