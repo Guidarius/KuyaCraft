@@ -15,7 +15,19 @@ function T.run()
     local c={id=3,owner=1,category='unit',alive=true,x=10,y=10};v.entities[4]=c
     f:observe({},v,7);assert(#f.items==1 and f.items[1].kind=='ready')
     f:observe({},v,0);assert(#f.items==0,'rewind reset')
-    T.unobserved();T.flash();T.floatingText();T.shake();T.windup()
+    T.unobserved();T.flash();T.floatingText();T.shake();T.windup();T.selectionCue()
+end
+-- A selection reply is chosen per unit kind when the manifest has one, and falls back to the
+-- generic cue otherwise, including for a selection with no unit to name.
+function T.selectionCue()
+    local Audio=require('src.ui.audio')
+    local a=Audio.create({})
+    local heard={}
+    a.templates={select=true,['select-shield']=true}
+    a.play=function(_,name) heard[#heard+1]=name end
+    a:selected('shield');a:selected('crossbow');a:selected(nil)
+    assert(heard[1]=='select-shield','a unit with its own selection cue did not use it: '..tostring(heard[1]))
+    assert(heard[2]=='select' and heard[3]=='select','a unit without its own cue did not fall back to the generic one')
 end
 -- A swing in progress is reported as how far it has got, and forgotten once it has landed or the
 -- swinging unit is out of sight. The body leans into the blow from this.

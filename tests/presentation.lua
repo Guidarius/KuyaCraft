@@ -528,7 +528,11 @@ function T.warcraftControls(app)
   local seen=app:entity(foe.id);assert(seen,'an enemy hero moved into sight is not in the view')
   Camera.center(app,seen.x,seen.y);app:draw()
   local fx,fy=app:screen(seen.x,seen.y);fy=fy-12*app.camera.zoom
+  local selectedCue=app.audio.selected;local cueKind
+  app.audio.selected=function(self,kind,...) cueKind=kind;return selectedCue(self,kind,...) end
   app:mousepressed(fx,fy,1);app:mousereleased(fx,fy,1)
+  app.audio.selected=selectedCue
+  assert(cueKind==foe.kind,"a click-select did not ask for the selected unit's own cue")
   assert(#app.selected==1 and app.selected[1]==foe.id,'a click on an enemy did not select it alone')
   assert(#require('src.ui.actions').list(app)==0,'an inspected enemy offered commands')
   local queued=#app.queue;Input.intent(app,seen.x+256,seen.y,nil)

@@ -6,6 +6,7 @@ local function fixture()
  local audio={played={},acks={}}
  function audio:play(name) self.played[#self.played+1]=name end
  function audio:ack(kind,order) self.acks[#self.acks+1]=order end
+ function audio:selected(kind) self.played[#self.played+1]='select' end
  local app={world=w,view=Sim.view(w,1),player=1,selected={},settings={bindings={attack='a',stop='s',hold='h',build='b'}},clock=0,queue={},audio=audio}
  function app:entity(id) for _,e in ipairs(self.view.entities) do if e.id==id then return e end end end
  function app:command(kind,id,args) self.queue[#self.queue+1]={kind=kind,id=id,args=args} end

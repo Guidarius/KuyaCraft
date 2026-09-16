@@ -64,6 +64,14 @@ function A:play(name,app,x,y)
 end
 -- Most specific acknowledgement that exists: per unit kind and order, then per unit
 -- kind, then the generic cue. Faction voice lines slot in by naming alone.
+-- The selection reply, chosen the way an acknowledgement is: `select-shield` plays when the
+-- manifest has it, otherwise `select`. A unit's own selection voice then needs no code, only a
+-- manifest entry with a `path`; nothing is recorded or bundled until the user makes it.
+function A:selected(kind,app,x,y)
+ local name=kind and 'select-'..kind
+ if name and self.templates[name] then return self:play(name,app,x,y) end
+ return self:play('select',app,x,y)
+end
 function A:ack(kind,order,app,x,y)
  local names={}
  if kind and order then names[#names+1]='ack-'..kind..'-'..order end

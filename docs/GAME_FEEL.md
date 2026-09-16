@@ -21,7 +21,8 @@ Seven rules. Each one is measurable, and each already has something that enforce
    simulation later executes the order (improvement-loop iteration 1).
 3. **Anything that changes the world is visible within 200 ms and audible at most once.** Four
    ticks. Repeated notices merge; per-key cooldowns and the four-item cap bound the rest.
-4. **The camera moves only when the player moves it.** Alerts never recentre. Bookmarks, minimap
+4. **The camera moves only when the player moves it.** Alerts never recentre unless the player turned
+   on Camera to alerts. Bookmarks, minimap
    clicks and the alert key do, because the player asked.
 5. **Cosmetics never touch the simulation.** Every rendered test asserts `Sim.serializeCanonical`
    is unchanged across draws. A feel change that needs simulation state is not a feel change.
@@ -70,31 +71,53 @@ changes that need no simulation version bump, because those are reversible in on
 
 ## Backlog
 
-Ranked. Everything marked Free is presentation-only and reversible.
+Ranked, with where each item stands after the first feel pass (2026-09-16). Everything marked
+Free is presentation-only and reversible; none of it moved the simulation version. Each change
+has a check that was confirmed to fail with the change removed.
 
-| # | Change | Tier | How it is judged |
+| # | Change | Tier | Status |
 |---|---|---|---|
-| 1 | **Hit flash.** A unit that takes damage tints for 2–3 frames. The `hit` effect already exists as a hook; nothing marks the victim. | Free | Capture at the impact frame; feedback test asserts one flash per hit, none on a miss |
-| 2 | **Health bar chip.** `healthTrails` drains immediately; hold the trail 300 ms, then drain over 200 ms, so the amount lost is readable. | Free | Capture 300 ms after a hit; test asserts the trail lags the bar |
-| 3 | **Order marker by kind.** One marker for every order today. Colour and shape per kind — move, attack-move, patrol — so the player can see what they told the army to do. | Free | Captures of all three; existing acknowledgement test unchanged |
-| 4 | **Formation ghosts.** After a group order, show the assigned slots as faint dots for ~1 s. Makes the new formation behaviour legible instead of mysterious. | Free | Capture; slots come from the order, so no simulation read-back |
-| 5 | **Selection pop.** Selection rings scale 1.15 → 1.0 over 80 ms instead of appearing. | Free | Capture at 40 ms; effect count unchanged |
-| 6 | **Low-health pulse** on your own units under 30%, bounded by the effect cap. | Free | Capture; UI benchmark effect ceiling holds |
-| 7 | **Queued waypoints.** Shift-queued orders draw a faint line through their waypoints while the unit is selected. | Free | Capture with three queued orders |
-| 8 | **Unit turning.** Facing snaps between the eight sprite headings; interpolate the choice over ~100 ms so a turning unit does not flicker between frames. | Free | Capture mid-turn; watch for fighting the eight-direction art |
-| 9 | **Edge scroll curve.** Acceleration and a speed setting, matched to keyboard scrolling. | Free | UI test drives the edge for 1 s and asserts distance and no overshoot |
-| 10 | **Fog edge softening.** One-pixel feather on the fog texture; the boundary is currently a hard step. | Free | Capture; fog upload cost re-measured (it was 0.24 ms) |
-| 11 | **Minimap damage flash** when something of yours is hit off-screen. The alert system already knows. | Free | Capture; merged with the existing alert, not a second cue |
-| 12 | **Cue names per unit kind** for select, order and attack, wired but silent until the user records them. | Free | Audio stub test asserts the cue name asked for, one per action |
-| 13 | **Camera nudge on alert**, off by default, since rule 4 forbids moving the camera unasked. | Free | Setting test; default off |
-| 14 | **Attack windup anticipation.** The `windup` effect exists; give it a small scale so a swing reads before it lands. | Free | Capture at windup and impact; timing unchanged |
-| 15 | **Impact dust, footfalls, unit chatter.** | Costly | User's art and audio; wire the hooks only |
+| 1 | **Hit flash.** A unit that takes damage tints for 2–3 frames. | Free | **Already existed** before the pass: `Feedback:flashing`, drawn in `src/app.lua`. The audit that wrote this list missed it. |
+| 2 | **Health bar chip.** Hold the trail 300 ms, then drain over 200 ms, so the amount lost is readable. | Free | **Done**, batch A (0ca3aa0). Repeated hits keep the hold going for at most 1 s. |
+| 3 | **Order marker by kind.** Colour and shape per kind — move, attack-move, patrol. | Free | **Done**, batch A. The marker only changed colour for rejected orders before; it now has a colour per order and a cross for a direct attack. |
+| 4 | **Formation ghosts.** After a group order, show the assigned slots as faint dots for ~1 s. | Free | **Done**, batch A. Drawn from the orders the simulation accepted, for groups of two or more. |
+| 5 | **Selection pop.** Selection rings scale 1.15 → 1.0 over 80 ms. | Free | **Done**, batch A. |
+| 6 | **Low-health pulse** on your own units under 30%. | Free | **Done**, batch B (6882497). Drawn directly, not as an effect, so the effect cap is untouched. |
+| 7 | **Queued waypoints.** Shift-queued orders draw through their waypoints while selected. | Free | **Already existed**: the order line loop in `src/app.lua` draws the current order and every queued one. |
+| 8 | **Unit turning.** Stop a turning unit flickering between two of the eight headings. | Free | **Done**, batch B, as hysteresis rather than interpolation: a unit keeps its heading until it has turned 15° past the boundary. Interpolating between eight drawn headings would have fought the art. |
+| 9 | **Edge scroll curve.** Acceleration and a speed setting, matched to keyboard scrolling. | Free | **Done**, batch C (b08d8f4). Edge and arrow keys share one ramp (40% → 100% over 0.33 s); **Scroll speed** is Slow / Normal / Fast in Settings. |
+| 10 | **Fog edge softening.** | Free | **Done**, batch C: the fog texture is sampled linearly, a half-cell feather for no extra upload. |
+| 11 | **Minimap damage flash** when something of yours is hit off-screen. | Free | **Done**, batch C: "Your forces are under attack", one per 12-cell area, merged and cooled down like every alert, and ringed on the minimap. |
+| 12 | **Cue names per unit kind** for select, order and attack. | Free | **Done**. Orders already had `ack-<kind>-<order>` and `ack-<kind>`; batch D adds `select-<kind>`. Attacks stay on the shared `attack` cue, since a per-kind impact is item 15's art. |
+| 13 | **Camera nudge on alert**, off by default. | Free | **Done**, batch C: **Camera to alerts** in Settings, off by default. Only attacks on your hero, headquarters or forces move it. |
+| 14 | **Attack windup anticipation.** | Free | **Done**, batch B: the attacker swells by up to 7% through the windup. Timing unchanged. |
+| 15 | **Impact dust, footfalls, unit chatter.** | Costly | **Hooks only**, listed below. The assets are the user's. |
+
+Also fixed on the way: **Smart cast** was saved but never read back, so it reset on every launch.
+
+## Hooks waiting for art and audio
+
+Nothing below needs code to take effect.
+
+- **Sound files.** Any entry in `A.manifest` (`src/ui/audio.lua`) plays a file when it gains a
+  `path`; a missing or unreadable file keeps the synthesized tone.
+- **Order voices.** `ack-<kind>-<order>`, then `ack-<kind>`, then `ack`. For example
+  `ack-shield-attack`.
+- **Selection voices.** `select-<kind>`, then `select`.
+- **World cues.** `attack`, `death`, `ready`, `windup`, `alert`, `victory`, and the UI cues
+  `click`, `accepted`, `rejected`.
+- **Effects.** `src/feedback.lua` already raises `hit`, `tracer`, `windup`, `death`, `revived`,
+  `healed`, `constructed`, `upgraded` and `ready` at the right entity and tick. Impact dust and
+  footfalls belong on `hit` and on movement; chatter belongs on `select-<kind>` and `ack-<kind>`.
+- **Sprites.** Unit art comes from the asset catalog (`src/asset_catalog.lua`, loaded by
+  `src/sprites.lua`); see `tools/blender/README.md` for how a unit enters it.
 
 ## Not to do
 
 - **Hit-stop or animation-driven pauses.** The simulation runs at a fixed 20 Hz for every peer;
   freezing it for feel breaks lockstep and replays.
-- **Automatic camera moves**, including "helpfully" centring on an attack.
+- **Automatic camera moves**, including "helpfully" centring on an attack, except through the
+  opt-in setting.
 - **Placeholder assets** of any kind.
 - **Reading presentation state back into the simulation.** Nothing in `src/ui` may write to the
   world; if a feel change seems to need it, the change is wrong.

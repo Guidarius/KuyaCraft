@@ -28,7 +28,7 @@ function H.draw(app)
  Minimap.draw(app,{x=10,y=y+10,w=190,h=160})
  local hero=app:entity(p.hero);local hx=214
  if hero then
-  app.widgets:button('hero',C.units[hero.kind].label..' [F1]',hx+42,y+12,103,42,function() app.selected={hero.id};Actions.context(app);app.audio:play('select');Camera.center(app,hero.x,hero.y) end)
+  app.widgets:button('hero',C.units[hero.kind].label..' [F1]',hx+42,y+12,103,42,function() app.selected={hero.id};Actions.context(app);app.audio:selected(hero.kind);Camera.center(app,hero.x,hero.y) end)
   require('src.ui.icons').portrait(hero.kind,hx,y+12)
   text(hero.hp..' / '..hero.maxHp..' HP',hx,y+59,145);bar(hx,y+77,145,hero.hp,hero.maxHp)
   -- Experience toward the next milestone, with the level number, so progression is

@@ -1012,6 +1012,39 @@ scenario **2/2**, soak **1/1**, plus the rendered UI and presentation suites. Fo
 takeover release, the single stall report and its clearing on resume, owner-only visibility, and
 the bot's return — were each run against the previous commit and failed there.
 
+## Game feel, first pass: fourteen of fifteen backlog items — no simulation change
+
+`docs/GAME_FEEL.md` sets the standard and holds the backlog; its table now records where each
+item stands. In four batches, all presentation-only (simulation version still 18):
+
+- **A** (0ca3aa0): selection rings pop in; the health trail holds for 300 ms before draining;
+  the order marker is coloured by order kind, with a cross for a direct attack; a group order
+  shows its formation slots for a second.
+- **B** (6882497): your units under 30% health pulse; attackers lean into their windup; a unit
+  keeps its facing until it has turned 15° past a heading boundary, so it no longer flickers.
+- **C** (b08d8f4): edge and arrow scrolling share one ramp and a **Scroll speed** setting; the
+  fog edge is feathered; an attack on your units out of view raises "Your forces are under
+  attack" and rings the minimap; opt-in **Camera to alerts** (off by default). **Smart cast** is
+  now read back on launch; it was saved but always reset.
+- **D**: a selection plays `select-<kind>` when the manifest has it, otherwise `select`, from
+  both clicking and the hero button.
+
+Two backlog items, the hit flash and the queued-waypoint lines, turned out to exist already. The
+last item, impact dust, footfalls and chatter, is art and audio; its hooks are listed in the doc.
+
+Every check was confirmed against a mutation that removes its feature, in a scratch worktree:
+selection pop, trail hold, marker kind, formation ghosts, facing hysteresis, windup lookup, the
+low-health pulse, the windup lean, the scroll ramp, the scroll speed, the fog filter, the
+off-screen alert, the alert camera, smart-cast persistence, the settings buttons, the
+selection-cue lookup and its wiring. Each failed its test with the change removed. Every
+rendered check also asserts the canonical world is unchanged across draws.
+
+Verified: quick **89/89**, `scripts/test-ui.ps1` at 1280, 1920 and 2560 wide, and
+`scripts/test-presentation.ps1`.
+
+Not verified: how any of this looks and sounds to a player; that needs a playtest, and the
+selection voices need recordings.
+
 ## Making crowds cheaper: formations, backing off, and two hot loops — simulation version 18
 
 Profiling the 240-unit benchmark put 70% of a typical tick in movement (p50 9.4 ms of 13.4) and

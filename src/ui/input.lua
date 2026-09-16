@@ -330,7 +330,9 @@ function I.mousereleased(app,x,y,button)
   picked=I.boxSelect(app,math.min(x,drag.x),math.min(y,drag.y),math.max(x,drag.x),math.max(y,drag.y))
  end
  Selection.apply(app,picked,shift())
- table.sort(app.selected);Actions.context(app);app.audio:play('select')
+ table.sort(app.selected);Actions.context(app)
+ local lead=app:entity(Selection.primary(app) or app.selected[1])
+ app.audio:selected(lead and lead.kind)
 end
 -- Keys the match loop owns and that rebinding must not be able to take away.
 local RESERVED={escape=true,tab=true,f2=true,f3=true,f4=true,f5=true,f6=true,f7=true,f8=true,f10=true,q=true,w=true,e=true,r=true,u=true,y=true}
