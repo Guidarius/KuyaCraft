@@ -197,6 +197,54 @@ test('simulation','construction completes and releases worker',function()
     step(w,400);step(clone,400)
     eq(worker.order.kind,'stop');eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
 end)
+-- A site is worked by one worker. Sending a second one takes the site over, and the first used
+-- to keep its build order for ever: standing beside a building it no longer worked on, and not
+-- counted among idle workers, so it was lost to the player.
+test('simulation','a site taken over releases the worker that held it',function()
+    local w=world(24);local first,second
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.owner==1 and e.kind=='worker' and e.alive then if not first then first=e elseif not second then second=e end end
+    end
+    step(w,1,{command(w,1,'build',first.id,{building='barracks',x=7,y=4})})
+    local site;for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==1 and e.kind=='barracks' then site=e end end
+    assert(site,'no construction site');step(w,40)
+    step(w,1,{command(w,1,'build',second.id,{building='barracks',target=site.id})})
+    eq(site.builder,second.id);eq(first.order.kind,'stop')
+    step(w,600);eq(site.remaining,0)
+end)
+-- Work stops when nobody is assigned to a site. It is announced once, not every tick, and the
+-- site stops reporting it as soon as someone takes the job.
+test('simulation','a stopped site reports once and goes quiet when work resumes',function()
+    local w=world(24);local first,second
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.owner==1 and e.kind=='worker' and e.alive then if not first then first=e elseif not second then second=e end end
+    end
+    step(w,1,{command(w,1,'build',first.id,{building='barracks',x=7,y=4})})
+    local site;for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==1 and e.kind=='barracks' then site=e end end
+    step(w,40);assert(not site.stalled,'a site with a builder on its way reported itself stopped')
+    first.alive=false;first.hp=0
+    local stalls=0
+    local function run(n) for _=1,n do for _,ev in ipairs(Sim.step(w,{})) do if ev.kind=='build_stalled' then stalls=stalls+1 end end end end
+    run(60)
+    eq(stalls,1);assert(site.stalled,'the site does not know that work stopped')
+    local remaining=site.remaining;run(40);eq(site.remaining,remaining)
+    Sim.step(w,{command(w,1,'build',second.id,{building='barracks',target=site.id})})
+    run(60);eq(stalls,1);assert(not site.stalled,'the site still reports itself stopped')
+    assert(site.remaining<remaining,'work did not resume')
+end)
+-- Whether your building has stopped is your own business: an enemy scouting it sees a site under
+-- construction, not that nobody is working on it.
+test('simulation','a stopped site is owner-only knowledge',function()
+    local w=world(24);local worker=find(w,1,'worker')
+    step(w,1,{command(w,1,'build',worker.id,{building='barracks',x=7,y=4})})
+    local site=find(w,1,'barracks');assert(site,'no construction site')
+    step(w,40);worker.alive=false;worker.hp=0;step(w,5)
+    local mine,theirs
+    for _,e in ipairs(Sim.view(w,1).entities) do if e.id==site.id then mine=e end end
+    for _,e in ipairs(Sim.view(w,2).entities) do if e.id==site.id then theirs=e end end
+    assert(mine and mine.stalled,'the owner cannot see that work stopped')
+    if theirs then assert(theirs.stalled==nil,'an enemy can see that work stopped');assert(theirs.remaining>0,'an enemy cannot see the site at all') end
+end)
 test('unit','state diagnostics identify subsystem paths',function()
     local differences=require('src.diagnostics').diff({tick=5,players={{gold=10}}},{tick=5,players={{gold=9}}})
     eq(#differences,1);eq(differences[1].path,'/players/1/gold')

@@ -14,7 +14,7 @@ function A:observe(events,app)
   elseif v.kind=='death' and v.entity==app.view.player.hero then self:add('hero-death','Hero lost - revive at headquarters',v.x,v.y,app)
   elseif v.kind=='captured' then self:add('captured'..v.point..':'..v.capturedBy,v.capturedBy==app.player and 'Control point captured' or 'Control point taken by the enemy',v.x,v.y,app)
   elseif v.kind=='control_started' then self:add('control'..v.holder,v.holder==app.player and 'You hold both control points' or 'Enemy holds both control points - retake one',nil,nil,app)
-  elseif own and (v.kind=='constructed' or v.kind=='production_blocked' or v.kind=='blocked') then self:add(v.kind..v.entity,({constructed='Construction complete',production_blocked='Production exit blocked',blocked='Order blocked'})[v.kind],v.x,v.y,app) end
+  elseif own and (v.kind=='constructed' or v.kind=='build_stalled' or v.kind=='production_blocked' or v.kind=='blocked') then self:add(v.kind..v.entity,({constructed='Construction complete',build_stalled='Construction stopped - send a worker back',production_blocked='Production exit blocked',blocked='Order blocked'})[v.kind],v.x,v.y,app) end
  end
  local hero=app:entity(app.view.player.hero)
  if hero then for i,t in ipairs(require('src.content').rules.xpThresholds) do if hero.xp>=t and not hero.upgrades[i] and not self.pending[i] then self.pending[i]=true;self:add('upgrade','Hero upgrade available',hero.x,hero.y,app) end end end

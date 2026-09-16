@@ -230,5 +230,22 @@ function B.register(test)
   near.owner=2;far.owner=2;w.control.holder=2
   tx,ty=target();assert(tx==near.x and ty==near.y,'the bot did not retake the nearest point of an enemy hold')
  end)
+ -- A site whose worker died keeps the gold it cost and finishes never. The bot used to walk
+ -- past it for the rest of the match.
+ test('unit','bot: sends a worker back to a site whose builder died',function()
+  local Bot=require('src.bot')
+  local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,require('src.maps').create())
+  local site=building(w,'barracks',12,30);site.remaining=200;site.builder=nil
+  w.tick=6000
+  local function target()
+   for _,c in ipairs(Bot.commands(Sim.view(w,1),C)) do if c.kind=='build' and c.args.target==site.id then return c end end
+  end
+  assert(not target(),'the bot went to a site that has not reported itself stopped')
+  site.stalled=true
+  local resume=target();assert(resume,'the bot ignored a stopped site')
+  local worker=w.entities[resume.args.entity];eq(worker.kind,'worker')
+  site.remaining=0;site.stalled=nil
+  assert(not target(),'the bot kept sending workers to a finished building')
+ end)
 end
 return B

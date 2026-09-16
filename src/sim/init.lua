@@ -41,7 +41,10 @@ local Control=require('src.sim.control')
 -- are pushed apart by 8 subunits a tick. A congested unit no longer restarts a detour search
 -- that is still running, and keeps walking its old path meanwhile. Fixes crowds deadlocking in
 -- narrow gaps; crowd results change.
-local Sim = { VERSION = 14 }
+-- Version 15: a site records that it has stopped (no builder assigned) and emits build_stalled
+-- once when it does; taking a site over releases the previous builder instead of leaving it
+-- standing on a build order for ever.
+local Sim = { VERSION = 15 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -293,12 +296,12 @@ end
 local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
     'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
-    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine',
+    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine','stalled',
     'mana','maxMana',
     -- A shot in flight carries its heading so the renderer can point it the right way.
     'dx','dy','ability'}
 -- Fields an observer may only see on entities it owns.
-local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','payload','mine'}
+local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','payload','mine','stalled'}
 local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
 local function shallow(t) local out={};for key,value in pairs(t) do out[key]=value end;return out end
 local function shallowArray(t) local out={};for i=1,#t do out[i]=shallow(t[i]) end;return out end
@@ -584,6 +587,11 @@ local function apply(w,c)
         if a.target then
             local site=w.entities[a.target]
             if not site or not site.alive or site.owner~=e.owner or site.category~='building' or site.remaining<=0 then reject(w,c,'invalid site'); return end
+            -- Taking a site over releases whoever held it: a worker whose site was taken used to
+            -- keep its build order for ever, standing beside a building it no longer worked on
+            -- and never counting as idle.
+            local previous=w.entities[site.builder]
+            if previous and previous.id~=e.id and previous.alive and previous.order.kind=='build' and previous.order.target==site.id then nextOrder(w,previous) end
             site.builder=e.id;setOrder(w,e,{kind='build',target=site.id},a.append);return
         end
         local view=Sim.view(w,c.player)
@@ -791,7 +799,13 @@ local function economy(w)
                 if e.researchRemaining then e.researchRemaining=e.researchRemaining-1;if e.researchRemaining==0 then e.researchRemaining=nil;w.players[e.owner].tech=true;emit(w,'researched',{entity=e.id}) end end
                 if e.remaining>0 then
                     local builder=w.entities[e.builder]
-                    if builder and builder.alive and builder.order.kind=='build' and builder.order.target==e.id and approachTarget(w,builder,e,400) then e.remaining=e.remaining-1;if e.healthCapacity then local capacity=math.ceil(d.hp/10)+math.floor((d.hp-math.ceil(d.hp/10))*(d.buildTicks-e.remaining)/d.buildTicks);e.hp=e.hp+capacity-e.healthCapacity;e.healthCapacity=capacity end; if e.remaining==0 then nextOrder(w,builder);emit(w,'constructed',{entity=e.id}) end end
+                    -- Assigned is not the same as at work: a builder still walking to its site is
+                    -- on its way, not stopped. A site nobody is assigned to has stopped, and says
+                    -- so once, so the player can be told and the bot can send someone back.
+                    local assigned=builder and builder.alive and builder.order.kind=='build' and builder.order.target==e.id
+                    if not assigned and not e.stalled then e.stalled=true;emit(w,'build_stalled',{entity=e.id})
+                    elseif assigned and e.stalled then e.stalled=nil end
+                    if assigned and approachTarget(w,builder,e,400) then e.remaining=e.remaining-1;if e.healthCapacity then local capacity=math.ceil(d.hp/10)+math.floor((d.hp-math.ceil(d.hp/10))*(d.buildTicks-e.remaining)/d.buildTicks);e.hp=e.hp+capacity-e.healthCapacity;e.healthCapacity=capacity end; if e.remaining==0 then e.stalled=nil;nextOrder(w,builder);emit(w,'constructed',{entity=e.id}) end end
                 elseif #e.queue>0 then
                     local q=e.queue[1]; q.remaining=math.max(0,q.remaining-1)
                     if q.remaining==0 then

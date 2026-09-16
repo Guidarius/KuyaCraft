@@ -977,6 +977,41 @@ Verified:
   parking on owned points, and retaking an enemy hold.
 - quick **75/75**; balance **4/4** with both replays re-verified.
 
+## Construction: stopping, resuming and being told — simulation version 15
+
+A building site is worked by one worker, and work stops if that worker dies, is given another
+order, or is replaced. Resuming already worked — right-clicking a site with a worker sends it
+back, and progress, health capacity and damage taken were all kept correctly — but three things
+around it did not.
+
+| Behaviour, measured on a real match world | Before | After |
+|---|---|---|
+| A site stalls when its builder dies or is pulled away | held | held |
+| Another worker resumes it, keeping progress and damage | held | held |
+| The replaced worker is released | **kept its build order for ever** | becomes idle |
+| The player is told work stopped | **nothing at all** | alert and selection text |
+| The bot returns to a site whose builder died | **never; 1,079 of 1,200 left after 900 ticks** | finished it: 197 left |
+
+- **Taking a site over releases whoever held it.** A worker whose site was taken kept a `build`
+  order for ever: standing beside a building it no longer worked on, not counted among idle
+  workers, effectively lost to the player.
+- **A site records that it has stopped** (`stalled`) when nobody is assigned, and emits
+  `build_stalled` once. A builder still walking to its site is on its way, not stopped. The flag
+  clears when someone takes the job, and on completion.
+- **The player is told**: the alert reads "Construction stopped - send a worker back", and a
+  selected site reads "construction stopped" rather than "under construction". This is owner-only
+  knowledge: an enemy scouting the site still sees only that it is under construction.
+- **The bot sends its nearest free worker back** to a stopped site before starting anything new,
+  rather than leaving a half-built building and its spent gold for the rest of the match.
+
+Bot matches are unchanged (mirror 9:38, asymmetric 8:17, both player 1 by control): no site stalls
+in either, so the new rule never fires there.
+
+Verified: quick **87/87**, crowd **20/20**, balance **4/4**, determinism **5/5**, network **4/4**,
+scenario **2/2**, soak **1/1**, plus the rendered UI and presentation suites. Four new tests — the
+takeover release, the single stall report and its clearing on resume, owner-only visibility, and
+the bot's return — were each run against the previous commit and failed there.
+
 ## Terrain: Tiled map authoring and a drawn ground
 
 The ground used to be the minimap's one-pixel-per-cell canvas stretched over the world, in three

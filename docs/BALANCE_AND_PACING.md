@@ -139,7 +139,7 @@ unchanged from the two-resource profile.
 | HQ advancement | 600 | 100 | 2,000 | unchanged | unchanged |
 | Gold mine | — | — | — | resource | 3×3 |
 
-One worker builds a site; no multi-worker acceleration. Construction time begins while the assigned worker is in work range. A site reserves its entire footprint immediately, starts at 10% health capacity, and gains capacity with progress. Damage persists through construction; finishing does not heal away damage already taken.
+One worker builds a site; no multi-worker acceleration. Construction time begins while the assigned worker is in work range. A site reserves its entire footprint immediately, starts at 10% health capacity, and gains capacity with progress. Damage persists through construction; finishing does not heal away damage already taken. Work stops whenever no worker is assigned — the builder died, took another order, or was replaced — and the site says so once (`build_stalled`, raised as an alert); progress and damage are kept. Right-clicking a stopped site with a worker resumes it from where it stopped, and sending a second worker to a site takes it over and releases the first, which becomes idle rather than standing on a job it no longer has. The bot sends its nearest free worker back to a stopped site before starting anything new.
 
 Construction cancellation refunds 50%. An unstarted production item refunds 100%; an item already training refunds 50%. HQ advancement uses a separate timer, grants one permanent player flag on completion, and refunds 50% on cancellation. Losing a researching HQ ends that player's participation. All war halls check the same completed advancement flag.
 

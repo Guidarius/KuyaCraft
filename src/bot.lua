@@ -70,6 +70,19 @@ function B.commands(view,C)
  -- Earlier than it used to be: an outpost is no longer just ground, it shortens a
  -- carrier route and is the only way to make a distant mine pay full rate.
  local wantExpansion=view.tick>=4800 and #outposts==0
+ -- A site whose worker died stays half-built for ever with its gold already spent, so the
+ -- nearest free worker goes back to it before anything new is started.
+ local stalled,stalledDistance
+ for _,e in ipairs(view.entities) do
+  if e.owner==owner and e.alive and e.category=='building' and (e.remaining or 0)>0 and e.stalled then
+   local distance=F.sq(e.x-hq.x)+F.sq(e.y-hq.y)
+   if not stalledDistance or distance<stalledDistance then stalled=e;stalledDistance=distance end
+  end
+ end
+ if stalled then
+  local builder;for _,e in ipairs(workers) do if e.order.kind~='build' and not used[e.id] then builder=e;break end end
+  if builder then used[builder.id]=true;add('build',builder,{building=stalled.kind,target=stalled.id}) end
+ end
  if #halls==0 then build('barracks',hx,hy)
  elseif wantTech and afford(C.rules.tech.cost) then spend(C.rules.tech.cost);add('research',hq)
  elseif wantExpansion and afford(C.buildings.outpost.cost) then

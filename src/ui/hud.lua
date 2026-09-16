@@ -136,7 +136,7 @@ function H.inspect(app,e,x,y,width)
  if e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.45,.38) end
  g.printf((e.owner==0 and 'Neutral  ' or 'Enemy  ')..name,x,y+35,width)
  if e.category=='node' then text((e.amount or 0)..' gold remaining',x,y+60,width);return end
- text(e.hp..' / '..e.maxHp..' HP'..((e.remaining or 0)>0 and '   under construction' or ''),x,y+60,width)
+ text(e.hp..' / '..e.maxHp..' HP'..((e.remaining or 0)>0 and (e.stalled and '   construction stopped' or '   under construction') or ''),x,y+60,width)
  bar(x,y+80,math.min(width-8,240),e.hp,e.maxHp)
  if e.maxMana then text('Mana '..(e.mana or 0)..' / '..e.maxMana,x,y+104,width) end
  if not d then return end
