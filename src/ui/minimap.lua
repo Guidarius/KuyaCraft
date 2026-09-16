@@ -10,9 +10,9 @@ local M={}
 -- key to build a change signature, then cleared a canvas and drew one rectangle for every
 -- unseen cell -- 36,864 on Twin Marches -- on almost every tick anything moved.
 --
--- Levels: 0 visible, 1 explored, 2 never seen. A cell only becomes explored by being
--- visible, so the incremental pass is exact; a map change or a change of perspective
--- (replays switch player) rebuilds every pixel once.
+-- Levels: 0 visible, 1 explored, 2 never seen. Incremental updates require consecutive
+-- ticks: catch-up or fast replay can reveal and hide cells between draws. Rebuild after
+-- skipped ticks, a rewind, a map change or a change of perspective.
 local FOG_ALPHA={[0]=0,[1]=.6,[2]=.96}
 local function fogPixel(cache,key,level)
  local width=cache.width
@@ -82,8 +82,9 @@ function M.cache(app)
   cache.player=app.player;cache.fogVisible=app.view.player.visible;cache.tick=app.view.tick
   rebuildFog(cache,app.view.player)
  elseif cache.tick~=app.view.tick then
+  local consecutive=app.view.tick==cache.tick+1
   cache.tick=app.view.tick
-  updateFog(cache,app.view.player)
+  if consecutive then updateFog(cache,app.view.player) else rebuildFog(cache,app.view.player) end
  end
  return cache
 end
