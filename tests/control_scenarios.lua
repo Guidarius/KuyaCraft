@@ -111,6 +111,52 @@ function S.travel(w,e,goalX,goalY)
     return walked,direct,last
 end
 function S.register(test)
+    test('simulation','formation slots belong to each command, not the entity',function()
+        for _,append in ipairs({true,false}) do
+            local w=S.world(64)
+            local a=S.unit(w,'worker',1,10,10);local b=S.unit(w,'worker',1,12,10)
+            Sim.step(w,{
+                S.command(w,a,'move',{x=F.center(25),y=F.center(25),group=1},1),
+                S.command(w,b,'move',{x=F.center(25),y=F.center(25),group=1},2),
+                S.command(w,a,'move',{x=F.center(45),y=F.center(45),group=2,append=append},3),
+                S.command(w,b,'move',{x=F.center(45),y=F.center(45),group=2,append=append},4)})
+            for _,e in ipairs({a,b}) do
+                if append then assert(e.order.x<30 and e.order.y<30,'first move borrowed the second formation') end
+                local order=append and e.orders[1] or e.order
+                assert(order and order.x>40 and order.y>40,'second move borrowed the first formation')
+            end
+            local clone=Sim.restore(Sim.snapshot(w))
+            for _=1,600 do Sim.step(w,{});Sim.step(clone,{}) end
+            assert(Sim.serializeCanonical(w)==Sim.serializeCanonical(clone),'formation queue did not survive restore')
+        end
+    end)
+    test('simulation','rejected commands cannot shift an accepted formation',function()
+        local cases={
+            function(c) c.sequence=1 end,
+            function(c) c.tick=c.tick+1 end,
+            function(c) c.args.x=64*256 end,
+            function(c) c.args.append='bad' end,
+            function(c) c.args.group='7' end,
+        }
+        for _,invalidate in ipairs(cases) do
+            local w=S.world(64)
+            local a=S.unit(w,'worker',1,10,10);local b=S.unit(w,'worker',1,20,10)
+            w.players[1].sequence=1
+            local bad=S.command(w,b,'move',{x=F.center(30),y=F.center(30),group=7},2)
+            invalidate(bad)
+            Sim.step(w,{bad,S.command(w,a,'move',{x=F.center(30),y=F.center(30),group=7},3)})
+            assert(a.order.x==30 and a.order.y==30,'rejected command shifted the destination')
+            assert(b.order.kind=='stop','invalid command was accepted')
+        end
+        -- Even a rejected ownership command consumes its sequence. A later duplicate must
+        -- not join the formation just because its envelope and entity are otherwise valid.
+        local w=S.world(64);local a=S.unit(w,'worker',1,10,10);local b=S.unit(w,'worker',1,20,10)
+        Sim.step(w,{
+            {tick=1,player=1,sequence=1,kind='move',args={entity=99999,x=0,y=0}},
+            S.command(w,b,'move',{x=F.center(30),y=F.center(30),group=7},1),
+            S.command(w,a,'move',{x=F.center(30),y=F.center(30),group=7},2)})
+        assert(a.order.x==30 and a.order.y==30,'duplicate sequence shifted formation')
+    end)
     for _,n in ipairs({1,10,50,100}) do test('crowd','open destination '..n,function() S.crowd(n,false) end) end
     -- Open ground: one unit, nothing in the way, a diagonal that A* has to express as a
     -- staircase of cell steps. Walking that staircase literally costs about 8% over the

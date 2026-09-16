@@ -62,6 +62,12 @@ function T.run(app)
   app:update(.05);fogAgrees('hero scouting far out')
   hero.x,hero.y=homeX,homeY
   app:update(.05);fogAgrees('hero back home')
+  -- Several simulation ticks can pass between draws (catch-up and accelerated replay).
+  -- Reveal a fresh patch and leave it without letting the renderer sample that visibility.
+  hero.y=math.min(map.height-2,math.floor(homeY/256)+24)*256+128
+  app:update(.05)
+  hero.x,hero.y=homeX,homeY
+  app:update(.05);fogAgrees('exploration between rendered frames')
   local saved=app.player
   app.player=2;app.view=Sim.view(app.world,2);fogAgrees('player two')
   app.player=saved;app.view=Sim.view(app.world,saved);fogAgrees('back to player one')

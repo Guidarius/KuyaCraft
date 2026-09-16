@@ -200,6 +200,35 @@ end)
 -- A site is worked by one worker. Sending a second one takes the site over, and the first used
 -- to keep its build order for ever: standing beside a building it no longer worked on, and not
 -- counted among idle workers, so it was lost to the player.
+test('simulation','queued construction takes over only when it becomes active',function()
+    local w=world(24);local workers={}
+    for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==1 and e.kind=='worker' then workers[#workers+1]=e end end
+    local first,second=workers[1],workers[2]
+    step(w,1,{command(w,1,'build',first.id,{building='barracks',x=7,y=4})})
+    local site=find(w,1,'barracks');assert(site)
+    step(w,1,{command(w,1,'move',second.id,{x=15*256+128,y=15*256+128})})
+    step(w,1,{command(w,1,'build',second.id,{target=site.id,append=true})})
+    eq(site.builder,first.id);eq(first.order.kind,'build');eq(second.order.kind,'move')
+    local clone=Sim.restore(Sim.snapshot(w));local transferred=false
+    for _=1,800 do
+        Sim.step(w,{});Sim.step(clone,{})
+        if second.order.kind=='build' then
+            transferred=true;eq(site.builder,second.id);eq(first.order.kind,'stop')
+        end
+    end
+    assert(transferred,'queued builder never took over');eq(site.remaining,0)
+    eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
+    -- Hold does not finish by itself, so a build queued behind it must never release
+    -- the active builder or steal the site, even while ticks continue.
+    local v=world(24);local a=find(v,1,'worker');local b
+    for _,id in ipairs(v.order) do local e=v.entities[id];if e.owner==1 and e.kind=='worker' and e.id~=a.id then b=e end end
+    step(v,1,{command(v,1,'build',a.id,{building='barracks',x=7,y=4})})
+    local target=find(v,1,'barracks')
+    step(v,1,{command(v,1,'hold',b.id,{})})
+    step(v,1,{command(v,1,'build',b.id,{target=target.id,append=true})})
+    eq(target.builder,a.id);eq(a.order.kind,'build');eq(b.order.kind,'hold')
+    step(v,800);eq(target.remaining,0);eq(b.order.kind,'hold')
+end)
 test('simulation','a site taken over releases the worker that held it',function()
     local w=world(24);local first,second
     for _,id in ipairs(w.order) do local e=w.entities[id]
