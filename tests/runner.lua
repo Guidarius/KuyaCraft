@@ -245,6 +245,40 @@ test('simulation','a stopped site is owner-only knowledge',function()
     assert(mine and mine.stalled,'the owner cannot see that work stopped')
     if theirs then assert(theirs.stalled==nil,'an enemy can see that work stopped');assert(theirs.remaining>0,'an enemy cannot see the site at all') end
 end)
+-- A site can be destroyed under the worker building it. The worker has nothing left to do and
+-- must be freed, rather than standing on an order pointing at rubble.
+test('simulation','a worker is released when the site under it is destroyed',function()
+    local w=world(24);local worker=find(w,1,'worker')
+    step(w,1,{command(w,1,'build',worker.id,{building='barracks',x=7,y=4})})
+    local site=find(w,1,'barracks');assert(site,'no construction site')
+    step(w,40);eq(worker.order.kind,'build')
+    -- Well past zero: a site being built gains health every tick from its own progress.
+    site.hp=-1000;step(w,3)
+    assert(not site.alive,'the site survived being destroyed');eq(worker.order.kind,'stop')
+end)
+-- Carriers are the gold on the road between an extractor and its drop-off. When a raid kills the
+-- extractor, the carriers it sent out have no route and no one to pay: they used to stand there
+-- alive for the rest of the match, holding gold nobody could collect and drawn on the minimap.
+test('simulation','carriers are retired when their extractor is destroyed',function()
+    local m=Maps.create('extract',20);m.resources={{x=6,y=6,resource='gold',amount=1000000,size=3}};m.camps={}
+    local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
+    local worker=find(w,1,'worker')
+    step(w,1,{command(w,1,'build',worker.id,{building='extractor',x=6,y=6})})
+    local site=find(w,1,'extractor');assert(site,'extractor rejected on a mine')
+    step(w,Content.buildings.extractor.buildTicks+300)
+    local flying=0
+    for _,id in ipairs(w.order) do local c=w.entities[id];if c.alive and c.category=='carrier' then flying=flying+1 end end
+    assert(flying>0,'no carriers were on the road to strand')
+    local gold=w.players[1].resources.gold
+    site.hp=-1000;step(w,60)
+    assert(not site.alive,'the extractor survived')
+    local left=0
+    for _,id in ipairs(w.order) do local c=w.entities[id];if c.alive and c.category=='carrier' then left=left+1 end end
+    eq(left,0,'carriers still on the road '..flying..' were in flight')
+    -- One delivery may land on the same tick the extractor dies; nothing may arrive after that.
+    assert(w.players[1].resources.gold-gold<=(Content.rules.carrierPayload or 8),
+        'a stranded carrier still paid: '..(w.players[1].resources.gold-gold))
+end)
 test('unit','state diagnostics identify subsystem paths',function()
     local differences=require('src.diagnostics').diff({tick=5,players={{gold=10}}},{tick=5,players={{gold=9}}})
     eq(#differences,1);eq(differences[1].path,'/players/1/gold')

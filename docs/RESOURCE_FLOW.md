@@ -24,6 +24,9 @@ Lumber is removed entirely. There is one resource.
 4. The carrier walks a cached route to the nearest friendly drop-off, uncontrollable.
 5. On arrival it despawns and its gold is credited. It never returns.
 6. The mine's amount falls as carriers are emitted; an exhausted mine stops.
+7. Killing a carrier on the road destroys the gold it carries, and destroying the extractor
+   retires every carrier it had on the road, losing their gold with it: a raid on a supply
+   line pays off immediately, and no carrier is left walking a route that no longer exists.
 
 Carriers are killable. Killing one **destroys** the gold rather than transferring it —
 stealing compounds a lead, denial only punishes.

@@ -44,7 +44,9 @@ local Control=require('src.sim.control')
 -- Version 15: a site records that it has stopped (no builder assigned) and emits build_stalled
 -- once when it does; taking a site over releases the previous builder instead of leaving it
 -- standing on a build order for ever.
-local Sim = { VERSION = 15 }
+-- Version 16: a carrier whose extractor is gone is retired where it stands and its load is lost,
+-- instead of standing alive for the rest of the match holding gold nobody can collect.
+local Sim = { VERSION = 16 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -727,6 +729,13 @@ local function deliver(w,carrier)
     carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
     emit(w,'delivered',{entity=carrier.id,amount=amount,resource='gold'})
 end
+-- A carrier whose extractor is gone has nowhere to deliver and no route to walk: it came out of
+-- a mine that no longer exists. It is retired where it stands and its load is lost, exactly like
+-- a carrier killed on the road. Before this it stood still for the rest of the match, alive,
+-- holding gold nobody could ever collect.
+local function strand(w,carrier)
+    carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
+end
 -- Extractors emit. Income is bounded two ways: never more often than carrierEmitTicks,
 -- and never more than carrierSlots deliveries in flight, which is what makes a distant
 -- mine pay less and also caps how many carrier entities can exist.
@@ -818,7 +827,8 @@ local function economy(w)
                     end
                 end
             elseif e.category=='carrier' and e.alive then
-                Carriers.advance(w,e,deliver)
+                local source=w.entities[e.source]
+                if not source or not source.alive then strand(w,e) else Carriers.advance(w,e,deliver) end
             end
         end
     end

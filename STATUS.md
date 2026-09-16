@@ -1012,6 +1012,36 @@ scenario **2/2**, soak **1/1**, plus the rendered UI and presentation suites. Fo
 takeover release, the single stall report and its clearing on resume, owner-only visibility, and
 the bot's return — were each run against the previous commit and failed there.
 
+## Basics swept: production, queued builds, hold, and carriers without an extractor
+
+A probe drove each of these on a real match world rather than reading the code, because most of
+them had no test at all.
+
+| Basic | Result |
+|---|---|
+| A queued second building is placed at once, and still built after the first is cancelled | held |
+| A unit on hold attacks what comes into range | held (7 attacks) |
+| A unit on hold never leaves its ground | held (moved 0 subunits) |
+| A worker is released when the site under it is destroyed | held; now has a test |
+| A destroyed extractor stops paying | held |
+| **Carriers whose extractor is destroyed** | **stood alive for the rest of the match** |
+
+**Carriers are now retired when their extractor dies**, and their gold is lost, exactly as a
+carrier killed on the road destroys its load. Eight carriers holding 64 gold used to stand still
+for ever: alive, drawn on the minimap, counted in every per-entity pass, and never able to deliver,
+because their route came from a building that no longer existed. Simulation version 16. Whether
+gold in flight should be lost or should finish its walk is a balance question, recorded in
+docs/RESOURCE_FLOW.md as the rule and open to reversal.
+
+Two apparent faults were the probe's own and not the game's: a six-cell wall did not block a
+production exit (the spawn search looks further out), and a site set to zero health healed straight
+back, which is the documented rule that construction progress adds health every tick.
+
+Verified: quick **89/89**, crowd **20/20**, balance **4/4** (matches unchanged at 9:38 and 8:17),
+determinism **5/5**, network **4/4**, scenario **2/2**, soak **1/1**, rendered UI and presentation.
+The carrier test fails on the previous commit; the worker-release test passes there, so it is
+coverage of behaviour that already held rather than proof of a fix.
+
 ## Terrain: Tiled map authoring and a drawn ground
 
 The ground used to be the minimap's one-pixel-per-cell canvas stretched over the world, in three
