@@ -12,7 +12,7 @@ function B.create(options)
  -- deploys 240 units on it with the battle clearings widened, so it is the
  -- shipping-map variant of this benchmark rather than a second fixture.
  local shipping=options['balance-benchmark'] or options.map=='twin_marches'
- local w=shipping and require('tests.balance_scenarios').stressWorld() or require('tests.asset_presentation').fixture()
+ local w=shipping and require('tests.balance_scenarios').stressWorld(tonumber(options['ui-units'])) or require('tests.asset_presentation').fixture()
  if not shipping then for player=1,2 do
   local units={};local template
   for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==player and e.category=='unit' then units[#units+1]=e;if e.kind=='shield' then template=e end end end
@@ -62,7 +62,8 @@ function B:update(dt)
  if self.steps>=self.target then
   local elapsed=love.timer.getTime()-self.start
   local heapGrowth=(self.heapSamples[#self.heapSamples]-self.heapSamples[1])/1024
-  local lines={string.format('UI active battle (see invocation for profile/map): 240 units initially; 2 players; 1080p; minimap, sprites, fog, effects and audio enabled\nTicks %d; frames %d; attacks observed %d; elapsed %.3fs',self.steps,self.frames,self.attacks,elapsed)}
+  local live=0;for _,id in ipairs(self.app.world.order) do local e=self.app.world.entities[id];if e.alive and e.category=='unit' then live=live+1 end end
+  local lines={string.format('UI active battle (see invocation for profile/map): %d units now; 2 players; 1080p; minimap, sprites, fog, effects and audio enabled\nTicks %d; frames %d; attacks observed %d; elapsed %.3fs',live,self.steps,self.frames,self.attacks,elapsed)}
   lines[#lines+1]=string.format('Whole tick path p95 %.3f ms; max %.3f ms',percentile(self.tickTimes,.95),percentile(self.tickTimes,1))
   for _,name in ipairs(PHASES) do
    lines[#lines+1]=string.format('  %-12s p95 %7.3f ms; max %7.3f ms',name,percentile(self.phase[name],.95),percentile(self.phase[name],1))

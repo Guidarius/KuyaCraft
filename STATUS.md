@@ -1012,6 +1012,43 @@ scenario **2/2**, soak **1/1**, plus the rendered UI and presentation suites. Fo
 takeover release, the single stall report and its clearing on resume, owner-only visibility, and
 the bot's return — were each run against the previous commit and failed there.
 
+## How large an army this laptop can run — measured 2026-09-16
+
+The question was what limits army size: players, units, or drawing. Measured on the development
+laptop (i5-6300U, integrated graphics), which throttles: the same 240-unit benchmark measured
+11.4 ms p95 cold earlier in the day and 45.7 ms p95 hot, so treat the hot numbers as the floor.
+
+One tick has **50 ms** at 20 ticks per second. `scripts/test.ps1` style runs measure `Sim.step`
+alone; the UI benchmark measures the whole rendered loop (`--ui-units N` sets the army size).
+
+| Units, both sides | Simulation only, marching | Simulation only, pitched melee | Whole rendered loop, melee | Draw submission |
+|---|---|---|---|---|
+| 120 | — | p50 17 / p95 61 ms | p95 **35 ms** | 7.6 ms, 278 calls |
+| 240 | p50 9 / p95 22 ms | p50 55 / p95 109 ms | p95 **78–81 ms** | 11–14 ms, 518 calls |
+| 500 | — | p50 170 / p95 259 ms | p95 **192 ms** | 61 ms, 1,031 calls |
+| 600 | p50 42 / p95 100 ms | — | — | — |
+| 800 | p50 67 / p95 167 ms | — | p95 **205 ms** | 27 ms, 1,174 calls |
+| 1,600 | p50 124 / p95 284 ms | — | — | — |
+
+- **The simulation is the limit, not drawing.** At 240 units the step costs 70–78 ms of an 81 ms
+  tick while drawing costs 11–14 ms. Density is what hurts: the same 240 units cost 9 ms p50 while
+  marching and 55 ms p50 packed into a melee, because crowd steering and repathing dominate.
+- **Player count barely matters; total units do.** 800 units cost the same across two players
+  (p50 67 ms) as across four (p50 62 ms), and 1,600 units the same again (124 vs 117 ms).
+- **Memory is not a constraint:** roughly 5–10 KiB of Lua heap per unit, so even 1,600 units add
+  about 14 MiB.
+
+**Practical ceilings on this machine:** about **120 units in a pitched battle** stays inside the
+tick budget with rendering (35 ms of 50 ms). About **240** is playable but exceeds the budget
+during the worst moments of a big melee and catches up afterwards. **400 and beyond** does not
+hold.
+
+**Today's content cap sits just inside that.** `population=80` per player, with combat units at
+2–4 food, is roughly 26–40 combat units plus six workers and a hero: about **35–45 units a side,
+70–90 in a 1v1**. Raising the cap is therefore a design decision with perhaps 2x of room in a 1v1
+on this laptop, but a four-player match at a doubled cap would land at 200–300 units and exceed
+the budget in fights. Not measured on a Raspberry Pi 5, which has no hardware here yet.
+
 ## Basics swept: production, queued builds, hold, and carriers without an extractor
 
 A probe drove each of these on a real match world rather than reading the code, because most of
