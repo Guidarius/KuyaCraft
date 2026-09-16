@@ -257,9 +257,10 @@ test('simulation','a worker is released when the site under it is destroyed',fun
     assert(not site.alive,'the site survived being destroyed');eq(worker.order.kind,'stop')
 end)
 -- Carriers are the gold on the road between an extractor and its drop-off. When a raid kills the
--- extractor, the carriers it sent out have no route and no one to pay: they used to stand there
--- alive for the rest of the match, holding gold nobody could collect and drawn on the minimap.
-test('simulation','carriers are retired when their extractor is destroyed',function()
+-- extractor, that gold is already out of the ground: the carriers keep walking the route they
+-- were given and are paid on arrival. They used to stand there alive for the rest of the match,
+-- holding gold nobody could collect and drawn on the minimap.
+test('simulation','carriers finish their delivery when their extractor is destroyed',function()
     local m=Maps.create('extract',20);m.resources={{x=6,y=6,resource='gold',amount=1000000,size=3}};m.camps={}
     local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
     local worker=find(w,1,'worker')
@@ -268,16 +269,16 @@ test('simulation','carriers are retired when their extractor is destroyed',funct
     step(w,Content.buildings.extractor.buildTicks+300)
     local flying=0
     for _,id in ipairs(w.order) do local c=w.entities[id];if c.alive and c.category=='carrier' then flying=flying+1 end end
-    assert(flying>0,'no carriers were on the road to strand')
+    assert(flying>0,'no carriers were on the road')
     local gold=w.players[1].resources.gold
-    site.hp=-1000;step(w,60)
+    site.hp=-1000;step(w,400)
     assert(not site.alive,'the extractor survived')
     local left=0
     for _,id in ipairs(w.order) do local c=w.entities[id];if c.alive and c.category=='carrier' then left=left+1 end end
-    eq(left,0,'carriers still on the road '..flying..' were in flight')
-    -- One delivery may land on the same tick the extractor dies; nothing may arrive after that.
-    assert(w.players[1].resources.gold-gold<=(Content.rules.carrierPayload or 8),
-        'a stranded carrier still paid: '..(w.players[1].resources.gold-gold))
+    eq(left,0,'carriers never arrived; '..flying..' were on the road')
+    eq(w.players[1].resources.gold-gold,flying*(Content.rules.carrierPayload or 8),'gold on the road was not delivered')
+    -- The dead extractor sends out no more.
+    local after=w.players[1].resources.gold;step(w,200);eq(w.players[1].resources.gold,after)
 end)
 test('unit','state diagnostics identify subsystem paths',function()
     local differences=require('src.diagnostics').diff({tick=5,players={{gold=10}}},{tick=5,players={{gold=9}}})

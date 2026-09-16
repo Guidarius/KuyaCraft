@@ -1024,14 +1024,14 @@ them had no test at all.
 | A unit on hold never leaves its ground | held (moved 0 subunits) |
 | A worker is released when the site under it is destroyed | held; now has a test |
 | A destroyed extractor stops paying | held |
-| **Carriers whose extractor is destroyed** | **stood alive for the rest of the match** |
+| **Carriers whose extractor is destroyed** | **stood alive for the rest of the match**; they now deliver |
 
-**Carriers are now retired when their extractor dies**, and their gold is lost, exactly as a
-carrier killed on the road destroys its load. Eight carriers holding 64 gold used to stand still
-for ever: alive, drawn on the minimap, counted in every per-entity pass, and never able to deliver,
-because their route came from a building that no longer existed. Simulation version 16. Whether
-gold in flight should be lost or should finish its walk is a balance question, recorded in
-docs/RESOURCE_FLOW.md as the rule and open to reversal.
+**Carriers now finish their delivery when their extractor dies.** Eight carriers holding 64 gold
+used to stand still for ever: alive, drawn on the minimap, counted in every per-entity pass, and
+unable to deliver, because their route came from a building that no longer existed. They now walk
+the route they were given and are paid on arrival, chosen by the user over losing the gold:
+that gold is already out of the ground, so a raid stops the flow at its source rather than stealing
+what has left it. A carrier killed on the road still destroys its own load. Simulation version 17.
 
 Two apparent faults were the probe's own and not the game's: a six-cell wall did not block a
 production exit (the spawn search looks further out), and a site set to zero health healed straight

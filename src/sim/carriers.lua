@@ -97,7 +97,11 @@ end
 -- phase, because they have no collision, no crowd resolution and no orders to service.
 function M.advance(w,carrier,deliver)
     local source=w.entities[carrier.source]
-    if not source or not source.alive or source.remaining>0 then return end
+    -- A carrier whose extractor has been destroyed still walks the route it was given and is
+    -- paid on arrival: that gold is already out of the ground and on the road. The dead
+    -- extractor keeps its cached path and drop-off, so nothing has to be recomputed, and the
+    -- carrier is not left standing on a route nobody maintains.
+    if not source or not source.path or (source.alive and source.remaining>0) then return end
     -- The route changed underneath it: re-enter the new path at its nearest waypoint
     -- rather than walking a path that may no longer exist.
     if carrier.routeSerial~=source.routeSerial then

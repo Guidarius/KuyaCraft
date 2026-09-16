@@ -46,7 +46,9 @@ local Control=require('src.sim.control')
 -- standing on a build order for ever.
 -- Version 16: a carrier whose extractor is gone is retired where it stands and its load is lost,
 -- instead of standing alive for the rest of the match holding gold nobody can collect.
-local Sim = { VERSION = 16 }
+-- Version 17: replaces that rule. A carrier whose extractor is gone keeps walking its cached
+-- route and is paid on arrival, because the gold is already out of the ground and on the road.
+local Sim = { VERSION = 17 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -729,14 +731,6 @@ local function deliver(w,carrier)
     carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
     emit(w,'delivered',{entity=carrier.id,amount=amount,resource='gold'})
 end
--- A carrier whose extractor is gone has nowhere to deliver and no route to walk: it came out of
--- a mine that no longer exists. It is retired where it stands and its load is lost, exactly like
--- a carrier killed on the road. Before this it stood still for the rest of the match, alive,
--- holding gold nobody could ever collect.
-local function strand(w,carrier)
-    carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
-end
--- Extractors emit. Income is bounded two ways: never more often than carrierEmitTicks,
 -- and never more than carrierSlots deliveries in flight, which is what makes a distant
 -- mine pay less and also caps how many carrier entities can exist.
 local function extraction(w)
@@ -827,8 +821,7 @@ local function economy(w)
                     end
                 end
             elseif e.category=='carrier' and e.alive then
-                local source=w.entities[e.source]
-                if not source or not source.alive then strand(w,e) else Carriers.advance(w,e,deliver) end
+                Carriers.advance(w,e,deliver)
             end
         end
     end
