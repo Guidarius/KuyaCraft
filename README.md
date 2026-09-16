@@ -2,7 +2,7 @@
 
 A Windows-first LÖVE 11.5 RTS prototype with a deterministic Lua simulation.
 
-Read [ROADMAP.md](ROADMAP.md) for design and [STATUS.md](STATUS.md) for verified progress and limitations. The playable balance profile, unit statistics, economy and timing targets are in [BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md). Twin Marches is the default 1v1 map, authored in Tiled at `maps/twin_marches.tmx` and exported with `scripts\map.ps1`; the ground is drawn from its terrain types. The fixed camera is still planned, with the rest, in [TERRAIN_AND_CAMERA_PLAN.md](docs/TERRAIN_AND_CAMERA_PLAN.md).
+Read [ROADMAP.md](ROADMAP.md) for design, [GAME_FEEL.md](docs/GAME_FEEL.md) for what "better feel" has to mean here and what is queued and [STATUS.md](STATUS.md) for verified progress and limitations. The playable balance profile, unit statistics, economy and timing targets are in [BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md). Twin Marches is the default 1v1 map, authored in Tiled at `maps/twin_marches.tmx` and exported with `scripts\map.ps1`; the ground is drawn from its terrain types. The fixed camera is still planned, with the rest, in [TERRAIN_AND_CAMERA_PLAN.md](docs/TERRAIN_AND_CAMERA_PLAN.md).
 
 ## Quick start
 
