@@ -48,6 +48,9 @@ Simulation version 3 implements the accepted core-control plan. The existing 20 
   - **Detours.** A congested unit does not restart a detour search that is still running, and keeps walking its old path until the new one arrives. Restarting every 20 ticks with an empty path starved every search behind a jam and froze the units waiting on them.
   - The numbers were chosen from 18 settings over 28 crowd cases and checked on 24 cases they were not chosen on (`Movement.tuning`, `G.PRESS`). Tighter settings (70% floor, or later squeezing) still let the largest counterflows jam.
 
+- Group orders and crowd cost (simulation version 18):
+  - **Formation.** Every unit in a group searches for its destination from the ordered point offset by where it stands relative to the middle of its group, so the group keeps its shape and units do not cross each other to reach cells that are interchangeable. Offsets are clamped by group size, so a selection spread across the map still forms up around the destination. Destinations are still made distinct by the claim set; only which unit gets which cell changed.
+  - **Backing off.** A unit blocked for 30 ticks proposes a move every fourth tick instead of every tick, staggered by id. It still takes an opening within a fifth of a second, and where it ends up does not change; a jammed crowd simply stops costing a full steering pass per unit per tick.
 - Searches beginning inside their destination cell still route to its center. This prevents a subcell-position retry from declaring arrival prematurely.
 
 

@@ -43,7 +43,7 @@ end
 -- down to G.pressedSeparation, while enemies and terrain stay solid. Two allies whose next
 -- steps each pass through the other otherwise wait for ever. Pressed allies are then eased
 -- apart a little each tick by the push pass at the end of M.step.
-M.tuning={squeezeWait=10,push=8}
+M.tuning={squeezeWait=10,push=8,backoffWait=30,backoff=4}
 local function inLane(w,e,x,y,r)
     if e.opposed then return Path.lanePosition(w,x,y,r,e.laneX or 0,e.laneY or 0) end
     return Path.laneAllowed(w,F.cell(x),F.cell(y),e.laneX or 0,e.laneY or 0)
@@ -145,8 +145,29 @@ end
 -- The move loop holds its neighbour list across several clear() calls, so it uses a
 -- buffer of its own rather than the one the proposal scan reuses.
 local moveScratch={}
--- Reused by the push pass; emptied of entity references as it is consumed.
+-- Push bookkeeping, keyed by entity id and emptied at the end of every tick. `pushed` lists the
+-- ids that were touched, so clearing costs what was used rather than a walk over every unit.
 local pushed,pushX,pushY={},{},{}
+local pushTouched=0
+-- The four bins that complete the ring when every bin is visited: east, south-west, south and
+-- south-east. Keys are cy*256+cx, so they are offsets on that key.
+local NEIGHBOUR_BINS={1,255,256,257}
+local function accumulate(a,b,push,definitions)
+    if not b.alive or b.owner~=a.owner or b.id==a.id then return end
+    local dx,dy=a.x-b.x,a.y-b.y
+    local gap=G.alliedGap(definitions[a.kind].radius,definitions[b.kind].radius)
+    if dx<gap and dx>-gap and dy<gap and dy>-gap and dx*dx+dy*dy<gap*gap then
+        -- Two bodies exactly on top of each other have no direction to part in; id order gives
+        -- them one, and gives both sides the same one.
+        if dx==0 and dy==0 then dx=a.id<b.id and -1 or 1 end
+        local vx,vy=F.vector(dx*256,dy*256,push)
+        local ai,bi=a.id,b.id
+        if not pushX[ai] then pushTouched=pushTouched+1;pushed[pushTouched]=ai;pushX[ai]=0;pushY[ai]=0 end
+        pushX[ai]=pushX[ai]+vx;pushY[ai]=pushY[ai]+vy
+        if not pushX[bi] then pushTouched=pushTouched+1;pushed[pushTouched]=bi;pushX[bi]=0;pushY[bi]=0 end
+        pushX[bi]=pushX[bi]-vx;pushY[bi]=pushY[bi]-vy
+    end
+end
 -- Moves an entity's id between reservation bins after its position changed.
 local function rebin(live,e,oldX,oldY)
     local oldKey,newKey=binKey(oldX,oldY),binKey(e.x,e.y)
@@ -179,7 +200,13 @@ function M.step(w,halt,route)
                     local goal=e.goal;halt(w,e);route(w,e,goal.x,goal.y)
                 end
             end
-            local node=e.path[e.pathIndex]
+            -- A unit that has been blocked a long time is almost always blocked again the next
+            -- tick, and proposing a move is the expensive part of a crowded tick. Past the
+            -- threshold it tries every fourth tick instead, staggered by id so the load is spread
+            -- and no two units are locked in step; it still reacts to an opening within a fifth of
+            -- a second, and nothing about where it ends up changes.
+            local waiting=e.waitTicks or 0
+            local node=(waiting<M.tuning.backoffWait or (w.tick+id)%M.tuning.backoff==0) and e.path[e.pathIndex] or nil
             if node then
                 if not Path.walkable(w,node.x,node.y) then
                     local goal=e.goal;halt(w,e);if goal then route(w,e,goal.x,goal.y) end
@@ -272,37 +299,46 @@ function M.step(w,halt,route)
     -- tick, so a squeeze reads as bodies jostling past and then settling, not as a stack.
     -- Every push is decided from the same positions before any is applied, then applied in
     -- world order against live positions, so the result does not depend on who is first.
-    -- This runs for every unit every tick and almost never finds anything, so it is written for
-    -- the miss: radii straight from content, a box test before any multiplication, and the
-    -- status check only once an overlap has actually been found.
-    local push=M.tuning.push;local count=0;local definitions=w.content.units
-    for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.category=='unit' then
-            local list,n=nearby(w,live,e.x,e.y)
-            local px,py=0,0;local ex,ey,owner,radius=e.x,e.y,e.owner,definitions[e.kind].radius
-            for i=1,n do local other=list[i]
-                if other.owner==owner and other.id~=e.id then
-                    local dx,dy=ex-other.x,ey-other.y
-                    local gap=G.alliedGap(radius,definitions[other.kind].radius)
-                    if dx<gap and dx>-gap and dy<gap and dy>-gap and dx*dx+dy*dy<gap*gap then
-                        if dx==0 and dy==0 then dx=e.id<other.id and -1 or 1 end
-                        local vx,vy=F.vector(dx*256,dy*256,push);px,py=px+vx,py+vy
+    -- This runs every tick and almost never finds anything, so it is written for the miss: the
+    -- bins are walked once and each pair of neighbours is tested a single time, rather than
+    -- gathering the nine bins around every unit. Radii come straight from content, a box test
+    -- comes before any multiplication, and whether a unit may be pushed is asked only once an
+    -- overlap has actually been found. Addition is commutative, so the unordered walk over the
+    -- bins cannot affect the totals, and the pushes themselves are applied in world order.
+    local push=M.tuning.push;local definitions=w.content.units;local entities=w.entities
+    pushTouched=0
+    if push>0 then
+        for key,bin in pairs(live) do
+            if type(key)=='number' then
+                for i=1,#bin do
+                    local a=entities[bin[i]]
+                    if a.alive then
+                        for j=i+1,#bin do accumulate(a,entities[bin[j]],push,definitions) end
+                        -- Half the ring, so every adjacent pair is seen exactly once.
+                        for n=1,4 do
+                            local neighbour=live[key+NEIGHBOUR_BINS[n]]
+                            if neighbour then for j=1,#neighbour do accumulate(a,entities[neighbour[j]],push,definitions) end end
+                        end
                     end
                 end
             end
-            if (px~=0 or py~=0) and pushable(w,e) then
-                px,py=F.vector(px,py,push)
-                count=count+1;pushed[count]=e;pushX[count]=px;pushY[count]=py
+        end
+    end
+    for _,id in ipairs(w.order) do
+        local sx=pushX[id]
+        if sx then
+            local sy=pushY[id];local e=entities[id]
+            if (sx~=0 or sy~=0) and e.alive and pushable(w,e) then
+                local dx,dy=F.vector(sx,sy,push)
+                local x,y=e.x+dx,e.y+dy
+                -- An idle unit is not pushed more than a cell from where it was left standing.
+                local anchor=not e.goal and (e.yieldOrigin or e.restAnchor)
+                if (not anchor or F.distance2Bounded(x,y,anchor.x,anchor.y)<=256*256) and pushClear(w,e,x,y,nearby(w,live,e.x,e.y)) then
+                    local oldX,oldY=e.x,e.y;e.x,e.y=x,y;rebin(live,e,oldX,oldY)
+                end
             end
         end
     end
-    for i=1,count do
-        local e=pushed[i];local x,y=e.x+pushX[i],e.y+pushY[i];pushed[i]=nil
-        -- An idle unit is not pushed more than a cell from where it was left standing.
-        local anchor=not e.goal and (e.yieldOrigin or e.restAnchor)
-        if (not anchor or F.distance2Bounded(x,y,anchor.x,anchor.y)<=256*256) and pushClear(w,e,x,y,nearby(w,live,e.x,e.y)) then
-            local oldX,oldY=e.x,e.y;e.x,e.y=x,y;rebin(live,e,oldX,oldY)
-        end
-    end
+    for i=1,pushTouched do local id=pushed[i];pushX[id]=nil;pushY[id]=nil;pushed[i]=nil end
 end
 return M

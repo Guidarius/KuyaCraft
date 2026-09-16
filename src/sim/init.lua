@@ -48,7 +48,14 @@ local Control=require('src.sim.control')
 -- instead of standing alive for the rest of the match holding gold nobody can collect.
 -- Version 17: replaces that rule. A carrier whose extractor is gone keeps walking its cached
 -- route and is paid on arrival, because the gold is already out of the ground and on the road.
-local Sim = { VERSION = 17 }
+-- Version 18: a group ordered somewhere keeps its shape. Each unit searches for its destination
+-- from the ordered point offset by where it stands relative to the middle of its group, instead
+-- of everyone searching outward from the same cell, so units stop crossing to reach equivalent
+-- cells. Destinations are still distinct; which unit gets which cell changes. A unit blocked for
+-- 30 ticks also proposes a move every fourth tick instead of every tick, staggered by id, so a
+-- jammed crowd stops costing a steering pass per unit per tick; it still takes an opening within
+-- a fifth of a second and ends up in the same place.
+local Sim = { VERSION = 18 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -522,6 +529,47 @@ local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,b
     rally=true,patrol=true,follow=true,cast=true,ping=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
 local destinationKinds={move=true,attack_move=true,patrol=true}
+-- Formation. A group ordered somewhere keeps its shape: each unit aims for the destination
+-- offset by where it stands relative to the middle of its group, so a line arrives as a line and
+-- units stop crossing each other to reach cells that are interchangeable anyway. Claimed cells
+-- still guarantee distinct destinations; this only decides where each unit starts looking, and a
+-- unit whose formation cell is unusable falls back to searching from the point that was clicked.
+-- Offsets are clamped so that selecting units from opposite corners of the map still forms them
+-- up around the destination rather than scattering them across it.
+-- Scratch for the tick, like the claim set: derived from the commands, never stored.
+local function planFormations(w,ordered)
+    local groups,keys=nil,nil
+    for _,c in ipairs(ordered) do
+        if type(c)=='table' and destinationKinds[c.kind] and type(c.args)=='table' and c.args.group~=nil and not c.args.append
+            and F.integer(c.player,1,#w.players) and F.integer(c.args.x,0) and F.integer(c.args.y,0) then
+            local e=w.entities[c.args.entity]
+            if e and e.alive and e.category=='unit' and e.owner==c.player then
+                local key=c.player..':'..tostring(c.args.group)
+                groups=groups or {};keys=keys or {}
+                local list=groups[key]
+                if not list then list={};groups[key]=list;keys[#keys+1]=key end
+                list[#list+1]={e=e,x=F.cell(c.args.x),y=F.cell(c.args.y)}
+            end
+        end
+    end
+    if not keys then return end
+    local slots={}
+    for _,key in ipairs(keys) do
+        local list=groups[key]
+        if #list>1 then
+            local sx,sy=0,0
+            for _,item in ipairs(list) do sx=sx+F.cell(item.e.x);sy=sy+F.cell(item.e.y) end
+            local cx,cy=math.floor(sx/#list),math.floor(sy/#list)
+            local limit=math.ceil(math.sqrt(#list))+2
+            for _,item in ipairs(list) do
+                local dx=math.max(-limit,math.min(limit,F.cell(item.e.x)-cx))
+                local dy=math.max(-limit,math.min(limit,F.cell(item.e.y)-cy))
+                slots[item.e.id]={x=item.x+dx,y=item.y+dy}
+            end
+        end
+    end
+    w.groupSlots=slots
+end
 local function apply(w,c)
     if type(c)~='table' or not F.integer(c.player,1,#w.players) or not F.integer(c.sequence,1,2147483646) or c.tick~=w.tick or not commandKinds[c.kind] or type(c.args)~='table' then
         reject(w,type(c)=='table' and c or {},'malformed command'); return
@@ -678,7 +726,11 @@ local function apply(w,c)
                 for i=1,#queued do local o=queued[i];if o.x then claims[Path.key(map,o.x,o.y)]=true end end
             end
         end
-        local x,y=nearest(w,rx,ry,e.id,claims)
+        -- Its place in the formation first, then the point that was clicked.
+        local slot=w.groupSlots and w.groupSlots[e.id]
+        local x,y
+        if slot then x,y=nearest(w,slot.x,slot.y,e.id,claims) end
+        if not x then x,y=nearest(w,rx,ry,e.id,claims) end
         if not x then reject(w,c,'no destination');return end
         local order={kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group}
         -- A patrol beat runs between where the unit was standing when ordered and the
@@ -960,9 +1012,18 @@ local function approachWeapon(w,e,t)
     if best then route(w,e,best.x,best.y) end
     e.retryAt=w.tick+20+e.id%7
 end
+-- The candidate bins are rebuilt every tick of every match: a table per owner, plus one per
+-- occupied block, thousands of times a second, all of it garbage by the next tick. The tables
+-- are kept and emptied instead. They are scratch: never read outside this function, never part
+-- of the world, and refilled from w.order, so the order they are built in does not change.
+local candidateScratch={}
 local function combatOrders(w)
-    local candidates={}
-    for owner=0,#w.players do candidates[owner]={} end
+    local candidates=candidateScratch
+    for owner=0,#w.players do
+        local map=candidates[owner]
+        if not map then map={};candidates[owner]=map
+        else for _,bin in pairs(map) do for i=#bin,1,-1 do bin[i]=nil end end end
+    end
     for _,id in ipairs(w.order) do local e=w.entities[id]
         if e.alive and e.category~='node' and e.category~='projectile' then
             local key=blockKey(e.x,e.y)
@@ -1176,8 +1237,9 @@ function Sim.step(w,commands)
         if as~=bs then return as<bs end
         return Codec.byteLess(Codec.encode(a),Codec.encode(b))
     end)
+    planFormations(w,ordered)
     for _,c in ipairs(ordered) do local before=#w.events;apply(w,c);local rejected=false;for i=before+1,#w.events do if w.events[i].kind=='rejected' then rejected=true end end;if not rejected then emit(w,'accepted',{player=c.player,sequence=c.sequence,entity=c.args.entity}) end end
-    w.commandClaims=nil;w.claimScratch=nil
+    w.commandClaims=nil;w.claimScratch=nil;w.groupSlots=nil
     -- Casts resolve after orders finish and before combat, so a stun landing this tick
     -- is already in force when the combat phase asks whether its victim may swing. The
     -- effects they produce join the tick's attack hits and are applied together, which

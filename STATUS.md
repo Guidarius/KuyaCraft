@@ -1012,6 +1012,62 @@ scenario **2/2**, soak **1/1**, plus the rendered UI and presentation suites. Fo
 takeover release, the single stall report and its clearing on resume, owner-only visibility, and
 the bot's return — were each run against the previous commit and failed there.
 
+## Making crowds cheaper: formations, backing off, and two hot loops — simulation version 18
+
+Profiling the 240-unit benchmark put 70% of a typical tick in movement (p50 9.4 ms of 13.4) and
+12% in target acquisition, with combat, visibility and economy sharing the rest. A probe then
+showed what movement was spending it on: no unit was in contact with an enemy, yet 124 of 240
+units ran the steering path every tick, 45% of them blocked, shuffling around one shared
+destination. Marching 240 units costs 9 ms a tick; milling costs 55 ms.
+
+Four changes, two of which alter behaviour and two of which cannot:
+
+- **Formation.** Every unit in a group now searches for its destination from the ordered point
+  offset by where it stands relative to the middle of its group, instead of everyone searching
+  outward from the same cell. The group keeps its shape and units stop crossing each other to
+  reach cells that were interchangeable. Destinations are still made distinct by the claim set;
+  which unit gets which cell changed. Offsets are clamped by group size, so a selection spread
+  across the map forms up around the destination rather than scattering over it.
+- **Backing off.** A unit blocked for 30 ticks proposes a move every fourth tick instead of every
+  tick, staggered by id. It still takes an opening within a fifth of a second and ends up in the
+  same place.
+- **Acquisition bins reused.** The candidate bins were rebuilt from scratch every tick: a table
+  per owner plus one per occupied block, all garbage by the next tick. They are now emptied and
+  refilled.
+- **The push pass walks bins once.** Each pair of neighbours is tested a single time rather than
+  gathering the nine bins around every unit.
+
+| Crowd suite, arrival ticks | Before | After |
+|---|---|---|
+| Open arrival, 100 units | 425 | **296** |
+| Open arrival, 50 | 390 | **304** |
+| Open arrival, 10 | 321 | **283** |
+| Chokepoint 100 | 1,193 | 1,138 |
+| 50 v 50 counterflow | 856 | 816 |
+
+| 240 units, crowded group move (headless, medians of 3 alternating pairs) | Before | After |
+|---|---|---|
+| Sim.step p50 | 33.6 ms | **17.1 ms** |
+| Sim.step p95 | 77.4 ms | **47.1 ms** |
+| Units running the steering path, per tick | 123.7 | **97.5** |
+
+That is close to 2x on the case that limits army size, so the practical ceiling measured this
+morning — about 120 units in a pitched fight — should roughly double. It is not claimed as
+measured: the rendered benchmark could not confirm it tonight, because by then the same
+configuration measured 77 ms and 233 ms p95 on consecutive runs. Re-measure the rendered loop on
+a cold machine before trusting any figure from it.
+
+The two optimisations were proven behaviour-neutral rather than assumed: with the backoff
+disabled, every crowd arrival tick matches the formation-only run exactly.
+
+**Bot matches moved**, because armies now arrive in formation rather than trickling into a shared
+cell: the mirror ends 7:30 with player 2 winning by control (was 9:38, player 1), and the
+asymmetric match 8:44 with player 1 (was 8:17). Both still end early by control, which remains the
+open bot-targeting question in docs/ITERATION_LOG.md.
+
+Verified: quick **89/89**, crowd **20/20**, balance **4/4**, determinism **5/5**, network **4/4**,
+scenario **2/2**, soak **1/1**.
+
 ## How large an army this laptop can run — measured 2026-09-16
 
 The question was what limits army size: players, units, or drawing. Measured on the development
