@@ -55,7 +55,9 @@ local Control=require('src.sim.control')
 -- 30 ticks also proposes a move every fourth tick instead of every tick, staggered by id, so a
 -- jammed crowd stops costing a steering pass per unit per tick; it still takes an opening within
 -- a fifth of a second and ends up in the same place.
-local Sim = { VERSION = 18 }
+-- Version 19: formation slots belong to validated commands, and queued construction takes
+-- a site over only when its order starts. Changes command-batch and builder handoff results.
+local Sim = { VERSION = 19 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
@@ -500,6 +502,7 @@ local function clearCombat(e)
     -- away, which is the same bargain the attack phase offers for a committed swing.
     e.cast=nil
 end
+local claimBuild
 local function setOrder(w,e,order,append)
     if append and e.order.kind~='stop' then
         if #e.orders>=32 then return false end
@@ -513,6 +516,7 @@ local function setOrder(w,e,order,append)
         halt(w,e);clearCombat(e);e.order=order;e.reroutes=0;e.blockedReason=nil;e.lastOrderFailure=nil;e.restAnchor=nil;e.navigation='idle';e.detour=nil;e.rerouteAt=nil
         e.suppressAcquireUntil=w.tick
         if order.x then route(w,e,order.x,order.y) end
+        claimBuild(w,e)
     end
     return true
 end
@@ -523,12 +527,41 @@ local function nextOrder(w,e)
     halt(w,e);clearCombat(e);e.order=table.remove(e.orders,1) or {kind='stop'};e.reroutes=0;e.blockedReason=nil
     e.navigation=blocked and 'failed' or 'idle';e.lastOrderFailure=blocked;e.restAnchor=e.order.kind=='stop' and not blocked and rest or nil
     if e.order.x then route(w,e,e.order.x,e.order.y) end
+    claimBuild(w,e)
+end
+-- Claim on activation, both for immediate orders and when a queued order starts. Merely
+-- queuing work must not evict the current builder. Claim first, then release the previous
+-- worker, whose own queue may start another construction job in turn.
+claimBuild=function(w,e)
+    if e.order.kind~='build' then return end
+    local site=w.entities[e.order.target]
+    if not site or not site.alive or site.owner~=e.owner or site.category~='building' or site.remaining<=0 then return end
+    local previous=w.entities[site.builder]
+    site.builder=e.id
+    if previous and previous.id~=e.id and previous.alive and previous.order.kind=='build' and previous.order.target==site.id then nextOrder(w,previous) end
 end
 local function reject(w,c,reason) emit(w,'rejected',{player=c.player or 0,sequence=c.sequence or 0,reason=reason}) end
 local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
     rally=true,patrol=true,follow=true,cast=true,ping=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
 local destinationKinds={move=true,attack_move=true,patrol=true}
+local function envelopeError(w,c,sequence)
+    if type(c)~='table' or not F.integer(c.player,1,#w.players) or not F.integer(c.sequence,1,2147483646) or c.tick~=w.tick or not commandKinds[c.kind] or type(c.args)~='table' then return 'malformed command' end
+    local p=w.players[c.player]
+    if p.defeated or c.sequence<=(sequence or p.sequence) then return 'duplicate, stale, or defeated' end
+end
+local function commandEntity(w,c)
+    local a=c.args
+    local e=F.integer(a.entity,1) and w.entities[a.entity] or nil
+    if not e or e.owner~=c.player then return nil,'invalid ownership' end
+    if a.append~=nil and type(a.append)~='boolean' then return nil,'invalid queue flag' end
+    if a.group~=nil and not F.integer(a.group,1,2147483646) then return nil,'invalid command group' end
+    if a.append and c.kind~='stop' and c.kind~='hold' and #e.orders>=32 then return nil,'order queue full' end
+    return e
+end
+local function validPosition(w,a)
+    return F.integer(a.x,0,w.map.width*256-1) and F.integer(a.y,0,w.map.height*256-1)
+end
 -- Formation. A group ordered somewhere keeps its shape: each unit aims for the destination
 -- offset by where it stands relative to the middle of its group, so a line arrives as a line and
 -- units stop crossing each other to reach cells that are interchangeable anyway. Claimed cells
@@ -539,16 +572,19 @@ local destinationKinds={move=true,attack_move=true,patrol=true}
 -- Scratch for the tick, like the claim set: derived from the commands, never stored.
 local function planFormations(w,ordered)
     local groups,keys=nil,nil
+    local sequences={}
     for _,c in ipairs(ordered) do
-        if type(c)=='table' and destinationKinds[c.kind] and type(c.args)=='table' and c.args.group~=nil and not c.args.append
-            and F.integer(c.player,1,#w.players) and F.integer(c.args.x,0) and F.integer(c.args.y,0) then
-            local e=w.entities[c.args.entity]
-            if e and e.alive and e.category=='unit' and e.owner==c.player then
+        local sequence=type(c)=='table' and sequences[c.player] or nil
+        if not envelopeError(w,c,sequence) then
+            -- apply consumes the sequence even when entity/argument validation rejects it.
+            sequences[c.player]=c.sequence
+            local e=destinationKinds[c.kind] and commandEntity(w,c)
+            if e and e.alive and e.category=='unit' and c.args.group and not c.args.append and validPosition(w,c.args) then
                 local key=c.player..':'..tostring(c.args.group)
                 groups=groups or {};keys=keys or {}
                 local list=groups[key]
                 if not list then list={};groups[key]=list;keys[#keys+1]=key end
-                list[#list+1]={e=e,x=F.cell(c.args.x),y=F.cell(c.args.y)}
+                list[#list+1]={e=e,command=c,x=F.cell(c.args.x),y=F.cell(c.args.y)}
             end
         end
     end
@@ -564,18 +600,16 @@ local function planFormations(w,ordered)
             for _,item in ipairs(list) do
                 local dx=math.max(-limit,math.min(limit,F.cell(item.e.x)-cx))
                 local dy=math.max(-limit,math.min(limit,F.cell(item.e.y)-cy))
-                slots[item.e.id]={x=item.x+dx,y=item.y+dy}
+                slots[item.command]={x=item.x+dx,y=item.y+dy}
             end
         end
     end
     w.groupSlots=slots
 end
 local function apply(w,c)
-    if type(c)~='table' or not F.integer(c.player,1,#w.players) or not F.integer(c.sequence,1,2147483646) or c.tick~=w.tick or not commandKinds[c.kind] or type(c.args)~='table' then
-        reject(w,type(c)=='table' and c or {},'malformed command'); return
-    end
+    local reason=envelopeError(w,c)
+    if reason then reject(w,type(c)=='table' and c or {},reason);return end
     local p=w.players[c.player]
-    if p.defeated or c.sequence<=p.sequence then reject(w,c,'duplicate, stale, or defeated'); return end
     p.sequence=c.sequence
     local a=c.args
     -- A ping is a message, not an order: it names no entity, changes no state, and is
@@ -590,12 +624,9 @@ local function apply(w,c)
         -- must never become everyone, or a ping would hand the enemy your attention.
         emit(w,'ping',{player=c.player,pingX=a.x,pingY=a.y});return
     end
-    local e=F.integer(a.entity,1) and w.entities[a.entity] or nil
-    if not e or e.owner~=c.player then reject(w,c,'invalid ownership'); return end
+    local e,entityError=commandEntity(w,c)
+    if not e then reject(w,c,entityError);return end
     local d=def(w,e)
-    if a.append~=nil and type(a.append)~='boolean' then reject(w,c,'invalid queue flag');return end
-    if a.group~=nil and not F.integer(a.group,1,2147483646) then reject(w,c,'invalid command group');return end
-    if a.append and c.kind~='stop' and c.kind~='hold' and #e.orders>=32 then reject(w,c,'order queue full');return end
     if c.kind=='revive' then
         local hq=w.entities[p.hq]
         local cost,ticks=Sim.revival(w.content,e)
@@ -639,12 +670,7 @@ local function apply(w,c)
         if a.target then
             local site=w.entities[a.target]
             if not site or not site.alive or site.owner~=e.owner or site.category~='building' or site.remaining<=0 then reject(w,c,'invalid site'); return end
-            -- Taking a site over releases whoever held it: a worker whose site was taken used to
-            -- keep its build order for ever, standing beside a building it no longer worked on
-            -- and never counting as idle.
-            local previous=w.entities[site.builder]
-            if previous and previous.id~=e.id and previous.alive and previous.order.kind=='build' and previous.order.target==site.id then nextOrder(w,previous) end
-            site.builder=e.id;setOrder(w,e,{kind='build',target=site.id},a.append);return
+            setOrder(w,e,{kind='build',target=site.id},a.append);return
         end
         local view=Sim.view(w,c.player)
         local valid,reason=Sim.placement(view,w.content,a.building,a.x,a.y)
@@ -658,7 +684,7 @@ local function apply(w,c)
             if not mine and (not Path.walkable(w,x,y) or occupied(w,x,y)) then reject(w,c,'blocked or unseen footprint'); return end
         end end
         spend(p,bd.cost)
-        local site=spawn(w,a.building,c.player,a.x,a.y,'building'); site.remaining=bd.buildTicks; site.builder=e.id;if w.content.rules.constructionHealth then site.hp=math.ceil(bd.hp/10);site.healthCapacity=site.hp end
+        local site=spawn(w,a.building,c.player,a.x,a.y,'building'); site.remaining=bd.buildTicks;if w.content.rules.constructionHealth then site.hp=math.ceil(bd.hp/10);site.healthCapacity=site.hp end
         if mine then site.mine=mine.id end
         w.navVersion=w.navVersion+1; rebuild(w);setOrder(w,e,{kind='build',target=site.id},a.append);return
     elseif c.kind=='rally' then
@@ -701,7 +727,7 @@ local function apply(w,c)
         setOrder(w,e,order,a.append);return
     end
     if destinationKinds[c.kind] then
-        if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position'); return end
+        if not validPosition(w,a) then reject(w,c,'invalid position'); return end
         local rx,ry=F.cell(a.x),F.cell(a.y)
         -- Equivalent orders preserve their slot even after occupying it. Patrol is
         -- excluded: reissuing it must be able to reset the beat to the current position.
@@ -727,7 +753,7 @@ local function apply(w,c)
             end
         end
         -- Its place in the formation first, then the point that was clicked.
-        local slot=w.groupSlots and w.groupSlots[e.id]
+        local slot=w.groupSlots and w.groupSlots[c]
         local x,y
         if slot then x,y=nearest(w,slot.x,slot.y,e.id,claims) end
         if not x then x,y=nearest(w,rx,ry,e.id,claims) end
