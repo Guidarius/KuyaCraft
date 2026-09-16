@@ -23,6 +23,16 @@ local DAY_LENGTH=9600
 -- How long an ordered unit's selection circle brightens for. Long enough to register
 -- as a reply, short enough that it has faded before the order visibly starts.
 local ACK_FLASH=0.2
+-- Health trail: hold the lost chunk this long, never longer than the cap, then drain it with
+-- this time constant.
+local TRAIL_HOLD,TRAIL_HOLD_CAP,TRAIL_DRAIN=0.3,1.0,0.2
+-- After a group order, how long the cells its units were given stay marked.
+local FORMATION_GHOST=1.0
+-- The order marker and formation ghosts are coloured by what was ordered, so the player can
+-- see what they told the army to do: move, attack-move, a focused attack, a patrol beat.
+local ORDER_COLORS={
+    move={.55,.95,.6},follow={.55,.9,.85},build={.95,.8,.4},patrol={.45,.8,.95},
+    attack={1,.38,.32},attack_move={1,.5,.34},rejected={1,.38,.32},cast={.75,.6,1}}
 local colors={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.67,0.47,0.95},{0.92,0.78,0.32}}
 local function color(c,a) love.graphics.setColor(c[1],c[2],c[3],a or 1) end
 -- Warcraft 3 colours a health bar by relation, not by player colour: green is yours,
@@ -102,9 +112,17 @@ function App:update(dt)
         local hero=self.view.byId[self.view.player.hero]
         if hero and hero.alive then Camera.center(self,hero.x,hero.y) end
     end
+    -- The health trail holds the chunk just lost for a moment before draining it, so a big hit
+    -- reads as big instead of melting away with the bar. Under sustained damage the hold keeps
+    -- restarting, so it is capped: the trail always starts draining within a second.
     for _,e in ipairs(self.view.entities) do
         local trail=self.healthTrails[e.id] or {value=e.hp};self.healthTrails[e.id]=trail
-        if e.hp<trail.value then trail.value=math.max(e.hp,trail.value-dt*e.maxHp*1.5) else trail.value=e.hp end
+        if e.hp<trail.value then
+            if trail.seen~=e.hp then trail.seen=e.hp;trail.since=self.clock;trail.first=trail.first or self.clock end
+            if self.clock-trail.since>=TRAIL_HOLD or self.clock-trail.first>=TRAIL_HOLD_CAP then
+                trail.value=math.max(e.hp,trail.value-math.max(dt*e.maxHp*.5,(trail.value-e.hp)*dt/TRAIL_DRAIN))
+            end
+        else trail.value=e.hp;trail.seen=e.hp;trail.first=nil end
     end
     if self.feedback.update then self.feedback:update(dt) end
     if self.seeking then
@@ -269,13 +287,26 @@ local function byDepth(a,b)
     return a.id<b.id
 end
 -- Rebuilt once per frame rather than scanned per drawn entity.
+-- Also remembers when each unit joined the selection, which is what the selection pop reads.
 local function selectionSet(self)
     local set=self.selectedSet
     if not set then set={};self.selectedSet=set else for key in pairs(set) do set[key]=nil end end
-    for _,v in ipairs(self.selected) do set[v]=true end
+    local since=self.selectedSince;if not since then since={};self.selectedSince=since end
+    for _,v in ipairs(self.selected) do set[v]=true;if not since[v] then since[v]=self.clock end end
+    for id in pairs(since) do if not set[id] then since[id]=nil end end
     return set
 end
 local function selected(self,id) return self.selectedSet and self.selectedSet[id] or false end
+-- A newly selected unit's ring settles into place over a short beat instead of blinking on, so
+-- a box selection reads as the units answering. Scale, not a new effect: nothing is allocated.
+local SELECT_POP=0.08
+local function selectPop(self,id)
+    local at=self.selectedSince and self.selectedSince[id]
+    if not at then return 1 end
+    local t=(self.clock-at)/SELECT_POP
+    if t>=1 then return 1 end
+    return 1+0.15*(1-t)
+end
 -- Resource gains are announced from the observed ledger delta rather than from a
 -- delivery event, because the simulation does not currently emit one. That means a
 -- refund or a bounty is announced the same way a drop-off is; the amount is always
@@ -355,7 +386,8 @@ function App:drawEntity(e)
         else
             -- A selected enemy or neutral, being inspected, keeps its relation colour.
             if e.owner==self.player then g.setColor(0.55,0.93,0.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
-            g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+            local pop=selectPop(self,e.id)
+            g.setLineWidth(2);g.ellipse('line',x,y,15*z*pop,7*z*pop)
         end
     elseif self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
@@ -519,15 +551,40 @@ function App:draw()
     if not self.options['effects-disabled'] then self.feedback:draw(self);require('src.ui.command_feedback').draw(self) end
     -- Target marker: green for a move, red for an attack, contracting rather than
     -- expanding so the eye is pulled to the destination instead of away from it.
-    if self.orderMarker and self.clock-(self.orderMarker.time or 0)<.45 then
-        local marker=self.orderMarker;local mx,my=self:screen(marker.x,marker.y)
+    local marker=self.orderMarker
+    if marker and self.clock-(marker.time or 0)<.45 then
+        local mx,my=self:screen(marker.x,marker.y)
         local t=(self.clock-(marker.time or 0))/.45
-        local hostile=marker.kind=='attack' or marker.kind=='attack_move' or marker.kind=='rejected'
-        if hostile then g.setColor(1,.38,.32,1-t) else g.setColor(.55,.95,.6,1-t) end
+        local c=ORDER_COLORS[marker.kind] or ORDER_COLORS.move
+        g.setColor(c[1],c[2],c[3],1-t)
         g.setLineWidth(2*z)
         for ring=0,1 do
             local scale=(1-t)*(1+ring*0.55)
             g.ellipse('line',mx,my,(4+14*scale)*z,(2+8*scale)*z)
+        end
+        -- A focused attack is aimed at something, not somewhere: a cross says so.
+        if marker.kind=='attack' then
+            local s=(4+6*(1-t))*z
+            g.line(mx-s,my-s*.6,mx+s,my+s*.6);g.line(mx-s,my+s*.6,mx+s,my-s*.6)
+        end
+        g.setLineWidth(1)
+    end
+    -- Formation ghosts: the cell each unit of the last group order was actually given. They come
+    -- from the orders the simulation accepted, so they appear once the order has been applied
+    -- and show exactly what the formation did, rather than a prediction of it.
+    self.formationGhosts=0
+    if marker and marker.group and (marker.count or 0)>1 and self.ackFlash and self.clock-(self.ackFlashAt or -10)<FORMATION_GHOST then
+        local fade=1-(self.clock-self.ackFlashAt)/FORMATION_GHOST
+        local c=ORDER_COLORS[marker.kind] or ORDER_COLORS.move
+        g.setColor(c[1],c[2],c[3],.45*fade)
+        for id in pairs(self.ackFlash) do
+            local e=self.view.byId[id]
+            local o=e and e.order
+            if o and o.x and o.group==marker.group then
+                local gx,gy=self:screen(o.x*256+128,o.y*256+128)
+                g.circle('fill',gx,gy,2.5*z)
+                self.formationGhosts=self.formationGhosts+1
+            end
         end
     end
     -- Ability targeting preview. A spell you cannot see the shape of is a spell you

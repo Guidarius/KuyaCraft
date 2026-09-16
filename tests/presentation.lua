@@ -67,6 +67,7 @@ function T.run(app)
   app.player=saved;app.view=Sim.view(app.world,saved);fogAgrees('back to player one')
  end
  T.gamefeel(app)
+ T.feelOrders(app)
  require('tests.control_input').run()
  -- Pinned to normal pacing. This compares a live match against a replay seek tick for
  -- tick, and App.create otherwise picks up whatever game speed is saved on this machine.
@@ -169,6 +170,67 @@ function T.settingsControls(app,Sim,Settings)
  -- And a setting has to survive the round trip through storage, not just the button.
  app.settings.healthBars='always';Settings.save(app.settings)
  assert(Settings.load().healthBars=='always','settings did not survive a save and load')
+end
+-- Feel pass, batch A (docs/GAME_FEEL.md): the selection pop, the health trail's hold, order
+-- markers coloured by what was ordered, and formation ghosts. All presentation, so every draw
+-- here is checked against the world, and every check is one that fails without its feature.
+function T.feelOrders(app)
+ local Sim=require('src.sim');local Input=require('src.ui.input');local Content=require('src.content')
+ app.overlay=nil;app.building=nil;app.targeting=nil
+ local own,enemy={},nil
+ for _,e in ipairs(app.view.entities) do
+  if e.alive and e.category=='unit' and e.owner==app.player then own[#own+1]=e end
+  if e.alive and e.category=='unit' and e.owner~=app.player and e.owner~=0 and not enemy then enemy=e end
+ end
+ assert(#own>=2,'the fixture needs two units of our own')
+ local function drawClean(what)
+  local before=Sim.serializeCanonical(app.world);app:draw()
+  assert(Sim.serializeCanonical(app.world)==before,what..' mutated the simulation')
+ end
+ -- Selection pop: a ring remembers when its unit was selected, and forgets once it is not.
+ app.selected={own[1].id};drawClean('the selection pop')
+ assert(app.selectedSince and app.selectedSince[own[1].id]==app.clock,'a new selection was not timed')
+ app.selected={};drawClean('clearing the selection')
+ assert(app.selectedSince[own[1].id]==nil,'a deselected unit kept its selection time')
+ -- The health trail holds what was just lost before draining it.
+ local victim=app.world.entities[own[1].id]
+ victim.hp=victim.hp-60;app.view=Sim.view(app.world,app.player)
+ app:update(0)
+ local trail=app.healthTrails[victim.id]
+ assert(trail and trail.value>victim.hp,'the trail did not keep the health just lost')
+ local held=trail.value
+ app:update(.1)
+ assert(trail.value==held,'the trail drained before its hold was over')
+ for _=1,10 do app:update(.05) end
+ assert(trail.value<held,'the trail never drained after its hold')
+ -- Order markers carry what was actually ordered, not just which key was pressed.
+ own[1]=app.view.byId[own[1].id];own[2]=app.view.byId[own[2].id]
+ app.selected={own[1].id,own[2].id}
+ Input.intent(app,own[1].x+512,own[1].y,nil,nil)
+ assert(app.orderMarker.kind=='move','a plain right-click did not mark a move: '..tostring(app.orderMarker.kind))
+ Input.intent(app,own[1].x+512,own[1].y,nil,'patrol')
+ assert(app.orderMarker.kind=='patrol','a patrol did not mark as a patrol: '..tostring(app.orderMarker.kind))
+ -- Right-clicking one of your own units is a follow, whatever key was held: the marker has to
+ -- say what the click became. This needs no enemy in sight, unlike the attack check below.
+ app.selected={own[1].id}
+ Input.intent(app,own[2].x,own[2].y,own[2],nil)
+ assert(app.orderMarker.kind=='follow','a right-click on our own unit did not mark a follow: '..tostring(app.orderMarker.kind))
+ app.selected={own[1].id,own[2].id}
+ if enemy then
+  Input.intent(app,enemy.x,enemy.y,enemy,nil)
+  assert(app.orderMarker.kind=='attack','a right-click on an enemy did not mark an attack: '..tostring(app.orderMarker.kind))
+ end
+ drawClean('the order marker')
+ -- Formation ghosts: once a group move reaches the world, each unit's cell is marked, and the
+ -- marks are gone a second later.
+ Input.intent(app,own[1].x+1024,own[1].y,nil,nil)
+ for _=1,4 do app:update(.05) end
+ drawClean('the formation ghosts')
+ assert((app.formationGhosts or 0)>=2,'a group move showed no formation ghosts: '..tostring(app.formationGhosts))
+ app.clock=app.clock+1.1;drawClean('expired formation ghosts')
+ assert(app.formationGhosts==0,'formation ghosts outlived their second')
+ app.selected={}
+ print('PASS feel batch A: selection pop, health trail hold, order markers by kind, formation ghosts')
 end
 -- WC3-style control and feedback that only exists in the presentation layer. Every check
 -- here must be able to fail loudly: these are the features a player notices missing.

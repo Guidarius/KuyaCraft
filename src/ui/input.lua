@@ -134,7 +134,9 @@ function I.intent(app,x,y,target,kind)
  local inspected=count==0 and Selection.inspecting(app)
  if inspected then Feedback.notify(app,'rejected',inspected.owner==0 and 'You cannot command neutrals' or 'You cannot command the enemy');return end
  if count>0 then
-  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=kind or 'move',group=app.commandGroup}
+  -- Coloured by what was actually ordered: a right-click becomes a move, an attack, a follow or
+  -- a resumed build depending on what was under the cursor.
+  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=ordered[1].command or kind or 'move',group=app.commandGroup,count=count}
   I.acknowledge(app,ordered);app.message='Order issued'
  end
 end
