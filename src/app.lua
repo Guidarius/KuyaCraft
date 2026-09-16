@@ -140,17 +140,19 @@ function App:update(dt)
     end
     if self.overlay and not self.network then self.accumulator=0;return end
     if self.playback then if self.replayPaused then self.accumulator=0;return end;dt=dt*self.replaySpeed end
+    -- Which way the player is panning: -1, 0 or 1 on each axis, from the screen edge and the
+    -- arrow keys. Camera.scroll turns that into movement with the speed setting and the ramp.
+    local panX,panY=0,0
     if self.settings.edgeScroll and not self.overlay and not self.capture then
         local mx,my=love.mouse.getPosition();local r=Camera.rect(self)
         if Camera.contains(self,mx,my) then
-            if mx<8 then self.camera.x=self.camera.x+dt*350 elseif mx>r.w-8 then self.camera.x=self.camera.x-dt*350 end
-            if my<r.y+8 then self.camera.y=self.camera.y+dt*350 elseif my>r.y+r.h-8 then self.camera.y=self.camera.y-dt*350 end
+            if mx<8 then panX=-1 elseif mx>r.w-8 then panX=1 end
+            if my<r.y+8 then panY=-1 elseif my>r.y+r.h-8 then panY=1 end
         end
     end
-    if love.keyboard.isDown('left') then self.camera.x=self.camera.x+dt*350 end
-    if love.keyboard.isDown('right') then self.camera.x=self.camera.x-dt*350 end
-    if love.keyboard.isDown('up') then self.camera.y=self.camera.y+dt*350 end
-    if love.keyboard.isDown('down') then self.camera.y=self.camera.y-dt*350 end
+    if love.keyboard.isDown('left') then panX=-1 elseif love.keyboard.isDown('right') then panX=1 end
+    if love.keyboard.isDown('up') then panY=-1 elseif love.keyboard.isDown('down') then panY=1 end
+    Camera.scroll(self,dt,panX,panY)
     if not self.overlay then Camera.clamp(self) end
     if self.network then
         self.network:poll()

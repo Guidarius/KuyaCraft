@@ -6,7 +6,7 @@
 -- The idle-worker key defaults to F9 rather than the more traditional F8 because F5-F8
 -- are camera bookmarks here; it is rebindable like the others.
 local S={defaults={version=2,scale=100,edgeScroll=false,master=70,ui=65,effects=70,ambience=35,
- healthBars='damaged',screenShake=true,dayNight=false,gameSpeed=2,smartCast=false,
+ healthBars='damaged',screenShake=true,dayNight=false,gameSpeed=2,smartCast=false,scrollSpeed=2,alertCamera=false,
  bindings={attack='a',stop='s',hold='h',hero='f1',alert='space',build='b',tower='t',idle='f9'}}}
 local Codec=require('src.sim.codec')
 -- Offline pacing multipliers. These scale how fast wall-clock time is fed to the fixed
@@ -15,6 +15,10 @@ local Codec=require('src.sim.codec')
 S.SPEEDS={1,2,3}
 S.SPEED_LABELS={'Slower','Normal','Faster'}
 S.SPEED_SCALE={0.5,1,1.5}
+-- Camera pan speed, as a multiple of the base speed in App:update. Slow suits a trackpad.
+S.SCROLL_SPEEDS={1,2,3}
+S.SCROLL_LABELS={'Slow','Normal','Fast'}
+S.SCROLL_SCALE={0.65,1,1.5}
 function S.load()
  local value=Codec.copy(S.defaults)
  local ok,data=pcall(function() return Codec.decode(require('src.ui.storage').read('settings.dat')) end)
@@ -28,6 +32,10 @@ function S.load()
    value.screenShake=data.screenShake~=false
    value.dayNight=data.dayNight==true
    for _,speed in ipairs(S.SPEEDS) do if data.gameSpeed==speed then value.gameSpeed=speed end end
+   -- smartCast was saved but never read back, so it silently reset on every start.
+   value.smartCast=data.smartCast==true
+   value.alertCamera=data.alertCamera==true
+   for _,speed in ipairs(S.SCROLL_SPEEDS) do if data.scrollSpeed==speed then value.scrollSpeed=speed end end
   end
   if type(data.bindings)=='table' then for k in pairs(value.bindings) do if type(data.bindings[k])=='string' then value.bindings[k]=data.bindings[k] end end end
  end

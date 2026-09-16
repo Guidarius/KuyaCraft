@@ -69,6 +69,7 @@ function T.run(app)
  T.gamefeel(app)
  T.feelOrders(app)
  T.feelUnits(app)
+ T.feelWorld(app)
  require('tests.control_input').run()
  -- Pinned to normal pacing. This compares a live match against a replay seek tick for
  -- tick, and App.create otherwise picks up whatever game speed is saved on this machine.
@@ -168,9 +169,22 @@ function T.settingsControls(app,Sim,Settings)
  for _,key in ipairs({'attack','stop','hold','hero','alert','build','tower','idle'}) do
   assert(control('bind-'..key),'binding '..key..' has no control')
  end
- -- And a setting has to survive the round trip through storage, not just the button.
- app.settings.healthBars='always';Settings.save(app.settings)
- assert(Settings.load().healthBars=='always','settings did not survive a save and load')
+ -- Pan speed and the alert camera are presentation settings too.
+ local scrolls={}
+ for _=1,#Settings.SCROLL_SPEEDS+1 do local b=control('scroll');scrolls[#scrolls+1]=app.settings.scrollSpeed;b.action() end
+ assert(scrolls[1]==scrolls[#scrolls] and scrolls[1]~=scrolls[2],'scroll speed did not cycle')
+ local cameraBefore=app.settings.alertCamera
+ control('alertcam').action();assert(app.settings.alertCamera~=cameraBefore,'camera-to-alerts did not toggle')
+ control('alertcam').action();assert(app.settings.alertCamera==cameraBefore,'camera-to-alerts did not toggle back')
+ -- And every setting has to survive the round trip through storage, not just the button. Smart
+ -- cast used to be saved and never read back.
+ app.settings.healthBars='always';app.settings.smartCast=true;app.settings.alertCamera=true;app.settings.scrollSpeed=3
+ Settings.save(app.settings)
+ local loaded=Settings.load()
+ assert(loaded.healthBars=='always','health bars did not survive a save and load')
+ assert(loaded.smartCast==true,'smart cast did not survive a save and load')
+ assert(loaded.alertCamera==true and loaded.scrollSpeed==3,'pan speed or camera-to-alerts did not survive a save and load')
+ app.settings.smartCast=false;app.settings.alertCamera=false;app.settings.scrollSpeed=2
 end
 -- Feel pass, batch A (docs/GAME_FEEL.md): the selection pop, the health trail's hold, order
 -- markers coloured by what was ordered, and formation ghosts. All presentation, so every draw
@@ -256,6 +270,54 @@ function T.feelUnits(app)
  assert(app.windupsDrawn==0,'a unit leaned into a swing it was not making')
  body.hp=full;app.view=Sim.view(app.world,app.player)
  print('PASS feel batch B: low-health pulse, windup lean')
+end
+-- Feel pass, batch C: the scroll ramp and speed setting, feathered fog, an alert for attacks out of
+-- view, and the camera following alerts only when the player has turned that on.
+function T.feelWorld(app)
+ local Camera=require('src.ui.camera');local Alerts=require('src.ui.alerts')
+ app.overlay=nil
+ -- Scrolling starts gentle, reaches full speed while held, starts over on release, and follows
+ -- the speed setting.
+ local savedX,savedY,savedSpeed=app.camera.x,app.camera.y,app.settings.scrollSpeed
+ app.settings.scrollSpeed=2;app.scrollHeld=0
+ local x=app.camera.x;Camera.scroll(app,.05,1,0);local first=x-app.camera.x
+ for _=1,10 do Camera.scroll(app,.05,1,0) end
+ x=app.camera.x;Camera.scroll(app,.05,1,0);local held=x-app.camera.x
+ assert(first>0 and held>first*2,'panning did not ramp up: '..first..' then '..held)
+ Camera.scroll(app,.05,0,0);assert(app.scrollHeld==0,'letting go did not reset the ramp')
+ x=app.camera.x;Camera.scroll(app,.05,1,0)
+ assert(math.abs((x-app.camera.x)-first)<1e-6,'the ramp did not start again from rest')
+ app.settings.scrollSpeed=3;app.scrollHeld=0
+ x=app.camera.x;Camera.scroll(app,.05,1,0)
+ assert(x-app.camera.x>first*1.4,'the fast scroll setting did not pan faster')
+ app.settings.scrollSpeed=savedSpeed;app.camera.x,app.camera.y=savedX,savedY;app.scrollHeld=0
+ -- The fog is sampled linearly, which is what feathers its edge.
+ app:draw()
+ local _,magnify=app.miniCache.fog:getFilter()
+ assert(magnify=='linear','the fog edge is not feathered: '..tostring(magnify))
+ -- Attacks out of view: announced once, not for an attack in plain view, and the camera only
+ -- goes there when the player asked for that. Twin Marches is large enough to look away from.
+ local m=require('src.app').create({map='twin_marches'});m.noAutoSave=true
+ local unit
+ for _,e in ipairs(m.view.entities) do if e.alive and e.category=='unit' and e.owner==m.player and e.id~=m.view.player.hero then unit=e;break end end
+ assert(unit,'Twin Marches has no unit of ours besides the hero')
+ local event={kind='attack',owner=m.player,target=unit.id,source=0,x=unit.x,y=unit.y}
+ local function announced()
+  for _,item in ipairs(m.alerts.items) do if item.text=='Your forces are under attack' then return item end end
+ end
+ m.settings.alertCamera=false
+ Camera.center(m,unit.x,unit.y);m.alerts=Alerts.create();m.alerts:observe({event},m)
+ assert(not announced(),'an attack in plain view was announced')
+ Camera.center(m,96*256,96*256);m.cameraGlide=nil;m.alerts=Alerts.create();m.alerts:observe({event},m)
+ assert(announced(),'an attack out of view was not announced')
+ assert(m.cameraGlide==nil,'the camera moved to an alert nobody asked it to follow')
+ m.alerts:observe({event,event},m)
+ local notices=0;for _,item in ipairs(m.alerts.items) do if item.text=='Your forces are under attack' then notices=notices+1 end end
+ assert(notices==1,'one attack was announced '..notices..' times')
+ m.settings.alertCamera=true;m.alerts=Alerts.create();m.alerts:observe({event},m)
+ assert(m.cameraGlide,'the camera did not go to an attack with camera-to-alerts on')
+ m.settings.alertCamera=false;m:close()
+ print('PASS feel batch C: scroll ramp and speed, feathered fog, attacks out of view, opt-in alert camera')
 end
 -- WC3-style control and feedback that only exists in the presentation layer. Every check
 -- here must be able to fail loudly: these are the features a player notices missing.

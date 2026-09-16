@@ -68,7 +68,9 @@ function M.cache(app)
   cache={map=app.world.map,width=map.width,height=map.height,terrain=g.newCanvas(map.width,map.height,{dpiscale=1}),
    fogData=fogData,fog=g.newImage(fogData),levels={},list={},spare={},count=0,uploads=0}
   app.miniCache=cache
-  cache.terrain:setFilter('nearest','nearest');cache.fog:setFilter('nearest','nearest')
+  -- Terrain stays crisp on the minimap; fog is sampled linearly, which feathers its edge by half
+  -- a cell in the world instead of stepping cell by cell. Same upload, no extra cost.
+  cache.terrain:setFilter('nearest','nearest');cache.fog:setFilter('linear','linear')
   g.push('all');g.setCanvas(cache.terrain);g.origin();g.setScissor();g.clear(.22,.32,.25)
   -- One pixel per cell in its terrain type's colour, so rock and forest read differently here too.
   local grid=Terrain.grid(map)

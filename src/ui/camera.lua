@@ -42,6 +42,22 @@ function C.update(app,dt)
  C.clamp(app)
 end
 function C.contains(app,x,y) local r=C.rect(app);return x>=r.x and x<r.x+r.w and y>=r.y and y<r.y+r.h end
+-- Panning, from the screen edge or the arrow keys. It starts at 40% speed and reaches full speed
+-- after a third of a second of continuous panning, so a tap nudges the view precisely and a held
+-- edge still crosses the map quickly; letting go resets the ramp. Full speed is the base times the
+-- player's scroll-speed setting. dx and dy are -1, 0 or 1, in the direction the view should go.
+C.SCROLL_BASE=420
+C.SCROLL_RAMP=0.33
+C.SCROLL_START=0.4
+function C.scroll(app,dt,dx,dy)
+ if dx==0 and dy==0 then app.scrollHeld=0;return end
+ local Settings=require('src.ui.settings')
+ local held=app.scrollHeld or 0
+ local ramp=math.min(1,C.SCROLL_START+(1-C.SCROLL_START)*held/C.SCROLL_RAMP)
+ local step=dt*C.SCROLL_BASE*(Settings.SCROLL_SCALE[app.settings and app.settings.scrollSpeed or 2] or 1)*ramp
+ app.camera.x=app.camera.x-dx*step;app.camera.y=app.camera.y-dy*step
+ app.scrollHeld=held+dt
+end
 function C.zoom(app,x,y,delta)
  local wx,wy=app:position(x,y);app.camera.userZoom=math.max(.8,math.min(1.35,(app.camera.userZoom or 1)+delta*.1));C.normalize(app)
  app.camera.x=x-wx/256*C.cellX*app.camera.zoom;app.camera.y=y-wy/256*C.cellY*app.camera.zoom;app.cameraGlide=nil;C.clamp(app)
