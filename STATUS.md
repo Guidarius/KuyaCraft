@@ -1368,3 +1368,23 @@ Verified:
   **2/2**, soak **1/1**.
 
 Not verified: how 65% looks on screen with real sprites (generated art is absent on this machine).
+
+## Audit fixes: commands, queued builders and fog — 2026-09-16
+
+Fixed all four reproduced issues from the audit of master `5102079`:
+
+- Formation slots are keyed by command, so another order for the same unit in the same tick cannot borrow or overwrite them. Queued movement retains its requested destination.
+- Formation planning shares envelope, entity and position validation with command application, including consumed sequence numbers. Stale, duplicate and malformed commands no longer shift valid formations.
+- Construction ownership transfers when a build order becomes active, including queued continuation. A queued replacement does not release the active builder while still moving or on Hold.
+- Fog rebuilds after skipped simulation ticks or a rewind. A cell explored and hidden between rendered frames is now shown as explored; consecutive ticks retain incremental updates.
+
+Simulation version advances from **18 to 19** because command-batch and builder handoff results change. Older replays are rejected by compatibility checks. No golden replay results were re-blessed.
+
+Verification performed on the local Windows desktop (DESKTOP-IQ2FT3Q), LÖVE 11.5:
+
+- Before fixes: the three new headless regression cases failed; the new rendered fog assertion failed with alpha 0.96 instead of 0.6 for an explored cell.
+- After fixes: quick suite **92 passed, 0 failed**. Full `scripts/test-all.ps1`, at the unchanged default 10 ms performance budget, exited **0**: **130 headless tests passed**, four fresh 100,000-tick workers agreed across 30/60/144 FPS schedules and default/tuned JIT caches, and two local ENet processes agreed over 600 ticks.
+- Rendered UI passed at **1280x720, 1920x1080 and 2560x1080**, including the fog regression. The presentation suite and generated-asset viewer also passed. Snapshot continuation is covered for queued movement and builder handoff.
+- Active simulation p95 was **4.745 ms** in the control fixture and **8.572 ms** in the playable balance fixture. These are individual measurements, not a claim of improved performance.
+
+Logs: `artifacts/audit-fixes-red.log`, `audit-fog-red.log`, `audit-fixes-quick.log`, `audit-fixes-all.log`. Human playtesting and multiplayer between two physical PCs were not performed.
