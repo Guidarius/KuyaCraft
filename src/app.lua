@@ -28,6 +28,8 @@ local ACK_FLASH=0.2
 local TRAIL_HOLD,TRAIL_HOLD_CAP,TRAIL_DRAIN=0.3,1.0,0.2
 -- After a group order, how long the cells its units were given stay marked.
 local FORMATION_GHOST=1.0
+-- Own units below this percentage of their health pulse; a winding-up body swells this much.
+local LOW_HEALTH,WINDUP_SWELL=30,0.07
 -- The order marker and formation ghosts are coloured by what was ordered, so the player can
 -- see what they told the army to do: move, attack-move, a focused attack, a patrol beat.
 local ORDER_COLORS={
@@ -437,6 +439,17 @@ function App:drawEntity(e)
         if self.feedback:flashing(e.id,self.world.tick) then g.setColor(1,1,1,.55);g.ellipse('fill',x,y-10*z,8*z,10*z) end
     else
         local d=Content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
+        -- Your own badly hurt units pulse on the ground, so the one about to die is found without
+        -- reading every bar. Drawn rather than spawned, so the effect budget is untouched.
+        if e.owner==self.player and e.alive and e.hp*100<e.maxHp*LOW_HEALTH then
+            g.setColor(1,.3,.25,.25+.2*math.sin(self.clock*8));g.setLineWidth(2)
+            g.ellipse('line',x,y,13*z,6*z);g.setLineWidth(1)
+            self.lowHealthDrawn=(self.lowHealthDrawn or 0)+1
+        end
+        -- Anticipation: the body swells a little as a swing gathers and settles as it lands, so a
+        -- blow reads as thrown before the hit appears.
+        local swing=self.feedback.windup and self.feedback:windup(e.id,self.world.tick)
+        if swing then z=z*(1+WINDUP_SWELL*math.sin(swing*math.pi));self.windupsDrawn=(self.windupsDrawn or 0)+1 end
         local drawn=self.sprites and self.sprites:draw(e,x,y,z,team,prev,self.world.tick,self.view)
         if not drawn then
             color(team);g.rectangle('fill',x-8*z,y-height*z,16*z,(height-5)*z,4*z)
@@ -489,6 +502,7 @@ function App:draw()
     if self.options['sprite-proof'] then return require('src.sprite_proof').draw(self.sprites) end
     local g=love.graphics;local width,height=g.getDimensions();local panel=width
     g.clear(0.055,0.078,0.088)
+    self.lowHealthDrawn=0;self.windupsDrawn=0
     local cameraRect=Camera.rect(self);if self.camera.viewportHeight and self.camera.viewportHeight~=cameraRect.h then local cx,cy=self:position(cameraRect.w/2,cameraRect.y+cameraRect.h/2);Camera.normalize(self);Camera.center(self,cx,cy) end;self.camera.viewportHeight=cameraRect.h
     local viewport=cameraRect;g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
     local m=self.world.map;local z=self.camera.zoom

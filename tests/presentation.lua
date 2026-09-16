@@ -68,6 +68,7 @@ function T.run(app)
  end
  T.gamefeel(app)
  T.feelOrders(app)
+ T.feelUnits(app)
  require('tests.control_input').run()
  -- Pinned to normal pacing. This compares a live match against a replay seek tick for
  -- tick, and App.create otherwise picks up whatever game speed is saved on this machine.
@@ -231,6 +232,30 @@ function T.feelOrders(app)
  assert(app.formationGhosts==0,'formation ghosts outlived their second')
  app.selected={}
  print('PASS feel batch A: selection pop, health trail hold, order markers by kind, formation ghosts')
+end
+-- Feel pass, batch B: a badly hurt unit of ours pulses, and a unit winding up leans into the
+-- swing. Both are drawn, not spawned; the counters say whether they were.
+function T.feelUnits(app)
+ local Sim=require('src.sim');local Camera=require('src.ui.camera')
+ app.overlay=nil;app.building=nil;app.targeting=nil
+ local unit
+ for _,e in ipairs(app.view.entities) do if e.alive and e.category=='unit' and e.owner==app.player then unit=e;break end end
+ assert(unit,'the fixture has no unit of ours')
+ local body=app.world.entities[unit.id];local full=body.hp
+ Camera.center(app,body.x,body.y)
+ body.hp=math.floor(body.maxHp*.2);app.view=Sim.view(app.world,app.player)
+ local before=Sim.serializeCanonical(app.world);app:draw()
+ assert(Sim.serializeCanonical(app.world)==before,'the low-health pulse mutated the simulation')
+ local hurt=app.lowHealthDrawn
+ body.hp=body.maxHp;app.view=Sim.view(app.world,app.player);app:draw()
+ assert(hurt>app.lowHealthDrawn,'a badly hurt unit of ours did not pulse: '..hurt..' against '..app.lowHealthDrawn)
+ -- A swing halfway through, as the feedback layer would record it from a windup event.
+ app.feedback.windups[unit.id]=app.world.tick-2;app:draw()
+ assert((app.windupsDrawn or 0)>=1,'a unit winding up was drawn without leaning into the swing')
+ app.feedback.windups[unit.id]=nil;app:draw()
+ assert(app.windupsDrawn==0,'a unit leaned into a swing it was not making')
+ body.hp=full;app.view=Sim.view(app.world,app.player)
+ print('PASS feel batch B: low-health pulse, windup lean')
 end
 -- WC3-style control and feedback that only exists in the presentation layer. Every check
 -- here must be able to fail loudly: these are the features a player notices missing.

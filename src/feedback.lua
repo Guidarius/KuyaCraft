@@ -10,11 +10,18 @@ local WINDUP_TICKS=4
 -- the camera being broken rather than as an impact.
 local SHAKE_DECAY=24
 function F.create()
-    return setmetatable({items={},known={},tick=nil,clock=0,texts={},flashes={},shakeX=0,shakeY=0,shake=0,banner=nil},{__index=F})
+    return setmetatable({items={},known={},tick=nil,clock=0,texts={},flashes={},windups={},shakeX=0,shakeY=0,shake=0,banner=nil},{__index=F})
 end
 function F:reset()
     self.items={};self.known={};self.tick=nil;self.clock=0
-    self.texts={};self.flashes={};self.shakeX=0;self.shakeY=0;self.shake=0;self.banner=nil
+    self.texts={};self.flashes={};self.windups={};self.shakeX=0;self.shakeY=0;self.shake=0;self.banner=nil
+end
+-- How far into a swing a unit is: 0 as it starts, 1 as it lands, nil when it is not winding up.
+-- The body leans into the blow from this, which is what makes a swing read before it lands.
+function F:windup(id,tick)
+    local at=self.windups[id]
+    if not at or tick-at>WINDUP_TICKS then return nil end
+    return (tick-at)/WINDUP_TICKS
 end
 function F:update(dt)
     self.clock=self.clock+dt
@@ -63,6 +70,7 @@ function F:observe(events,view,tick)
     end
     self.items=kept
     for id,at in pairs(self.flashes) do if tick-at>FLASH_TICKS or not visible[id] then self.flashes[id]=nil end end
+    for id,at in pairs(self.windups) do if tick-at>WINDUP_TICKS or not visible[id] then self.windups[id]=nil end end
     local function add(item)
         item.tick=tick;item.time=self.clock
         if #self.items<256 then self.items[#self.items+1]=item end
@@ -81,7 +89,7 @@ function F:observe(events,view,tick)
             -- arc simply stops. The event was emitted and consumed by nothing until now.
             elseif event.kind=='windup' then
                 local source=visible[event.source]
-                if source then add({kind='windup',source=source.id,target=source.id,x=source.x,y=source.y,duration=WINDUP_TICKS}) end
+                if source then add({kind='windup',source=source.id,target=source.id,x=source.x,y=source.y,duration=WINDUP_TICKS});self.windups[source.id]=tick end
             elseif event.kind=='death' or event.kind=='revived' or event.kind=='healed' or event.kind=='constructed' or event.kind=='upgraded' then
                 local e=visible[event.entity]
                 if e then add({kind=event.kind,target=e.id,x=e.x,y=e.y,duration=6}) end

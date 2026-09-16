@@ -79,6 +79,14 @@ function T.run()
     eq(renderer.states[1].attackFacingTick,20) -- stale events do not relabel a later tick
     renderer:reset();eq(renderer.observedTick,nil);eq(next(renderer.states),nil)
     local _,_,_,noEventDirection=F.select(m,attacker,nil,21,{direction='W'});eq(noEventDirection,'W')
+    -- Hysteresis: a heading is kept until the motion is clearly past the boundary between two,
+    -- so a unit moving close to that line stops flickering between them.
+    eq(F.direction(256,0,nil),'E')
+    local thirty=math.floor(256*math.tan(math.rad(30)))
+    eq(F.direction(256,thirty,nil),'SE') -- with nothing to keep, 30 degrees is already south-east
+    eq(F.direction(256,thirty,'E'),'E') -- but a unit already facing east keeps facing east
+    eq(F.direction(256,math.floor(256*math.tan(math.rad(40))),'E'),'SE') -- until it is clearly past
+    eq(F.direction(-256,0,'E'),'W') -- and a real reversal still turns
     print('PASS asset runtime: metadata, paths, v1 migration, multi-page frames, timing, world headings, cargo phase, visibility')
 end
 return T

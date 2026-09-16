@@ -9,9 +9,20 @@ function F.assetId(e)
     if e.kind=='worker' then return 'worker' end
     return assetIds[e.kind]
 end
+-- A unit moving close to the line between two of its eight headings used to flip between them
+-- every tick, which reads as flicker, most of all in a shuffling crowd. The current heading is
+-- kept until the motion is clearly past the boundary: 15 degrees beyond it.
+local HYSTERESIS=math.pi/12
+local centres={}
+for i,name in ipairs(F.directions) do centres[name]=(i-1)*math.pi/4-math.pi/2 end
 function F.direction(dx,dy,last)
     if dx==0 and dy==0 then return last or 'S' end
     local angle=math.atan2 and math.atan2(dy,dx) or math.atan(dy,dx)
+    local centre=last and centres[last]
+    if centre then
+        local off=(angle-centre+math.pi)%(2*math.pi)-math.pi
+        if math.abs(off)<=math.pi/8+HYSTERESIS then return last end
+    end
     return F.directions[(math.floor((angle+math.pi/2)/(math.pi/4)+0.5)%8)+1]
 end
 function F.sample(m,name,direction,elapsedMs,contactFirst)
