@@ -1388,3 +1388,40 @@ Verification performed on the local Windows desktop (DESKTOP-IQ2FT3Q), LÖVE 11.
 - Active simulation p95 was **4.745 ms** in the control fixture and **8.572 ms** in the playable balance fixture. These are individual measurements, not a claim of improved performance.
 
 Logs: `artifacts/audit-fixes-red.log`, `audit-fog-red.log`, `audit-fixes-quick.log`, `audit-fixes-all.log`. Human playtesting and multiplayer between two physical PCs were not performed.
+
+## UI icon and pip audit — 2026-09-17
+
+Audited the match HUD and the world-space overlays for places where a word, a letter or a
+duplicated vector stand-in is doing an icon's job, and recorded the result as a drawing
+spec: [docs/art/ICON_AND_PIP_INVENTORY.md](docs/art/ICON_AND_PIP_INVENTORY.md). **No source
+code changed.** The shell screens (main menu, setup, lobby, replay browser, settings,
+results) were not audited.
+
+The spec lists **94 symbols** in three tiers ordered by how often a player reads them: 31
+tier 1 (a word or a bare letter where a symbol must go — the cost letters `g`/`f`/`m`/`xp`,
+the `Gold` and `Food` readouts, hotkey letters, `Level N`, the `T1` badge, the
+`HQ`/`T`/`WAR`/`MINE` labels painted on buildings, and seven alert categories that are
+currently distinguished only by their sentence), 45 tier 2 (a generic or duplicated stand-in
+already exists — nine unit icons that all draw the same figure, four ability icons and
+twelve upgrade icons that all draw the same framed plus, six status icons, seven minimap
+markers), and 18 tier 3.
+
+It also specifies the move from smooth bars to Warcraft 3 style notched bars, with proposed
+notch counts checked against the real HP and mana values in `src/content.lua`. Those counts
+are balance-adjacent and are recorded as defaults for the user to confirm, not as decisions.
+
+Open decisions recorded in the spec: where icon files live (`src/asset_catalog.lua`'s
+`safePath` requires the untracked `assets/generated/` prefix, which does not suit hand-drawn
+source art), whether upgrade icon keys become faction-qualified, the notch counts, and
+whether the 10 px command-card icon slot grows.
+
+Three unrelated defects were found while auditing and are recorded in the spec's closing
+section rather than fixed: the `work` animation clip is unreachable because
+`harvestRemaining` is never written by the simulation and is not in `VIEW_FIELDS`; the
+carrier payload chevron is gated on an owner-only view field and so is invisible to the
+enemy it is meant to inform; and buildings never draw a health bar.
+
+Verification: documentation only, so no test suite was run, per AGENTS.md. Every `file:line`
+reference in the new document was opened and confirmed, and every icon key was cross-checked
+against the live action ids in `src/ui/actions.lua`, the ids in `src/content.lua` and the
+named branches in `src/ui/icons.lua`. No human playtesting was involved.
