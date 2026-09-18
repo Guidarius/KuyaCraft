@@ -2028,3 +2028,65 @@ not, and no rendered test moved the pointer with a building armed. It now passes
 stragglers. `tests/presentation.lua` moves the pointer with a Depot armed as the Orders and
 a Rig armed as the Megacorp; with the bug put back that test fails with the user's exact
 error, and with the fix quick (124) and `test-ui.ps1` pass.
+
+## The Megacorp's orbital interface: a sidebar, one model, keys from anywhere
+
+Everything the Megacorp builds is made off the map, and all of it was hidden behind
+selecting the Command and reading text buttons on two sub-pages. After research into how
+shipped games present the same problems (the C&C sidebar's READY cameo and click-to-place,
+StarCraft 2's badged warp-gate and idle-worker counters with a cycle key, Dawn of War III's
+pod slot cells, Company of Heroes' distinct call-in states, Blizzard's clock-wipe
+cooldowns), and the user's choices (a right-edge sidebar, global keys, interface only plus
+a single-seat refund), the plan in `docs/COMMAND_CARDS.md` was built in three steps.
+
+**Simulation, version 27.** `cancel{pod=true,seat=i}` refunds one unit out of the open pod
+and closes the gap; the owner's view gains a derived `player.orbit` summary (orbit slots,
+queue size, pods unlocked, capacities) so the interface no longer works them out from the
+world. No state is added.
+
+**One model.** `src/ui/orbital.lua` `Orbital.model(view, content)` is a pure function that
+yields the frames (producing with progress and seconds, READY, waiting, empty), the slot
+and queue counts, descents, seats, pips and the launch dial's state with its reason. It
+names something nobody could see before: a finished building keeps its production slot
+until it is landed, so with one slot everything behind a READY building is stalled. The
+model marks those frames **blocked** and the sidebar says so in words.
+
+**The sidebar** is on screen all match for a faction with orbital logistics; the
+battlefield rectangle is narrowed for it (`Camera.rect`), so scrolling, culling, the
+minimap's view box and click-to-world stay true, and the Orders' screen is unchanged. The
+Command's card reads the same model and lost its per-item text buttons and the blind
+"Cancel last". B and P work from anywhere (P stays Patrol with units selected), F9 arms
+the next READY building and cycles, Shift chains landings. A pod aim shows the coverage
+tint and a green or red ring and refuses at the pointer. Descent markers carry a name and
+seconds, the minimap blinks a chevron at each, and a finished building raises an alert
+that arms the landing when clicked.
+
+The rendered test drives the whole flow on the shipping content and found a real bug on
+its first run: right-clicking out of a landing cleared the ghost but left the landing index
+armed (`Input.disarm`), now fixed. Glyphs are monograms from the content labels; the kind
+ids are the hooks icon art replaces. An ON HOLD state for requisitions was researched and
+declined by the user as a new mechanic.
+
+Verified on the desk machine at `-PerfBudget 40`, one after another on the finished tree:
+quick (125 passed), determinism (5), network (4), scenario (2), crowd (20), soak (1),
+performance (2, p95 15.4 ms), `test-ui.ps1` and `test-presentation.ps1` (PASS, captures
+`orbital-queue`, `orbital-landing`, `orbital-pods` looked at; a long label that wrapped into
+its state word was then cut to one line). Balance: 6 passed, 1 failed, the active-performance
+gate at 46.0 ms p95 in the chain and 60.4 ms alone, with the machine at 46% CPU from other
+applications (Bambu Studio, Godot, Creative Cloud). Attacks (9415) and lead moving ticks
+(647) are identical to every earlier run, so behaviour did not change, and the branch's
+simulation diff (a cancel branch and the view) does not run inside the timed `Sim.step`.
+An alternating A/B against the parent commit, three pairs in each order, p95 in ms:
+
+| Order | Parent | This branch |
+|---|---|---|
+| parent first | 5.9, 23.8, 28.9 | 30.3, 30.5, 41.9 |
+| branch first | 22.4, 28.1, 38.8 | 32.3, 35.3, 27.1 |
+
+Medians about 26 against 31. The parent alone spans 5.9 to 38.8 on identical code, so six
+samples cannot separate a 5 ms difference from this machine's load and heat; it is recorded
+as **inconclusive, not as clean**. If it is real, the likeliest cause is LuaJIT's handling of
+the very large `apply` function growing by a few lines, and the fix would be moving the pod
+cancel into its own function. Worth re-measuring on a quiet machine. Match outcomes are
+unchanged (12:23 and 10:23; fixture 5353 and 2179). Not done: nobody has played a Megacorp
+match with the sidebar; glyphs are monograms until there is icon art.
