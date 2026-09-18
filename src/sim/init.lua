@@ -10,6 +10,7 @@ local Projectiles=require('src.sim.projectiles')
 local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
 local Control=require('src.sim.control')
+local Harvest=require('src.sim.harvest')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
 -- replays store whole-world hashes and are rejected rather than misreported as
 -- divergence. See Sim.serializeAuthoritative.
@@ -63,7 +64,12 @@ local Control=require('src.sim.control')
 -- dies). Buildings declare what they produce, what they require, the supply they provide
 -- and their armour. The ledger is keyed by rules.resources, and a carrier records which
 -- resource it carries. Every new field defaults to the old behaviour when absent.
-local Sim = { VERSION = 20 }
+-- Version 21: worker harvesting. A `harvest` command and order: a worker with a `harvest`
+-- table walks to a node, loads at a patch nobody else is loading at (hopping to a free one
+-- nearby or waiting), carries the load to its nearest completed drop-off and repeats;
+-- `deliver` returns what it holds. Adds `carrying`, `carryResource` and `harvestUntil` on
+-- units and `occupant` on nodes; rallying a producer onto a harvestable node harvests it.
+local Sim = { VERSION = 21 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Faction schema v2. Every accessor here has a default that reproduces what content
@@ -354,6 +360,8 @@ local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
     'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine','stalled',
     'mana','maxMana',
+    -- A worker's load and its loading are public: an enemy sees a laden worker walking home.
+    'carrying','carryResource','harvestUntil',
     -- A shot in flight carries its heading so the renderer can point it the right way.
     'dx','dy','ability'}
 -- Fields an observer may only see on entities it owns.
@@ -599,7 +607,7 @@ local function setOrder(w,e,order,append)
         local same=old.kind==order.kind and old.target==order.target and old.x==order.x and old.y==order.y
         e.orders={}
         if same and (order.kind=='move' or order.kind=='attack_move' or order.kind=='attack') then return true end
-        halt(w,e);clearCombat(e);e.order=order;e.reroutes=0;e.blockedReason=nil;e.lastOrderFailure=nil;e.restAnchor=nil;e.navigation='idle';e.detour=nil;e.rerouteAt=nil
+        halt(w,e);clearCombat(e);Harvest.release(w,e);e.order=order;e.reroutes=0;e.blockedReason=nil;e.lastOrderFailure=nil;e.restAnchor=nil;e.navigation='idle';e.detour=nil;e.rerouteAt=nil
         e.suppressAcquireUntil=w.tick
         if order.x then route(w,e,order.x,order.y) end
         claimBuild(w,e)
@@ -610,7 +618,7 @@ Sim.setOrder=setOrder
 local function nextOrder(w,e)
     local blocked=e.blockedReason
     local rest=e.order.x and {x=F.center(e.order.x),y=F.center(e.order.y)} or nil
-    halt(w,e);clearCombat(e);e.order=table.remove(e.orders,1) or {kind='stop'};e.reroutes=0;e.blockedReason=nil
+    halt(w,e);clearCombat(e);Harvest.release(w,e);e.order=table.remove(e.orders,1) or {kind='stop'};e.reroutes=0;e.blockedReason=nil
     e.navigation=blocked and 'failed' or 'idle';e.lastOrderFailure=blocked;e.restAnchor=e.order.kind=='stop' and not blocked and rest or nil
     if e.order.x then route(w,e,e.order.x,e.order.y) end
     claimBuild(w,e)
@@ -634,7 +642,7 @@ local function refundOf(w,cost)
     return out
 end
 local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
-    rally=true,patrol=true,follow=true,cast=true,ping=true}
+    rally=true,patrol=true,follow=true,cast=true,ping=true,harvest=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
 local destinationKinds={move=true,attack_move=true,patrol=true}
 local function envelopeError(w,c,sequence)
@@ -796,6 +804,15 @@ local function apply(w,c)
     end
     if e.category~='unit' then reject(w,c,'unit required'); return end
     if c.kind=='stop' or c.kind=='hold' then setOrder(w,e,{kind=c.kind},false);e.suppressAcquireUntil=w.tick;return end
+    if c.kind=='harvest' then
+        if not d.harvest then reject(w,c,'cannot harvest');return end
+        -- No target: bring back what is carried, then stop.
+        if a.deliver and a.target==nil then setOrder(w,e,{kind='harvest',deliver=true},a.append);return end
+        local node=F.integer(a.target,1) and w.entities[a.target] or nil
+        if not node or not node.alive or not Harvest.canHarvest(d,node) then reject(w,c,'cannot harvest that');return end
+        if not Sim.visible(w,c.player,node) then reject(w,c,'target not visible');return end
+        setOrder(w,e,{kind='harvest',target=node.id,resource=node.resource},a.append);return
+    end
     if c.kind=='cast' then
         if e.category~='unit' then reject(w,c,'not a caster');return end
         local ability=Abilities.definition(w,a.ability)
@@ -878,6 +895,9 @@ function Sim.applyRally(w,e,unit)
         if not t or not t.alive then e.rally=nil;return end
         if t.category=='unit' and t.owner==unit.owner and t.id~=unit.id then
             Sim.setOrder(w,unit,{kind='follow',target=t.id},false)
+        elseif t.category=='node' and Harvest.canHarvest(def(w,unit),t) then
+            -- A producer rallied onto a patch its units can work sends them to work it.
+            Sim.setOrder(w,unit,{kind='harvest',target=t.id,resource=t.resource},false)
         else
             -- A mine or a building occupies its own cells, so walk to a free one beside
             -- it rather than to a cell nothing can stand on.
@@ -949,6 +969,7 @@ local function extraction(w)
         end
     end
 end
+local harvestApi={emit=emit,nextOrder=nextOrder,approachTarget=approachTarget,rebuild=rebuild,radius=G.radius,def=def}
 local function economy(w)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
@@ -969,6 +990,7 @@ local function economy(w)
                 if not lead or not lead.alive then nextOrder(w,e)
                 else approachTarget(w,e,lead,G.radius(w,e)+G.radius(w,lead)+96) end
             end
+            if e.order.kind=='harvest' then Harvest.step(w,e,harvestApi) end
             local d=def(w,e)
             if e.category=='building' then
                 if e.researchRemaining then e.researchRemaining=e.researchRemaining-1;if e.researchRemaining==0 then e.researchRemaining=nil;w.players[e.owner].tech=true;emit(w,'researched',{entity=e.id}) end end
@@ -1309,7 +1331,7 @@ local function combat(w,pending)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         if e.alive and e.hp<=0 then
-            e.alive=false;e.hp=0;halt(w,e);e.orders={};e.attack=nil;e.deathTick=w.tick;deathChanged=true
+            e.alive=false;e.hp=0;halt(w,e);Harvest.release(w,e);e.orders={};e.attack=nil;e.deathTick=w.tick;deathChanged=true
             emit(w,'death',{entity=id})
             if e.category=='building' then navChanged=true end
             local killer=killers[id]

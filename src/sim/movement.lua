@@ -76,7 +76,7 @@ end
 -- Who the push pass may ease apart: any unit free to move that is not holding, building or
 -- mid-swing. Unlike yielding this includes units that are going somewhere, which is the point.
 local function pushable(w,e)
-    if not Stats.canMove(w,e) or e.attack then return false end
+    if not Stats.canMove(w,e) or e.attack or e.harvestUntil then return false end
     local kind=e.order.kind
     return kind~='hold' and kind~='build'
 end
@@ -124,7 +124,8 @@ end
 local function yieldable(w,e,other,yields)
     if other.id==e.id or other.owner~=e.owner then return false end
     if not Stats.canMove(w,other) then return false end
-    if other.goal or other.attack or other.combatTarget then return false end
+    -- A worker loading at a patch stays at its patch, like a builder at its site.
+    if other.goal or other.attack or other.combatTarget or other.harvestUntil then return false end
     local kind=other.order.kind
     if kind=='hold' or kind=='build' then return false end
     if (other.suppressAcquireUntil or -1)>=w.tick then return false end

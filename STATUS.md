@@ -1488,3 +1488,49 @@ the evidence that this phase changed no behaviour. Active p95 was 8.376 ms here 
 18.998 ms on the parent run; both are single measurements on the thermally limited laptop
 and claim nothing. Logs: `artifacts/suite-*.log` in the worktree. Not done: a human
 playtest, and a draft pull request (the `gh` CLI is not installed on this machine).
+
+## Pivot phase 2: worker harvesting — simulation version 21
+
+Brood War style harvesting, rebuilt after the version 8 removal and driven by content: a
+unit with a `harvest` table (ticks per load, by resource) and a `carry` amount takes a
+`harvest` command onto a node it may work. It walks there, claims the patch if nobody else is
+loading at it, loads for the resource's time, carries the load to the nearest completed
+drop-off it owns, is paid, and goes back. A second arrival finds the patch busy and hops to a
+free patch of the same resource within `rules.harvestSearch`, or waits its turn when there is
+none, so one worker loads at a patch at a time. A depleted patch hands the worker to the
+nearest patch of its resource within twice that range, or ends the job with a
+`harvest_ended` event. A worker keeps its load through any other order and `harvest` with
+`deliver=true` brings it back and stops. Rallying a producer onto a harvestable node sends
+its units to work it; other units still just walk there. The mechanism is
+[src/sim/harvest.lua](src/sim/harvest.lua), stepped from the economy phase in `w.order`
+with the same approach, halt and yield helpers every other order uses; a worker loading at
+a patch is not shoved aside, like a builder at its site.
+
+State: `carrying`, `carryResource` and `harvestUntil` on units (public in views, so a laden
+worker reads as laden to the enemy and the sprite's `work` and loaded clips finally have
+something to key on) and `occupant` on nodes (private). A right-click on a patch is a
+harvest order for units that can work it and a walk for anyone else. The shipping content
+does not yet give its worker a `harvest` table: the Bastion and Wild Pact still run the
+extractor economy unchanged until phase 3 replaces it, so this phase changes no shipped
+behaviour. `Sim.VERSION` 20 → 21 for the new command, order and state; content unchanged.
+
+Nine regression scenarios in `tests/harvest_scenarios.lua`, on a fixture copy whose worker
+loads eight gold in forty ticks: a fixed round trip with the ledger and the patch agreeing
+with the deliveries; two workers on one patch (hop to a free one, or wait, never two loading
+at once); depletion ending the job and moving to the next patch; the nearest completed
+drop-off winning over a nearer site; keeping a load through a move and returning it on
+command; a snapshot mid-load continuing identically with the occupant hidden from views;
+rally onto a patch; every rejection reason; and the presentation's right-click intent.
+
+One defect found and fixed while writing them: the worker halted on the cell diagonal to
+the patch, whose centre sits 181 subunits from the patch edge, and the free-cell search then
+kept returning the cell it stood on. The working reach is now the body radius plus half a
+cell, so any touching cell, corners included, is close enough to load from.
+
+Verification, all on the desk machine from the worktree with `-PerfBudget 40`: `quick` 108
+passed; `balance` 4; `determinism` 5 plus the four-process 100,000-tick agreement;
+`network` 4 plus the ENet pair; `scenario` 2; `crowd` 20; `soak` 1; `performance` 2; the
+rendered UI and presentation suites at all three resolutions. Zero failures. The mirror and
+asymmetric pacing reports are byte-identical to the parent run recorded under phase 1, and
+both fixture matches end on the same tick with the same winner. Not done: a human
+playtest, and the draft pull request (`gh` is not installed here).

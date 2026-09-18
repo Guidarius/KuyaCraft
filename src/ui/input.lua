@@ -120,13 +120,16 @@ function I.intent(app,x,y,target,kind)
   if e and e.alive and e.category=='unit' and e.owner==app.player then
    local command=focus and 'attack' or kind;local args={append=shift(),group=app.commandGroup}
    if not command then
+    local def=app.world and app.world.content.units[e.kind]
     if target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
+    -- A right-click on a patch a worker can work is a harvest order; anyone else just walks there.
+    elseif target and target.category=='node' and def and def.harvest and def.harvest[target.resource] then command='harvest'
     elseif target and target.owner~=app.player and target.category~='node' then command='attack'
     -- Right-clicking one of your own live units falls in behind it.
     elseif target and target.owner==app.player and target.category=='unit' and target.id~=id then command='follow'
     else command='move' end
    end
-   if command=='attack' or command=='build' or command=='follow' then args.target=target and target.id else args.x=x;args.y=y end
+   if command=='attack' or command=='build' or command=='follow' or command=='harvest' then args.target=target and target.id else args.x=x;args.y=y end
    if app:command(command,id,args)==false then return end;count=count+1;ordered[#ordered+1]={id=id,kind=e.kind,command=command}
   end
  end

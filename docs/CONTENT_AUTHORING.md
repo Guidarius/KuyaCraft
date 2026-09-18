@@ -45,11 +45,22 @@ factions[id] = {
 }
 buildings[kind] += produces = { unit ids }, requires = { building ids }, supply = n, armor = n,
                    onNode = 'gold'   -- must stand squarely on a node of this resource
-units[kind]     += armor = n, requires = { building ids }
+units[kind]     += armor = n, requires = { building ids },
+                   harvest = { substrate = T.ticks(2), charge = T.ticks(3) }, carry = 8
+                                    -- ticks per load by resource; the unit may harvest only what is listed
 rules           += resources = { 'gold' },      -- ledger keys in display order; every cost uses one
                    supplyFromBuildings = false, -- true: the cap is the sum of completed buildings' supply
-                   cancelRefundPercent = 50
+                   cancelRefundPercent = 50,
+                   harvestSearch = T.cells(6)  -- how far a worker looks for a free patch of the same resource
 ```
+
+Harvesting (simulation version 21): a worker with a `harvest` table takes a `harvest`
+command onto a node, loads at a patch nobody else is loading at, hops to a free patch of
+the same resource within `harvestSearch` or waits when it is busy, carries the load to the
+nearest completed `dropoff` building it owns and repeats. `harvest` with `deliver=true`
+returns what it carries and stops. A patch is one worker at a time (`occupant`, private);
+`carrying`, `carryResource` and `harvestUntil` are public. Rallying a producer onto a
+harvestable node harvests it. The mechanism is `src/sim/harvest.lua`.
 
 `requires` is checked when a building is placed and when a unit is queued, and the reason
 names the missing building. `Sim.missingRequirement` answers the same question for a world,

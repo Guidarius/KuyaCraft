@@ -381,6 +381,18 @@ for _,case in ipairs({
     test('simulation',case[2],function() require('tests.schema_scenarios')[case[1]]() end)
 end
 for _,case in ipairs({
+    {'cadence','a worker loads eight, walks it home and repeats on a fixed round trip'},
+    {'patches','a second worker hops to a free patch, or waits its turn at a busy one'},
+    {'depletion','a depleted patch ends the job, or hands the worker to the next patch'},
+    {'dropoff','loads go to the nearest completed drop-off, never to a site'},
+    {'returnCargo','a redirected worker keeps its load and can be told to return it'},
+    {'snapshot','harvesting survives a snapshot and hides the patch occupant from the enemy'},
+    {'rally','a producer rallied onto a patch sends harvesters to work it'},
+    {'rejections','harvest orders are refused with a reason the player can act on'},
+    {'rightClick','a right-click on a patch harvests with workers and walks with soldiers'}}) do
+    test('simulation',case[2],function() require('tests.harvest_scenarios')[case[1]]() end)
+end
+for _,case in ipairs({
     {'capture','a control point is captured by standing in it unopposed, and kept after leaving'},
     {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
     {'hold','owning every control point for the full hold wins, not a tick sooner'},

@@ -6,7 +6,8 @@ function F.assetId(e)
     -- its back. A carrier is only ever alive while it is holding gold, so it has no
     -- unloaded state and the workers themselves no longer carry anything.
     if e.kind=='carrier' then return 'worker_loaded' end
-    if e.kind=='worker' then return 'worker' end
+    -- A worker with a load on its back is the loaded recipe; empty, the plain one.
+    if e.kind=='worker' then return (e.carrying or 0)>0 and 'worker_loaded' or 'worker' end
     return assetIds[e.kind]
 end
 -- A unit moving close to the line between two of its eight headings used to flip between them
@@ -43,7 +44,7 @@ function F.select(m,e,previous,tick,state,view)
     local moving=dx~=0 or dy~=0
     local direction=F.direction(dx,dy,state.direction)
     local clip=moving and 'move' or 'idle';local elapsed=ms
-    if not moving and e.order and e.order.kind=='harvest' and e.harvestRemaining then clip='work' end
+    if not moving and e.harvestUntil then clip='work' end
     if moving and state.tick~=tick then
         local distance=math.sqrt(dx*dx+dy*dy)/256
         local stride=m.referenceStride and m.referenceStride.distance
