@@ -1883,3 +1883,33 @@ recall and ranged shield; Keep tiers, House branches and rubble; killable buildi
 upgrades; a Fletchery; Franchises and livery; office staffing research; Battleship repair
 at the Command; Enforcer area damage; a fixed selection cap (paging stays); a Megacorp
 bot that wins a match; a Tiled check of the exported map; human playtests of both matchups.
+
+## Megacorp bot: spend by a plan, attack as one wave
+
+The Orders vs Megacorp match at content 14 was an Orders win at 22:45, and a minute-by-minute
+trace showed why: the Megacorp bot loaded a 50-substrate Associate whenever it could afford
+one, so its bank never reached the Requisition Office's 175/25; its requisition chain then
+sat on that unaffordable branch from 3:00 onward and ordered nothing else for the rest of
+the match (six rigs, no relay, no office, no Battleship, the natural never covered). Every
+full pod launched on cooldown and its four Associates walked to the Orders' Keep and died
+there, over a hundred of them.
+
+`src/bot/megacorp.lua` now spends by a priority plan: a rig on every covered patch first
+(a rig repays its 60 in under a minute), a Barracks, a Charge Rig, an Office once four rigs
+stand, a Relay at the natural under the Blimp's coverage, rigs there, Battleships once the
+charge is in, then Med Bay, Armory, Bunker and a second Office. The first want it cannot
+pay for is what it saves for; pods are loaded only from what is left over, except when an
+enemy is near the Command. Troops land at a rally beside the Command (the natural once a
+relay covers it) and go out with the ships as one wave at 24 troop supply and two
+Battleships, or at 15:00 regardless; anything that comes near home is answered at once.
+The Blimp comes home once the relay stands. No content or simulation change.
+
+Verified on the desk machine at `-PerfBudget 40`: quick (116 passed), balance (4) and
+scenario (2). The Orders vs Megacorp match went from an Orders win at 22:45 to a Megacorp
+win at 10:23 by headquarters: barracks landed at 0:45, all thirteen covered patches rigged
+by 5:00, the natural relayed at 6:00, two Battleships by 8:00, the wave at about 8:10;
+first contact 4:22, peak food 52 against 62 (caps 16 and 62), 18 Associates lost instead
+of over a hundred. The Megacorp reaches its supply cap of 62 at 8:00 and stays there,
+because only the Command and Rigs grant supply; that, and the Orders bot losing to a
+single wave, are balance and bot questions for the user. The mirror is unchanged at 12:23.
+The fixture matches are unchanged (5353 and 2179).

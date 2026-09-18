@@ -146,27 +146,31 @@ is the shape of a match, not balance between the factions.
 
 | Event | Target | Orders mirror | Orders vs Megacorp |
 |---|---|---:|---:|
-| First Barracks | 0:45–1:15 | 0:47 | 0:47 (Megacorp barracks lands 1:30) |
+| First Barracks | 0:45–1:15 | 0:47 | 0:47 (Megacorp barracks lands 0:45) |
 | First combat unit | 1:10–1:35 | 1:10 | 1:10 |
-| First contact | 3:00–5:00 | 3:46 | 3:38 |
+| First contact | 3:00–5:00 | 3:46 | 4:22 |
 | First Gryphon Knight | 4:00–6:00 | 4:34 | 4:34 |
-| Second Keep | 6:00–9:00 | 6:59 | 12:08 |
-| Peak army | 10:00–15:00 | 10:54 / 7:25 | 19:20 / 12:54 |
-| Match end | 15:00–25:00 | 12:23, player 1 by headquarters | 22:45, Orders by headquarters |
-| Peak food | — | 92 / 52 of caps 100 / 24 | 74 / 34 of caps 84 / 24 |
+| Second Keep | 6:00–9:00 | 6:59 | 7:08 |
+| Peak army | 10:00–15:00 | 10:54 / 7:25 | — |
+| Match end | 15:00–25:00 | 12:23, player 1 by headquarters | 10:23, Megacorp by headquarters |
+| Peak food | — | 92 / 52 of caps 100 / 24 | 52 / 62 of caps 16 / 62 |
 
-The mirror finishes 2.6 minutes short of the floor; the asymmetric match is inside the
-window but the Megacorp bot has not yet won one. Neither number has been tuned: balance
-is the user's, and these are the figures to tune from.
+Both matches finish short of the floor: the mirror by 2.6 minutes, the asymmetric by 4.6
+after the Megacorp bot learned to spend by a plan (before that it lost at 22:45). The
+Megacorp sits at its supply cap of 62 from 8:00, since only the Command and Rigs grant
+supply. Neither number has been tuned: balance is the user's, and these are the figures
+to tune from.
 
 The Orders bot sends idle workers to the patch with the fewest assigned, grows to 16 then
 24 workers, raises a Depot before the cap, a Barracks at 150 substrate, a second Barracks
 later, a Keep at the natural, a Sanctum after two halls, alternates Footmen and Crossbows,
 adds Gryphon Knights once charge flows and two Reliquaries, and attacks at 12 army supply.
-The Megacorp bot requisitions Rigs on covered patches, a Barracks, a Charge Rig, an Office,
-a Relay toward the natural, a Med Bay, an Armory and a Bunker; lands what is ready; fills
-and launches pods at the natural; walks the Blimp forward; casts the barrage at flyers in
-reach; and sorties with two Battleships or 12 troop supply. Bots read filtered views and
+The Megacorp bot spends by a priority plan: a Rig on every covered patch, a Barracks, a
+Charge Rig, an Office, a Relay at the natural under the Blimp's coverage, Rigs there,
+Battleships, then Med Bay, Armory, Bunker and a second Office; it saves for the first want
+it cannot pay for and loads pods only from what is left over. Troops land at a rally by the
+Command and go out with the ships as one wave at 24 troop supply and two Battleships, or at
+15:00; the barrage is cast at flyers in reach, and anything near home is answered at once. Bots read filtered views and
 public coordinates and are a reproducible smoke workload, not a substitute for human
 balance testing.
 
