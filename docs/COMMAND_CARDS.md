@@ -4,6 +4,7 @@ The card follows the active subgroup, preferring a hero by default, while shared
 
 ## Menus and requirements
 
+- The Megacorp's Orbital Command card: Requisition (B) opens a page of every building it may order from orbit; each item in the call-down queue is a button showing its time in orbit, and a ready one reads Land and arms a landing site, drawn over the relay-coverage tint; Cancel last refunds 75%. Blimp and Battleship train from the same card.
 - Worker Harvest is G: click a patch or geyser and the worker works it until it is empty. A laden worker also offers Return cargo (C). Right-clicking a patch with workers selected harvests it.
 - Worker Build opens with B. The buildings and their keys come from the faction's `buildings` list (Orders: Keep, Supply Depot, Barracks on Q/W/E). Before the pivot: Q/T/E/R select war hall/watchtower/outpost/extractor (the watchtower key follows Settings). One selected worker receives each construction order. Shift repeats queued placement. Escape first cancels placement, then closes the submenu.
 - A hero uses U to open three rows of paired upgrades. Each row identifies its tier. Learned and mutually excluded choices stay visible; future tiers show XP and prior-tier requirements. Available choices open the existing permanent-choice preview before committing. XP is a threshold and is not spent.

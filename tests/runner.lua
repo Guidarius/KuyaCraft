@@ -377,6 +377,16 @@ for _,case in ipairs({
     test('simulation',case[2],function() require('tests.air_scenarios')[case[1]]() end)
 end
 for _,case in ipairs({
+    {'opening','the Megacorp starts with a Command and a Blimp and can requisition only its own buildings'},
+    {'coverage','relay coverage matches a brute-force oracle and follows a moving blimp'},
+    {'placement','a coverage faction lands only inside coverage, and a prepaid item is not charged again'},
+    {'rigIncome','a rig pays its exact rate a minute, less outside coverage, and drains its patch'},
+    {'callDown','a requisition is produced in orbit, lands complete, returns when blocked and refunds when cancelled'},
+    {'tier','a second Requisition Office opens a second orbit slot'},
+    {'uniqueHq','the Megacorp loses when its Command falls, whatever else stands'}}) do
+    test('simulation',case[2],function() require('tests.megacorp_scenarios')[case[1]]() end)
+end
+for _,case in ipairs({
     {'capture','a control point is captured by standing in it unopposed, and kept after leaving'},
     {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
     {'hold','owning every control point for the full hold wins, not a tick sooner'},

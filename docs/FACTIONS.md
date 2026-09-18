@@ -74,13 +74,59 @@ lasts 12.5 s.
   Reliquary recall and ranged shield, Keep tiers and Houses, killable building upgrades, a
   Fletchery.
 
-## The Megacorp — PLANNED
+## The Megacorp — LIVE (territory, rigs, orbital logistics); pods, garrisons and weapons PLANNED
 
-Phases 5 to 7 of the pivot plan: the unique Orbital Command, relay coverage from the
-Command, Orbital Relays and Command Blimps, automatic Rigs on patches with an offline rate,
-the orbital call-down queue for buildings, drop pods for Associates, Medics and Enforcers,
-garrisons, tier by Requisition Office count, Associate target stacks and the Battleship's
-anti-air barrage. Numbers will be recorded here as each lands.
+No workers. Everything arrives from orbit inside relay coverage; the Orbital Command is
+unique and its loss is defeat. Start: one Orbital Command, one Command Blimp, 400 substrate.
+
+### Coverage — LIVE
+
+A per-player set of cells within the coverage radius of every completed building and living
+unit that carries one, rebuilt each tick (`src/sim/coverage.lua`), binary, checkpointed and
+shown to the placing player as a tint. Sources: Orbital Command 18 cells, Orbital Relay 14,
+Command Blimp 12 (mobile, the only way to push coverage into enemy ground). Every building
+but the Command lands only on covered cells (`Outside relay coverage`, reported before an
+unseen footprint), and a Rig outside coverage earns its offline rate.
+
+### Orbital logistics — LIVE
+
+`requisition` pays the price now and puts the building in the player's call-down queue
+(five deep); items are produced in orbit for their build time, one at a time, two once two
+Requisition Offices stand (`Sim.tier`); a ready item is `land`ed on a site the placement
+rules accept, descends for 200 ticks (10 s) and arrives complete; a site found blocked on
+arrival sends the item back to the head of the queue, ready; cancelling refunds 75%.
+
+### Buildings
+
+| Kind | Substrate | Charge | In orbit | HP | Armor | Size | Supply | Sight | Notes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `orbital_command` Orbital Command | 400 | — | — | 3500 | 5 | 4×4 | +10 | 12 | coverage 18; trains Blimp, Battleship; unique |
+| `substrate_rig` Substrate Rig | 60 | — | 300 t | 225 | 0 | 1×1 | +4 | 6 | on a substrate patch; 85/min, 36 offline |
+| `charge_rig` Charge Rig | 75 | — | 360 t | 300 | 1 | 2×2 | — | 6 | on a charge geyser; 100/min, 42 offline |
+| `mc_barracks` Barracks | 150 | — | 400 t | 1000 | 1 | 3×3 | — | 8 | pods (planned) |
+| `med_bay` Med Bay | 100 | 50 | 500 t | 800 | 1 | 2×2 | — | 7 | needs Barracks |
+| `armory` Armory | 200 | 100 | 500 t | 900 | 1 | 2×2 | — | 7 | needs Barracks |
+| `requisition_office` Requisition Office | 175 | 25 | 700 t | 900 | 1 | 3×3 | — | 8 | `tier`; garrison (planned) |
+| `orbital_relay` Orbital Relay | 125 | — | 500 t | 450 | 0 | 2×2 | — | 10 | coverage 14 |
+| `bunker` Bunker | 100 | — | 400 t | 400 | 2 | 2×2 | — | 8 | needs Barracks; garrison (planned) |
+
+Rig income is exact: the per-minute rate accumulates in 1/1200ths a tick and whole units are
+credited, draining the node by the same amount.
+
+### Units
+
+| Kind | Substrate | Charge | Supply | Train | HP | Armor | Damage | Period | Windup | Range | Speed | Sight |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `command_blimp` Command Blimp | 100 | — | 0 | 600 t | 200 | 0 | — | — | — | coverage 12 | 38 | 11 |
+| `battleship` Battleship | 300 | 200 | 6 | 1400 t | 500 | 3 | 50 (8 vs air) | 60 t | 15 t | 12 cells, splash 1.5 | 22 | 13 |
+
+Both fly. The Battleship is trained at the Command only.
+
+### PLANNED
+
+Phase 6: drop pods for the Associate, Medic and Enforcer, garrisons (Bunker fights, Office
+does not, Enforcer takes two slots), pods unlocked by Office count. Phase 7: Associate
+target stacks and the Battleship's anti-air barrage.
 
 ## The map
 

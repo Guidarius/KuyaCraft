@@ -25,7 +25,7 @@ function M.routes()
  write('balance-routes.txt',report);assert(main>=60 and main<=83 and center>=30 and center<=42,'strategic route time outside target')
 end
 function M.match(mirror,ticks)
- local config={seed=725,players={{faction='orders'},{faction='orders'}}}
+ local config={seed=725,players={{faction='orders'},{faction=mirror and 'orders' or 'megacorp'}}}
  local map=Maps.create();local w=Sim.create(config,C,map);local Bot=require('src.bot');local Replay=require('src.replay');local replay=Replay.create(config,C,map)
  local milestones={{},{}};local lines={};local label=mirror and 'mirror' or 'asymmetric'
  local firstContact;local peakFood,peakFoodTick={},{}
@@ -55,13 +55,15 @@ function M.match(mirror,ticks)
   if w.result then break end
  end
  lines[#lines+1]='Outcome: '..(w.result and tostring(w.result.winner) or 'unfinished')..' at '..(w.tick/20)..'s'..(w.result and ' by '..(w.result.reason or 'headquarters') or '')
- M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
+ M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick,mirror)
  write('balance-'..label..'.txt',table.concat(lines,'\n')..'\n');Replay.write('artifacts/balance-'..label..'.replay',replay);if mirror then Replay.write('artifacts/sample.replay',replay) end
  local file=assert(io.open('artifacts/balance-'..label..'.state','wb'));file:write(Sim.serializeCanonical(w));file:close()
  local clone=Sim.create(config,C,map)
  for _,frame in ipairs(replay.frames) do Sim.step(clone,frame.commands) end
  assert(Sim.serializeCanonical(w)==Sim.serializeCanonical(clone),'new-profile replay diverged')
- assert(milestones[1]['constructed:barracks'] and milestones[2]['constructed:barracks'],'bots did not establish production')
+ -- The Orders' bot must establish production; the Megacorp's rails wait for its pods.
+ assert(milestones[1]['constructed:barracks'],'the Orders bot did not establish production')
+ if mirror then assert(milestones[2]['constructed:barracks'],'the second Orders bot did not establish production') end
  return w
 end
 -- Match pacing measured rather than assumed. docs/BALANCE_AND_PACING.md sets a 15-25
@@ -78,7 +80,7 @@ local function clock(tick)
     if not tick then return '     -' end
     return string.format('%3d:%02d',math.floor(tick/1200),math.floor(tick/20)%60)
 end
-function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
+function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick,rails)
     local duration=w.tick
     local rows={
         {'first extra worker',milestones[1]['recruited:worker']},
@@ -115,7 +117,9 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
     out[#out+1]='Two bot matches on one seed. This measures the shape of a match, not balance between the factions.'
     write('balance-pacing-'..label..'.txt',table.concat(out,'\n')..'\n')
     -- Sanity rails on the opening. These hold today and exist to catch a change that
-    -- breaks the early game, not to enforce the duration target.
+    -- breaks the early game, not to enforce the duration target. The Orders against the
+    -- Megacorp is report-only until the Megacorp has a ground army to send.
+    if rails==false then return end
     local hall=seconds(milestones[1]['constructed:barracks'])
     assert(hall and hall>=20 and hall<=180,'war hall arrived at '..tostring(hall)..'s, outside 20-180s')
     assert(firstContact,'the players never fought each other')

@@ -109,6 +109,8 @@ function T.purpose(kind,d)
  if d.onNode then lines[#lines+1]='Built squarely on a '..d.onNode..' node.' end
  if d.dropoff then lines[#lines+1]='A drop-off: workers deliver what they harvest here.' end
  if d.supply and d.supply>0 then lines[#lines+1]='Provides '..d.supply..' supply.' end
+ if d.coverage then lines[#lines+1]='Projects relay coverage '..math.floor(d.coverage/256)..' cells around it.' end
+ if d.income then local parts={};for key,amount in pairs(d.income) do parts[#parts+1]=amount..' '..key end;table.sort(parts);lines[#lines+1]='Earns '..table.concat(parts,', ')..' a minute inside coverage'..(d.incomeOffline and ', less outside it.' or '.') end
  if d.produces and #d.produces>0 then lines[#lines+1]='Trains '..#d.produces..' kind'..(#d.produces>1 and 's' or '')..' of unit.' elseif kind=='barracks' then lines[#lines+1]='Trains your army.' end
  if d.damage and d.damage>0 then lines[#lines+1]='Attacks enemies in range.' end
  lines[#lines+1]={'Shift-click places another site. Each selected worker builds one.',DIM}

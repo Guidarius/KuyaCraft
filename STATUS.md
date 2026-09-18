@@ -1690,3 +1690,49 @@ opening (barracks 0:47, contact 3:46, first gryphon 4:34): the difference is the
 two Reliquaries behind the attacking army. Reported, not tuned; whether 12 minutes is the
 right length is the user's call. Active p95 32.617 ms on this laptop, a single measurement.
 Not done: a human playtest, and the draft pull request.
+
+## Pivot phase 5: the Megacorp's territory, rigs and orbital logistics — simulation version 24
+
+The second faction is in the shipping content and the bot plays it, without its ground army
+yet. Relay coverage is a per-player set of cells rebuilt every tick from the Orbital Command
+(18 cells), Orbital Relays (14) and Command Blimps (12, mobile), checkpointed and shared into
+the view; it gates every landing but the Command's, with `Outside relay coverage` reported
+before an unseen footprint, and decides whether a rig earns its online or offline rate. A rig
+stands squarely on a patch or a geyser and pays its per-minute figure exactly, accumulating
+in 1/1200ths a tick and draining the node by what it credits. Orbital logistics is a
+per-player call-down queue: `requisition` pays now and produces in orbit for the building's
+time, one item at a time or two from the second Requisition Office (`Sim.tier`), `land`
+sends a ready item down for ten seconds onto a site the placement rules accept, it arrives
+complete, and a site blocked on arrival puts it back at the head of the queue, ready;
+cancelling refunds 75%. The Command trains the Blimp and the Battleship directly.
+
+Content version 12 adds the faction, nine buildings and two flyers, all with the reference's
+numbers converted as before ([docs/FACTIONS.md](docs/FACTIONS.md)); the charge rig is 2×2
+because the geysers are. `src/bot/megacorp.lua` rigs four patches, lands a barracks and a
+charge rig, an office at three minutes, a relay toward the natural at four, sends the Blimp
+ahead to cover it, and trains Battleships that sortie in pairs. The Command's card carries a
+Requisition page, the queue's items and a Land button per ready item; while placing, the
+covered cells are tinted. Placement clicks also went through a leftover reference to the
+removed content module, found and fixed here.
+
+Seven scenarios in `tests/megacorp_scenarios.lua` on the shipping content: the opening; the
+coverage set equal to a brute-force oracle at start, with a relay, following a flying Blimp,
+and without a dead relay; placement inside and outside coverage and the prepaid rule; two
+online rigs and a charge rig paying exactly 85, 85 and 100 a minute with the patch drained
+by the same, and 36 once the relay dies; the whole call-down cycle including a blocked site,
+a 75% refund, a full queue and a snapshot mid-descent; the second orbit slot; and defeat on
+the Command alone. The balance suite's second match is now the Orders against the Megacorp,
+report-only until phase 6 gives the Megacorp pods. Simulation version 23 → 24, content 11 →
+12.
+
+Verification on the desk machine from the worktree with `-PerfBudget 40`: `quick` 112
+passed; `balance` 4; `determinism` 5 plus the four-process 100,000-tick agreement;
+`network` 4 plus the ENet pair; `scenario` 2; `crowd` 20; `soak` 1; `performance` 2; the
+rendered UI suite at three resolutions and the presentation suite. Zero failures. The
+Orders mirror is unchanged from phase 4 (12:23, player 1). The first **Orders against
+Megacorp** match ends at **16:36, the Orders by headquarters**: the Megacorp reaches a 36
+supply cap on rigs, holds 42 food of Battleships at its peak (9:42) and loses its Command to
+a footman-and-crossbow army with Reliquaries behind it; first contact 4:22. Report-only, as
+planned, since the Megacorp has no ground army until phase 6. The fixture matches are
+unchanged. Active p95 11.466 ms, a single measurement. Not done: a human playtest, the draft
+pull request, and any look at the Megacorp's card by a human.

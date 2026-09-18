@@ -668,7 +668,16 @@ function App:draw()
     end
     if self.building then
         local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=self.content.buildings[self.building].size
-        local valid,reason=Sim.placement(self.view,self.content,self.building,F.cell(wx),F.cell(wy))
+        -- Territory: while placing, a coverage faction sees where its relays reach.
+        local coverage=self.view.player.coverage
+        if coverage then
+            local r=Camera.rect(self);local left,top=self:position(r.x,r.y);local right,bottom=self:position(r.x+r.w,r.y+r.h)
+            g.setColor(.4,.7,1,.13)
+            for cy=math.max(0,F.cell(top)),math.min(self.world.map.height-1,F.cell(bottom)) do for cx=math.max(0,F.cell(left)),math.min(self.world.map.width-1,F.cell(right)) do
+                if coverage[cy*self.world.map.width+cx+1] then local sx,sy=self:screen(cx*256,cy*256);g.rectangle('fill',sx,sy,26*z,CELL_Y*z) end
+            end end
+        end
+        local valid,reason=Sim.placement(self.view,self.content,self.building,F.cell(wx),F.cell(wy),self.landing~=nil)
         g.setColor(valid and .4 or 1,valid and .85 or .3,.3,.4);g.rectangle('fill',x,y,size*26*z,size*CELL_Y*z)
         g.setColor(valid and .65 or 1,valid and 1 or .3,.4);g.rectangle('line',x,y,size*26*z,size*CELL_Y*z)
         if not valid then for offset=0,size*26*z,8 do g.line(x+offset,y,x+offset,y+size*CELL_Y*z) end end

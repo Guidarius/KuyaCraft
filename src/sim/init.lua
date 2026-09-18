@@ -10,6 +10,7 @@ local Projectiles=require('src.sim.projectiles')
 local Vision=require('src.sim.vision')
 local Control=require('src.sim.control')
 local Harvest=require('src.sim.harvest')
+local Coverage=require('src.sim.coverage')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
 -- replays store whole-world hashes and are rejected rather than misreported as
 -- divergence. See Sim.serializeAuthoritative.
@@ -77,7 +78,12 @@ local Harvest=require('src.sim.harvest')
 -- terrain and units, is in no collision bin and blocks nothing; it may be attacked only by
 -- a `canAttackAir` weapon, which uses its `airDamage` when it has one; a `splash` weapon
 -- also hits every enemy on the ground within its radius of the target.
-local Sim = { VERSION = 23 }
+-- Version 24: relay coverage and orbital logistics. A faction with `coverage` keeps a
+-- per-player set of covered cells (rebuilt each tick from its `coverage` sources) that gates
+-- where its buildings may land and whether a rig earns its online or offline rate; buildings
+-- are `requisition`ed into a per-player call-down queue, produced in orbit, `land`ed on a
+-- site after a descent and arrive complete, or return to the queue if the site is blocked.
+local Sim = { VERSION = 24 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Airborne: a unit whose definition flies. Buildings and nodes never do.
@@ -103,6 +109,12 @@ function Sim.producesFor(content,faction,kind)
 end
 function Sim.produces(w,e) return Sim.producesFor(w.content,Sim.factionOf(w,e.owner),e.kind) end
 function Sim.primaryResource(content) return (content.rules.resources or {'gold'})[1] end
+-- The tier a player has reached: how many of its completed buildings carry `tier`.
+function Sim.tier(w,p)
+    local n=0
+    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.owner==p and e.category=='building' and e.remaining==0 then local d=w.content.buildings[e.kind];if d and d.tier then n=n+1 end end end
+    return n
+end
 -- The first named requirement the player has not completed, or nil. Works on a world
 -- (entities by id, walked in w.order) and on a view (an array), so the HUD and the bot
 -- give the same answer the command will.
@@ -333,6 +345,7 @@ local function visibility(w)
         Sim.knownResources(w,p,player)
         end
     end
+    Coverage.update(w)
 end
 -- Resource nodes never move, so a remembered entry stays correct for as long as it
 -- exists; rebuilding one per visible node per tick allocated thousands of identical
@@ -435,7 +448,8 @@ function Sim.view(w,player)
         entities={},byId={},
         player={id=player,faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,supplyCap=Sim.supplyCap(w,player),
             kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,
-            resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources}}
+            resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources,
+            coverage=p.coverage,callDown=p.callDown and Codec.copy(p.callDown),landings=p.landings and Codec.copy(p.landings)}}
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         if (e.alive or e.owner==player or (e.deathTick and w.tick-e.deathTick<40)) and Sim.visible(w,player,e) then
@@ -563,7 +577,7 @@ function Sim.mineAt(view,x,y,size,resource)
             and F.cell(e.x)==x and F.cell(e.y)==y and e.size==size then return e end
     end
 end
-function Sim.placement(view,content,kind,x,y)
+function Sim.placement(view,content,kind,x,y,prepaid)
     local d=content.buildings[kind]
     local faction=content.factions[view.player.faction]
     if not d or not F.integer(x,0,view.map.width-d.size) or not F.integer(y,0,view.map.height-d.size) then return false,'Outside map' end
@@ -574,7 +588,7 @@ function Sim.placement(view,content,kind,x,y)
         local listed=false;for _,id in ipairs(faction.buildings) do if id==kind then listed=true end end
         if not listed then return false,'Not available to your faction' end
     end
-    if not afford(view.player,d.cost) then return false,'Insufficient resources' end
+    if not prepaid and not afford(view.player,d.cost) then return false,'Insufficient resources' end
     local missing=Sim.missingRequirement(view,view.player.id,d.requires)
     if missing then return false,'Requires '..((content.buildings[missing] or content.units[missing] or {}).label or missing) end
     local mine
@@ -591,6 +605,9 @@ function Sim.placement(view,content,kind,x,y)
         -- of what you need to know to put a building on it, and mines sit against
         -- terrain that hides a cell or two of their own footprint often enough that the
         -- per-cell rule would arbitrarily rule out some of them.
+        -- Territory first: a coverage faction lands only where its relays reach, and that is
+        -- the answer a player needs before whether the ground is seen.
+        if faction.coverage and view.player.coverage and not view.player.coverage[key] then return false,'Outside relay coverage' end
         if not mine and not view.player.visible[key] then return false,'Unseen footprint' end
         if not mine and view.map.blocked[key] then return false,'Impassable terrain' end
         -- Roads keep every mine's way to the bases open, so nothing stands on one. The
@@ -660,7 +677,7 @@ local function refundOf(w,cost)
     return out
 end
 local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
-    rally=true,patrol=true,follow=true,cast=true,ping=true,harvest=true}
+    rally=true,patrol=true,follow=true,cast=true,ping=true,harvest=true,requisition=true,land=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
 local destinationKinds={move=true,attack_move=true,patrol=true}
 local function envelopeError(w,c,sequence)
@@ -775,6 +792,12 @@ local function apply(w,c)
         spend(p,ud.cost); e.queue[#e.queue+1]={kind=a.unit,remaining=ud.buildTicks}; return
     elseif c.kind=='cancel' then
         if e.category~='building' then reject(w,c,'cannot cancel'); return end
+        if a.callDown then
+            local queue=p.callDown or {}
+            if e.id~=p.hq or not F.integer(a.callDown,1,#queue) then reject(w,c,'nothing to cancel');return end
+            local item=table.remove(queue,a.callDown)
+            spend(p,refundOf(w,w.content.buildings[item.kind].cost),-1);return
+        end
         if a.research then
             if not e.researchRemaining then reject(w,c,'no research');return end
             spend(p,refundOf(w,w.content.rules.tech.cost),-1);e.researchRemaining=nil;return
@@ -820,6 +843,29 @@ local function apply(w,c)
             e.rally={x=F.cell(a.x),y=F.cell(a.y)}
         end
         return
+    end
+    if c.kind=='requisition' then
+        -- Orbital logistics: the price is paid now, the building is produced in orbit and
+        -- lands later, complete, wherever the player then chooses inside coverage.
+        local faction=Sim.factionOf(w,c.player);local bd=w.content.buildings[a.building]
+        local listed=false;for _,id in ipairs(faction.buildings or {}) do if id==a.building then listed=true end end
+        if not faction.coverage or e.id~=p.hq or not bd or not listed or a.building==Sim.hqKind(faction) then reject(w,c,'cannot requisition');return end
+        if Sim.missingRequirement(w,c.player,bd.requires) then reject(w,c,'requirement missing');return end
+        p.callDown=p.callDown or {}
+        if #p.callDown>=(w.content.rules.callDownQueue or 5) then reject(w,c,'call-down queue full');return end
+        if not afford(p,bd.cost) then reject(w,c,'cannot requisition');return end
+        spend(p,bd.cost);p.callDown[#p.callDown+1]={kind=a.building,remaining=bd.buildTicks}
+        emit(w,'requisitioned',{player=c.player,building=a.building});return
+    elseif c.kind=='land' then
+        local queue=p.callDown or {}
+        local item=F.integer(a.index,1,#queue) and queue[a.index] or nil
+        if e.id~=p.hq or not item or item.remaining>0 then reject(w,c,'nothing ready to land');return end
+        local valid,reason=Sim.placement(Sim.view(w,c.player),w.content,item.kind,a.x,a.y,true)
+        if not valid then reject(w,c,reason);return end
+        table.remove(queue,a.index)
+        p.landings=p.landings or {}
+        p.landings[#p.landings+1]={kind=item.kind,x=a.x,y=a.y,at=w.tick+(w.content.rules.descentTicks or 200)}
+        emit(w,'landing',{player=c.player,building=item.kind,landX=a.x,landY=a.y});return
     end
     if e.category~='unit' then reject(w,c,'unit required'); return end
     if c.kind=='stop' or c.kind=='hold' then setOrder(w,e,{kind=c.kind},false);e.suppressAcquireUntil=w.tick;return end
@@ -933,7 +979,74 @@ function Sim.applyRally(w,e,unit)
 end
 local function hq(w,p) return w.entities[w.players[p].hq] end
 local harvestApi={emit=emit,nextOrder=nextOrder,approachTarget=approachTarget,rebuild=rebuild,radius=G.radius,def=def}
+-- The node whose footprint exactly matches this one, from the world rather than a view.
+local function nodeAt(w,x,y,size,resource)
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.alive and e.category=='node' and e.resource==resource and F.cell(e.x)==x and F.cell(e.y)==y and e.size==size then return e end
+    end
+end
+-- Orbital logistics, per player: items in the queue are produced in orbit, one at a time
+-- (two from the second Requisition Office), and a landing that reaches the ground on a
+-- free site arrives complete; on a blocked site it goes back to the head of the queue, ready.
+local function orbit(w)
+    for pi=1,#w.players do local p=w.players[pi]
+        if p.callDown then
+            local slots=1+(Sim.tier(w,pi)>=2 and 1 or 0)
+            for i,item in ipairs(p.callDown) do
+                if i<=slots and item.remaining>0 then
+                    item.remaining=item.remaining-1
+                    if item.remaining==0 then emit(w,'call_down_ready',{player=pi,building=item.kind}) end
+                end
+            end
+        end
+        if p.landings then
+            local i=1
+            while p.landings[i] do
+                local landing=p.landings[i]
+                if w.tick>=landing.at then
+                    table.remove(p.landings,i)
+                    local bd=w.content.buildings[landing.kind];local free=true;local mine
+                    if bd.onNode then mine=nodeAt(w,landing.x,landing.y,bd.size,bd.onNode);if not mine or mine.amount<=0 then free=false end
+                    else
+                        for y=landing.y,landing.y+bd.size-1 do for x=landing.x,landing.x+bd.size-1 do
+                            if not Path.walkable(w,x,y) or occupied(w,x,y) then free=false end
+                        end end
+                    end
+                    if free then
+                        local site=spawn(w,landing.kind,pi,landing.x,landing.y,'building');site.remaining=0
+                        if mine then site.mine=mine.id end
+                        w.navVersion=w.navVersion+1;rebuild(w)
+                        emit(w,'landed',{entity=site.id});emit(w,'constructed',{entity=site.id})
+                    else
+                        p.callDown=p.callDown or {};table.insert(p.callDown,1,{kind=landing.kind,remaining=0})
+                        emit(w,'landing_blocked',{player=pi,building=landing.kind})
+                    end
+                else i=i+1 end
+            end
+        end
+    end
+end
+-- A rig on a node earns its per-minute rate in 1/1200ths a tick, whole units only, at the
+-- online figure while its own cell is covered and the offline one otherwise, and drains
+-- the node by what it pays out. Exact per minute, integers throughout.
+local function rigIncome(w,e,d)
+    local mine=w.entities[e.mine or 0]
+    if not (mine and mine.alive and mine.amount>0) then return end
+    local player=w.players[e.owner]
+    local covered=not player.coverage or player.coverage[Path.key(w.map,F.cell(e.x),F.cell(e.y))]==true
+    local rate=covered and d.income or d.incomeOffline or d.income
+    e.income=e.income or {}
+    for _,key in ipairs(Codec.keys(rate)) do
+        local acc=(e.income[key] or 0)+rate[key]
+        local whole=math.floor(acc/1200);acc=acc-whole*1200
+        if whole>mine.amount then whole=mine.amount end
+        if whole>0 then player.resources[key]=(player.resources[key] or 0)+whole;mine.amount=mine.amount-whole end
+        e.income[key]=acc
+    end
+    if mine.amount<=0 then mine.alive=false;w.navVersion=w.navVersion+1;rebuild(w);emit(w,'depleted',{entity=mine.id}) end
+end
 local function economy(w)
+    orbit(w)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         if e.reviveRemaining then
@@ -956,6 +1069,7 @@ local function economy(w)
             if e.order.kind=='harvest' then Harvest.step(w,e,harvestApi) end
             local d=def(w,e)
             if e.category=='building' then
+                if e.remaining==0 and d.income then rigIncome(w,e,d) end
                 if e.researchRemaining then e.researchRemaining=e.researchRemaining-1;if e.researchRemaining==0 then e.researchRemaining=nil;w.players[e.owner].tech=true;emit(w,'researched',{entity=e.id}) end end
                 if e.remaining>0 then
                     -- Every worker holding a build order on the site builds it. Assigned is not
@@ -1437,7 +1551,8 @@ function Sim.serializeAuthoritative(w)
         players[p]={faction=player.faction,resources=player.resources,sequence=player.sequence,
             defeated=player.defeated,hq=player.hq,hero=player.hero,tech=player.tech,
             kills=player.kills,unitsLost=player.unitsLost,buildingsLost=player.buildingsLost,
-            visible=player.visible,knownResources=player.knownResources}
+            visible=player.visible,knownResources=player.knownResources,
+            coverage=player.coverage,callDown=player.callDown,landings=player.landings}
     end
     local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,
         players=players,entities=w.entities,order=w.order,nextId=w.nextId,result=w.result,

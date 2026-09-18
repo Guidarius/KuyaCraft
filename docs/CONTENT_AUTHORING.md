@@ -39,12 +39,17 @@ factions[id] = {
                                   -- under construction; 'unique_hq': lose when the starting
                                   -- one dies, and it can never be built again
   supplyCap = 200,                -- ceiling when rules.supplyFromBuildings is on
+  coverage = true,                -- territory: buildings land only inside relay coverage, and
+                                  -- every listed building is requisitioned from orbit, not built
   buildings = { ... },            -- the build card, in order; nil = the legacy four
   starting = { resources = { gold = 650 }, units = { 'worker', 'worker' } },
   hero, roster, upgrades          -- legacy hero factions only
 }
 buildings[kind] += produces = { unit ids }, requires = { building ids }, supply = n, armor = n,
-                   onNode = 'gold'   -- must stand squarely on a node of this resource
+                   onNode = 'gold',  -- must stand squarely on a node of this resource
+                   coverage = T.cells(14),          -- projects relay coverage (see factions.coverage)
+                   income = { substrate = 85 }, incomeOffline = { substrate = 36 },  -- a rig's rate a minute, on a node
+                   tier = true                      -- counts toward Sim.tier (orbit slots)
 units[kind]     += armor = n, requires = { building ids },
                    harvest = { substrate = T.ticks(2), charge = T.ticks(3) }, carry = 8,
                                     -- ticks per load by resource; the unit may harvest only what is listed
@@ -54,7 +59,8 @@ units[kind]     += armor = n, requires = { building ids },
 rules           += resources = { 'gold' },      -- ledger keys in display order; every cost uses one
                    supplyFromBuildings = false, -- true: the cap is the sum of completed buildings' supply
                    cancelRefundPercent = 50,
-                   harvestSearch = T.cells(6)  -- how far a worker looks for a free patch of the same resource
+                   harvestSearch = T.cells(6), -- how far a worker looks for a free patch of the same resource
+                   descentTicks = T.ticks(10), callDownQueue = 5  -- orbital logistics for coverage factions
 ```
 
 Harvesting (simulation version 21): a worker with a `harvest` table takes a `harvest`

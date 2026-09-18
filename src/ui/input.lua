@@ -201,9 +201,11 @@ function I.mousepressed(app,x,y,button,presses)
  if button==1 then
   if app.building then
    local wx,wy=app:position(x,y);local cx,cy=math.floor(wx/256),math.floor(wy/256)
-   local valid,reason=Sim.placement(app.view,Content,app.building,cx,cy)
+   local valid,reason=Sim.placement(app.view,app.content,app.building,cx,cy,app.landing~=nil)
    if valid then
     local issued=false
+    -- A landing site for an item ready in orbit needs no worker: the headquarters lands it.
+    if app.landing then app.activeAction=app.building;issued=app:command('land',app.view.player.hq,{index=app.landing,x=cx,y=cy})~=false;if issued then Feedback.notify(app,'build_order','Landing ordered',app.building,nil,wx,wy) end;app.building=nil;app.landing=nil;app.activeAction=nil;return end
     for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.alive and e.owner==app.player and e.kind=='worker' then app.activeAction=app.building;issued=app:command('build',id,{building=app.building,x=cx,y=cy,append=shift()});app.activeAction=nil;if not issued then return end;break end end
     if issued then Feedback.notify(app,'build_order','Construction ordered',app.building,nil,wx,wy) else Feedback.notify(app,'rejected','Select workers to build',app.building,nil,wx,wy) end
     if issued and not shift() then app.awaitingPlacement=app.building;app.building=nil end

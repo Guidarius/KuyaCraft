@@ -79,7 +79,20 @@ function A.list(app)
   local kind=Sim.missingRequirement(app.view,app.player,d.requires)
   if kind then return 'Requires '..((C.buildings[kind] or C.units[kind] or {}).label or kind) end
  end
- if app.cardPage=='build' then
+  if app.cardPage=='requisition' then
+  -- The Megacorp's build card: nothing is built on the ground, every building is ordered
+  -- from orbit and lands later, so the reasons here are the queue's and the requirements'.
+  local hq=app:entity(app.view.player.hq);local queue=app.view.player.callDown or {}
+  for i,kind in ipairs(faction.buildings or {}) do local d=C.buildings[kind]
+   if kind~=Sim.hqKind(faction) then local costs=A.costs(app,d.cost)
+    local reason=(not hq or not hq.alive) and 'Orbital Command lost' or #queue>=(C.rules.callDownQueue or 5) and 'Call-down queue full' or requirement(d) or missing(costs)
+    add('requisition-'..kind,d.label,({'q','w','e','r','a','s','d','f'})[i],function() app:command('requisition',hq.id,{building=kind}) end,reason,
+     'Requisition '..d.label..': '..(d.buildTicks/C.rules.tickRate)..' seconds in orbit, then land it anywhere your relays cover.',costs)
+    list[#list].stats=require('src.ui.tooltip').statsFor(d,'building');list[#list].lines=require('src.ui.tooltip').purpose(kind,d)
+   end
+  end
+  back();return list
+ elseif app.cardPage=='build' then
   -- Without a build list, every building but the faction's headquarters, in id order.
   local kinds=faction.buildings
   if not kinds then kinds={};for id in pairs(C.buildings) do if id~=Sim.hqKind(faction) then kinds[#kinds+1]=id end end;table.sort(kinds) end
@@ -129,6 +142,16 @@ function A.list(app)
    add('recruit-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('recruit',e.id,{unit=kind}) end,reason,
     'Train '..d.label..'; '..(d.buildTicks/C.rules.tickRate)..' seconds.'..(d.tech and ' Requires HQ advancement.' or ''),costs)
    list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit');list[#list].lines=d.tech and {'Requires HQ advancement.'} or {}
+  end
+  if faction.coverage and e.kind==Sim.hqKind(faction) then
+   -- The call-down queue lives on the Command's card: order from orbit, land what is ready.
+   add('requisition-menu','Requisition','b',function() app.cardPage='requisition' end,dead,'Order a building from orbit. It lands complete inside relay coverage.',nil,true)
+   local queue=app.view.player.callDown or {}
+   for i,item in ipairs(queue) do local d=C.buildings[item.kind]
+    if item.remaining==0 then add('land-'..i,'Land '..d.label,({'z','x','c','v','n'})[i],function() app.building=item.kind;app.landing=i;app.targeting=nil end,dead,'Choose a landing site inside relay coverage. Ten seconds later it is there, complete.')
+    else add('orbit-'..i,d.label..' '..math.ceil(item.remaining/20)..'s',({'z','x','c','v','n'})[i],function() end,'In orbit','Being produced in orbit. One item at a time; two from the second Requisition Office.') end
+   end
+   if #queue>0 then add('cancel-orbit','Cancel last','delete',function() app:command('cancel',e.id,{callDown=#queue}) end,dead,'Refund 75% of the last item in orbit.') end
   end
   if e.kind==Sim.hqKind(faction) and C.rules.tech then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
    add('research',e.researchRemaining and ('Advancing '..math.ceil(e.researchRemaining/20)..'s') or app.view.player.tech and 'Advanced HQ' or 'Advance HQ','t',function() app:command('research',e.id) end,
