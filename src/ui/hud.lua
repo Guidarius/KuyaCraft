@@ -174,7 +174,7 @@ function H.inspect(app,e,x,y,width)
  local C=app.content
  local g=love.graphics
  local d=C.units[e.kind] or C.buildings[e.kind]
- local name=e.category=='node' and (e.resource=='gold' and 'Gold mine' or 'Resource') or (d and d.label) or e.kind
+ local name=e.category=='node' and (require('src.ui.tooltip').RESOURCE_NAMES[e.resource] or 'Resource') or (d and d.label) or e.kind
  if e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.45,.38) end
  g.printf((e.owner==0 and 'Neutral  ' or 'Enemy  ')..name,x,y+35,width)
  if e.category=='node' then text((e.amount or 0)..' gold remaining',x,y+60,width);return end

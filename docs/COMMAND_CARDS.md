@@ -4,7 +4,8 @@ The card follows the active subgroup, preferring a hero by default, while shared
 
 ## Menus and requirements
 
-- Worker Build opens with B. Q/T/E/R select war hall/watchtower/outpost/extractor (the watchtower key follows Settings). One selected worker receives each construction order. Shift repeats queued placement. Escape first cancels placement, then closes the submenu.
+- Worker Harvest is G: click a patch or geyser and the worker works it until it is empty. A laden worker also offers Return cargo (C). Right-clicking a patch with workers selected harvests it.
+- Worker Build opens with B. The buildings and their keys come from the faction's `buildings` list (Orders: Keep, Supply Depot, Barracks on Q/W/E). Before the pivot: Q/T/E/R select war hall/watchtower/outpost/extractor (the watchtower key follows Settings). One selected worker receives each construction order. Shift repeats queued placement. Escape first cancels placement, then closes the submenu.
 - A hero uses U to open three rows of paired upgrades. Each row identifies its tier. Learned and mutually excluded choices stay visible; future tiers show XP and prior-tier requirements. Available choices open the existing permanent-choice preview before committing. XP is a threshold and is not spent.
 - Grey actions show the reason in their tooltip. Cost components turn red individually when insufficient; full resource names and available amounts appear in tooltips. Gold totals briefly flash red after a failed purchase. Recruitment includes food reservations, queue capacity, construction completion and HQ advancement. Revival checks the living HQ, gold and existing revival timer.
 - Current buildings have no additional technology prerequisites; this delivery displays existing rules rather than introducing new balance gates. Spell cards show mana shortages and cooldowns in fixed slots. Z toggles stance without conflicting with spell hotkeys.

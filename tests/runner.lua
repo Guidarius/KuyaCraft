@@ -77,20 +77,17 @@ test('simulation','unreachable search terminates',function()
     step(w,1,{command(w,1,'move',e.id,{x=F.center(10),y=F.center(5)})});step(w,500)
     eq(e.lastOrderFailure,'unreachable');assert(not w.searches[e.id])
 end)
-test('simulation','an extractor delivers a mine and then depletes it',function()
-    local m=Maps.create('extract',20);m.resources={{x=6,y=6,resource='gold',amount=16,size=3}};m.camps={}
+test('simulation','a worker harvests a patch and then depletes it',function()
+    local m=Maps.create('harvest',20);m.resources={{x=6,y=6,resource='gold',amount=16,size=1}};m.camps={}
     local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
     local e=find(w,1,'worker');local node=find(w,0,'resource');local before=w.players[1].resources.gold
-    local cost=Content.buildings.extractor.cost.gold
-    step(w,1,{command(w,1,'build',e.id,{building='extractor',x=6,y=6})})
-    local site=find(w,1,'extractor');assert(site,'extractor rejected on a mine')
-    -- Sixteen gold is two payloads: the mine empties, both are delivered, and the
-    -- carriers that were paid for are the only ones ever emitted.
+    step(w,1,{command(w,1,'harvest',e.id,{target=node.id})})
+    eq(e.order.kind,'harvest','harvest refused on a patch')
+    -- Sixteen gold is two loads: the patch empties, both are delivered, and the worker is free.
     local depleted=false
     for _=1,1200 do for _,ev in ipairs(Sim.step(w,{})) do if ev.kind=='depleted' then depleted=true end end end
-    assert(depleted,'mine never depleted');assert(not node.alive)
-    eq(w.players[1].resources.gold,before-cost+16)
-    for _,id in ipairs(w.order) do assert(w.entities[id].category~='carrier' or not w.entities[id].alive) end
+    assert(depleted,'patch never depleted');assert(not node.alive)
+    eq(w.players[1].resources.gold,before+16);eq(e.order.kind,'stop');eq(e.carrying,0)
 end)
 test('simulation','build, production, cancellation, population reservation',function()
     local w=world(24);local worker=find(w,1,'worker')
@@ -103,7 +100,7 @@ test('simulation','build, production, cancellation, population reservation',func
     step(w,1,{command(w,1,'recruit',b.id,{unit='crossbow'})});step(w,1,{command(w,1,'cancel',b.id)})
     eq(w.players[1].resources.gold,gold)
 end)
-test('simulation','nothing is built on a road, except an extractor on its own mine',function()
+test('simulation','nothing is built on a road',function()
     local Path=require('src.sim.path')
     local m=Maps.create('road',24);m.resources={};m.camps={};m.unbuildable={}
     -- Across the war hall's first row, whatever footprint size the fixture content gives it.
@@ -113,12 +110,6 @@ test('simulation','nothing is built on a road, except an extractor on its own mi
     assert(not valid,'a war hall was allowed on a road');eq(reason,'Cannot build on a road')
     step(w,1,{command(w,1,'build',worker.id,{building='barracks',x=7,y=4})})
     eq(w.events[1].kind,'rejected');assert(not find(w,1,'barracks'));assert(Path.walkable(w,7,4),'a road must stay walkable')
-    -- A road may run up to and across a mine's footprint; the extractor still goes on it.
-    local e=Maps.create('extract',20);e.resources={{x=6,y=6,resource='gold',amount=16,size=3}};e.camps={};e.unbuildable={}
-    for x=0,19 do e.unbuildable[Path.key(e,x,7)]=true end
-    local x=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,e);local builder=find(x,1,'worker')
-    step(x,1,{command(x,1,'build',builder.id,{building='extractor',x=6,y=6})})
-    assert(find(x,1,'extractor'),'extractor refused on a mine a road crosses')
 end)
 test('simulation','exclusive upgrades and revival retention',function()
     local w=world(24);local hero=w.entities[w.players[1].hero];hero.xp=400
@@ -197,10 +188,9 @@ test('simulation','construction completes and releases worker',function()
     step(w,400);step(clone,400)
     eq(worker.order.kind,'stop');eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
 end)
--- A site is worked by one worker. Sending a second one takes the site over, and the first used
--- to keep its build order for ever: standing beside a building it no longer worked on, and not
--- counted among idle workers, so it was lost to the player.
-test('simulation','queued construction takes over only when it becomes active',function()
+-- A site is built by everyone holding a build order on it. A queued build joins only when it
+-- becomes the active order, and never disturbs whoever is already at work.
+test('simulation','queued construction joins only when it becomes active',function()
     local w=world(24);local workers={}
     for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==1 and e.kind=='worker' then workers[#workers+1]=e end end
     local first,second=workers[1],workers[2]
@@ -208,38 +198,48 @@ test('simulation','queued construction takes over only when it becomes active',f
     local site=find(w,1,'barracks');assert(site)
     step(w,1,{command(w,1,'move',second.id,{x=15*256+128,y=15*256+128})})
     step(w,1,{command(w,1,'build',second.id,{target=site.id,append=true})})
-    eq(site.builder,first.id);eq(first.order.kind,'build');eq(second.order.kind,'move')
-    local clone=Sim.restore(Sim.snapshot(w));local transferred=false
+    eq(#site.builders,1);eq(site.builders[1],first.id);eq(first.order.kind,'build');eq(second.order.kind,'move')
+    local clone=Sim.restore(Sim.snapshot(w));local joined=false
     for _=1,800 do
         Sim.step(w,{});Sim.step(clone,{})
-        if second.order.kind=='build' then
-            transferred=true;eq(site.builder,second.id);eq(first.order.kind,'stop')
+        if second.order.kind=='build' and site.remaining>0 then
+            joined=true;eq(#site.builders,2);eq(first.order.kind,'build','the first builder was released by a joiner')
         end
     end
-    assert(transferred,'queued builder never took over');eq(site.remaining,0)
+    assert(joined,'queued builder never joined');eq(site.remaining,0)
     eq(Sim.serializeCanonical(w),Sim.serializeCanonical(clone))
-    -- Hold does not finish by itself, so a build queued behind it must never release
-    -- the active builder or steal the site, even while ticks continue.
+    -- Hold does not finish by itself, so a build queued behind it must never join the site
+    -- or disturb the active builder, even while ticks continue.
     local v=world(24);local a=find(v,1,'worker');local b
     for _,id in ipairs(v.order) do local e=v.entities[id];if e.owner==1 and e.kind=='worker' and e.id~=a.id then b=e end end
     step(v,1,{command(v,1,'build',a.id,{building='barracks',x=7,y=4})})
     local target=find(v,1,'barracks')
     step(v,1,{command(v,1,'hold',b.id,{})})
     step(v,1,{command(v,1,'build',b.id,{target=target.id,append=true})})
-    eq(target.builder,a.id);eq(a.order.kind,'build');eq(b.order.kind,'hold')
+    eq(#target.builders,1);eq(a.order.kind,'build');eq(b.order.kind,'hold')
     step(v,800);eq(target.remaining,0);eq(b.order.kind,'hold')
 end)
-test('simulation','a site taken over releases the worker that held it',function()
-    local w=world(24);local first,second
-    for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.owner==1 and e.kind=='worker' and e.alive then if not first then first=e elseif not second then second=e end end
+-- Several workers raise one site faster, with diminishing returns from the fixture's table:
+-- two build at 150 percent, so the site finishes in two thirds of the time.
+test('simulation','a second worker joins a site and it finishes sooner',function()
+    local function finish(count)
+        local w=world(24);local workers={}
+        for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==1 and e.kind=='worker' then workers[#workers+1]=e end end
+        step(w,1,{command(w,1,'build',workers[1].id,{building='barracks',x=7,y=4})})
+        local site=find(w,1,'barracks');assert(site,'no construction site')
+        for i=2,count do step(w,1,{command(w,1,'build',workers[i].id,{building='barracks',target=site.id})}) end
+        eq(#site.builders,count)
+        local started;local ticks=0
+        while site.remaining>0 and ticks<2000 do
+            step(w,1);ticks=ticks+1
+            if not started and site.remaining<Content.buildings.barracks.buildTicks then started=ticks end
+        end
+        eq(site.remaining,0,'site never finished');for i=1,count do eq(workers[i].order.kind,'stop') end
+        return ticks-started
     end
-    step(w,1,{command(w,1,'build',first.id,{building='barracks',x=7,y=4})})
-    local site;for _,id in ipairs(w.order) do local e=w.entities[id];if e.owner==1 and e.kind=='barracks' then site=e end end
-    assert(site,'no construction site');step(w,40)
-    step(w,1,{command(w,1,'build',second.id,{building='barracks',target=site.id})})
-    eq(site.builder,second.id);eq(first.order.kind,'stop')
-    step(w,600);eq(site.remaining,0)
+    local one,two=finish(1),finish(2)
+    assert(two<one,'a second builder did not speed the site: '..one..' against '..two)
+    assert(math.abs(two*150-one*100)<=one*10,'two builders should finish in about two thirds of the time: '..one..' against '..two)
 end)
 -- Work stops when nobody is assigned to a site. It is announced once, not every tick, and the
 -- site stops reporting it as soon as someone takes the job.
@@ -284,30 +284,6 @@ test('simulation','a worker is released when the site under it is destroyed',fun
     -- Well past zero: a site being built gains health every tick from its own progress.
     site.hp=-1000;step(w,3)
     assert(not site.alive,'the site survived being destroyed');eq(worker.order.kind,'stop')
-end)
--- Carriers are the gold on the road between an extractor and its drop-off. When a raid kills the
--- extractor, that gold is already out of the ground: the carriers keep walking the route they
--- were given and are paid on arrival. They used to stand there alive for the rest of the match,
--- holding gold nobody could collect and drawn on the minimap.
-test('simulation','carriers finish their delivery when their extractor is destroyed',function()
-    local m=Maps.create('extract',20);m.resources={{x=6,y=6,resource='gold',amount=1000000,size=3}};m.camps={}
-    local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},Content,m)
-    local worker=find(w,1,'worker')
-    step(w,1,{command(w,1,'build',worker.id,{building='extractor',x=6,y=6})})
-    local site=find(w,1,'extractor');assert(site,'extractor rejected on a mine')
-    step(w,Content.buildings.extractor.buildTicks+300)
-    local flying=0
-    for _,id in ipairs(w.order) do local c=w.entities[id];if c.alive and c.category=='carrier' then flying=flying+1 end end
-    assert(flying>0,'no carriers were on the road')
-    local gold=w.players[1].resources.gold
-    site.hp=-1000;step(w,400)
-    assert(not site.alive,'the extractor survived')
-    local left=0
-    for _,id in ipairs(w.order) do local c=w.entities[id];if c.alive and c.category=='carrier' then left=left+1 end end
-    eq(left,0,'carriers never arrived; '..flying..' were on the road')
-    eq(w.players[1].resources.gold-gold,flying*(Content.rules.carrierPayload or 8),'gold on the road was not delivered')
-    -- The dead extractor sends out no more.
-    local after=w.players[1].resources.gold;step(w,200);eq(w.players[1].resources.gold,after)
 end)
 test('unit','state diagnostics identify subsystem paths',function()
     local differences=require('src.diagnostics').diff({tick=5,players={{gold=10}}},{tick=5,players={{gold=9}}})

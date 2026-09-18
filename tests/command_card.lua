@@ -21,8 +21,8 @@ local function workers(app) local ids={};for _,e in ipairs(app.view.entities) do
 function T.context()
  local app=fixture();local ids=workers(app);local hero=app.view.player.hero;local before=Sim.serializeCanonical(app.world)
  app.selected={hero};local a=index(app);assert(a.abilities and a.stance and not a['build-menu'])
- app.selected={ids[1],ids[2]};a=index(app);assert(a['build-menu'] and not a.harvest and not a.abilities)
- Actions.activate(app,a['build-menu']);assert(app.cardPage=='build');a=index(app);assert(a.barracks and a.tower and a.extractor and a.outpost and not a.move)
+ app.selected={ids[1],ids[2]};a=index(app);assert(a['build-menu'] and a.harvest and not a['return-cargo'] and not a.abilities)
+ Actions.activate(app,a['build-menu']);assert(app.cardPage=='build');a=index(app);assert(a.barracks and a.tower and a.outpost and not a.move)
  app.selected={hero,ids[1]};a=index(app);assert(not app.cardPage and a.move and a.stance and not a['build-menu'] and a.abilities)
  app.selected={ids[1],hero};local b=index(app);assert(b.move and not b['build-menu'],'selection order altered capabilities')
  Actions.activate(app,b.stop);assert(#app.queue==2)
@@ -35,7 +35,7 @@ function T.context()
  local Feedback=require('src.ui.command_feedback');app.audio.played={}
  Feedback.resolve(app,{kind='accepted'},{kind='move',group=1});Feedback.resolve(app,{kind='accepted'},{kind='toggle',group=2})
  assert(#app.audio.played==0,'an accepted order was confirmed again when it executed: '..table.concat(app.audio.played,','))
- app.subgroupKind='worker';a=index(app);assert(a['build-menu'] and not a.stance);Actions.activate(app,a['build-menu']);assert(index(app).extractor,'worker subgroup lost build menu');app.subgroupKind=nil
+ app.subgroupKind='worker';a=index(app);assert(a['build-menu'] and not a.stance);Actions.activate(app,a['build-menu']);assert(index(app).tower,'worker subgroup lost build menu');app.subgroupKind=nil
  app.selected={hero};a=index(app);local slots={};local keys={};for _,action in pairs(a) do assert(action.slot<=9 and not slots[action.slot],'overlapping command slot');slots[action.slot]=true;if action.key~='' then assert(not keys[action.key],'duplicate hotkey');keys[action.key]=true end end
  for _,id in ipairs(C.units[app:entity(hero).kind].abilities) do assert(a['ability-'..id].slot==C.abilities[id].slot,'spell slot moved') end
  app.selected={app.view.player.hq};assert(index(app)['recruit-worker'])

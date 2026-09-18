@@ -8,7 +8,7 @@ function S.nextFaction(current)
  return ids[1]
 end
 function S.create(options)
- local self=setmetatable({options=options,screen='main',settings=require('src.ui.settings').load(),widgets=require('src.ui.widgets').create(),faction=options.faction or 'bastion',opponent='wild',map=options.map or 'twin_marches',address='127.0.0.1:22122',message='',fonts={small=love.graphics.newFont(14),title=love.graphics.newFont(36)}},{__index=S})
+ local self=setmetatable({options=options,screen='main',settings=require('src.ui.settings').load(),widgets=require('src.ui.widgets').create(),faction=options.faction or S.nextFaction(nil),opponent=options.opponent or S.nextFaction(S.nextFaction(nil)),map=options.map or 'twin_marches',address='127.0.0.1:22122',message='',fonts={small=love.graphics.newFont(14),title=love.graphics.newFont(36)}},{__index=S})
  if options.replay then self:start({replay=options.replay}) elseif options.host or options.join then
   local config={seed=12345,players={{faction=self.faction},{faction=self.opponent}}};local opts={host=options.host,join=options.join,manualLobby=true}
   local ok,n=pcall(require('src.net.session').create,opts,config,C,require('src.maps').create(self.map));self.screen='multiplayer';self.address=options.host or options.join;if ok then self.lobby=n else self.message=tostring(n) end

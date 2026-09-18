@@ -1,5 +1,12 @@
 # LoveRTS — Balance, scale and match pacing
 
+> **Superseded at simulation version 22.** The `marches-v1` profile below (heroes, one
+> resource, the extractor economy, camps and control points) is no longer shipped; the
+> Brood War style pivot replaced it with the Orders, whose numbers and measurements are in
+> [FACTIONS.md](FACTIONS.md). The coordinate, camera and route sections still describe the
+> map and the engine. The pacing report and its rails (`tests/balance_scenarios.lua`) now
+> run the Orders mirror on the field layout.
+
 Profile: `marches-v1`, content version 4, simulation version 8. These are LoveRTS starting values inspired by Warcraft-style pacing, not a transcription of Blizzard's unit database. Match duration is a playtest target, not a timer that forces an outcome.
 
 ## Intent and rules

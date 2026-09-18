@@ -29,6 +29,8 @@ T.COLORS={
 }
 local COST_NAMES={gold='gold',food='food',mana='mana',xp='XP'}
 T.OWNER_LABELS={own='Yours',enemy='Enemy',neutral='Neutral'}
+-- What a node is called, by the resource it holds.
+T.RESOURCE_NAMES={gold='Gold mine',substrate='Substrate patch',charge='Charge geyser'}
 -- What an own unit is doing, in words. Orders not listed (stop, idle) say nothing.
 T.DOING={move='Moving',attack='Attacking',attack_move='Attack-moving',patrol='Patrolling',hold='Holding position',
  build='Building',follow='Following',cast='Casting'}
@@ -62,10 +64,10 @@ function T.entity(app,e)
  local side=ownerOf(app,e)
  local spec={subtitle=T.OWNER_LABELS[side],subtitleColor=T.COLORS[side],lines={},stats={}}
  if e.category=='node' then
-  spec.title=e.resource=='gold' and 'Gold mine' or 'Resource'
+  spec.title=T.RESOURCE_NAMES[e.resource] or 'Resource'
   spec.subtitle=nil
-  spec.lines[1]=(e.amount or 0)..' gold remaining'
-  spec.lines[2]={'Build an Extractor on it to mine it.',T.COLORS.dim}
+  spec.lines[1]=(e.amount or 0)..' '..tostring(e.resource)..' remaining'
+  spec.lines[2]={'Workers harvest it, one at a time per patch.',T.COLORS.dim}
   return spec
  end
  spec.title=d and d.label or e.kind
@@ -104,9 +106,10 @@ local DIM={.62,.66,.62}
 -- What a building is for, from the flags content gives it, so the text cannot drift from the rules.
 function T.purpose(kind,d)
  local lines={}
- if d.extractor then lines[#lines+1]='Built squarely on a gold mine. Its carriers take the gold to your nearest drop-off.' end
- if d.dropoff and kind~='hq' then lines[#lines+1]='A drop-off for gold carriers. Beside a distant mine it shortens the route.' end
- if kind=='barracks' then lines[#lines+1]='Trains your army.' end
+ if d.onNode then lines[#lines+1]='Built squarely on a '..d.onNode..' node.' end
+ if d.dropoff then lines[#lines+1]='A drop-off: workers deliver what they harvest here.' end
+ if d.supply and d.supply>0 then lines[#lines+1]='Provides '..d.supply..' supply.' end
+ if d.produces and #d.produces>0 then lines[#lines+1]='Trains '..#d.produces..' kind'..(#d.produces>1 and 's' or '')..' of unit.' elseif kind=='barracks' then lines[#lines+1]='Trains your army.' end
  if d.damage and d.damage>0 then lines[#lines+1]='Attacks enemies in range.' end
  lines[#lines+1]={'Shift-click places another site. Each selected worker builds one.',DIM}
  return lines

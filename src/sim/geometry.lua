@@ -72,5 +72,14 @@ function G.weaponRangeAt(w,e,x,y,t,extra)
     range=range+G.radius(w,t)
     return F.distance2Bounded(x,y,t.x,t.y)<=range*range
 end
-function G.weaponRange(w,e,t,extra) return G.weaponRangeAt(w,e,e.x,e.y,t,extra) end
+-- A building shoots from the edge of its footprint nearest the target, so a wide building's
+-- range means reach past its wall on every side rather than from its origin cell.
+function G.weaponRange(w,e,t,extra)
+    local x,y=e.x,e.y
+    if e.category=='building' then
+        local size=e.size or 1
+        x=math.max(e.x-128,math.min(t.x,e.x-128+size*256));y=math.max(e.y-128,math.min(t.y,e.y-128+size*256))
+    end
+    return G.weaponRangeAt(w,e,x,y,t,extra)
+end
 return G

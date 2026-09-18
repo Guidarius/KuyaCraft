@@ -80,7 +80,10 @@ function A.list(app)
   if kind then return 'Requires '..((C.buildings[kind] or C.units[kind] or {}).label or kind) end
  end
  if app.cardPage=='build' then
-  for i,kind in ipairs(faction.buildings or {'barracks','tower','outpost','extractor'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
+  -- Without a build list, every building but the faction's headquarters, in id order.
+  local kinds=faction.buildings
+  if not kinds then kinds={};for id in pairs(C.buildings) do if id~=Sim.hqKind(faction) then kinds[#kinds+1]=id end end;table.sort(kinds) end
+  for i,kind in ipairs(kinds) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
    local key=kind=='tower' and (app.settings.bindings.tower or 't') or ({'q','w','e','r','a','s','d','f'})[i]
    add(kind,d.label,key,function() app.building=kind;app.targeting=nil end,requirement(d) or missing(costs),
     'Place '..d.label..'. '..(d.buildTicks/C.rules.tickRate)..' seconds. Shift queues another site. One selected worker builds each site.',costs)
@@ -107,6 +110,13 @@ function A.list(app)
  end
  if ctx.canBuild then
   add('build-menu','Build',app.settings.bindings.build,function() app.cardPage='build' end,nil,'Choose a building. Costs and requirements appear on each card.',nil,true)
+  -- Harvest arms a patch target, the way move arms a destination; a laden worker can also be
+  -- told to bring its load back, then stop.
+  if ctx.workers[1] and (C.units[ctx.workers[1].kind] or {}).harvest then
+   add('harvest','Harvest','g',function() Input.arm(app,'harvest') end,nil,'Click a patch or geyser to harvest it. Workers keep going until it is empty.')
+   local laden={};for _,u in ipairs(ctx.workers) do if (u.carrying or 0)>0 then laden[#laden+1]=u end end
+   if #laden>0 then add('return-cargo','Return cargo','c',function() for _,u in ipairs(laden) do app:command('harvest',u.id,{deliver=true}) end;Input.acknowledge(app,{{id=laden[1].id,kind=laden[1].kind,command='harvest'}}) end,nil,'Bring the load to a drop-off, then stop.');list[#list].acknowledges=true end
+  end
  end
  if #ctx.units>0 then add('patrol','Patrol','p',function() Input.arm(app,'patrol') end,nil,'Patrol to a point and engage enemies along the way.') end
  if e and e.owner==app.player and e.category=='building' then

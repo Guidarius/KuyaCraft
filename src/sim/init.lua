@@ -7,7 +7,6 @@ local Movement=require('src.sim.movement')
 local Stats=require('src.sim.stats')
 local Abilities=require('src.sim.abilities')
 local Projectiles=require('src.sim.projectiles')
-local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
 local Control=require('src.sim.control')
 local Harvest=require('src.sim.harvest')
@@ -69,7 +68,12 @@ local Harvest=require('src.sim.harvest')
 -- nearby or waiting), carries the load to its nearest completed drop-off and repeats;
 -- `deliver` returns what it holds. Adds `carrying`, `carryResource` and `harvestUntil` on
 -- units and `occupant` on nodes; rallying a producer onto a harvestable node harvests it.
-local Sim = { VERSION = 21 }
+-- Version 22: the extractor and carrier economy is deleted (workers harvest instead), a site
+-- is built by every worker holding a build order on it with diminishing returns
+-- (rules.coBuild; `builders` and `work` on the site replace `builder`), a map may spawn
+-- only camps its content defines, and a player without a hero neither earns experience
+-- nor revives anyone.
+local Sim = { VERSION = 22 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Faction schema v2. Every accessor here has a default that reproduces what content
@@ -358,14 +362,14 @@ end
 local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
     'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
-    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine','stalled',
+    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','mine','stalled',
     'mana','maxMana',
     -- A worker's load and its loading are public: an enemy sees a laden worker walking home.
     'carrying','carryResource','harvestUntil',
     -- A shot in flight carries its heading so the renderer can point it the right way.
     'dx','dy','ability'}
 -- Fields an observer may only see on entities it owns.
-local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','payload','mine','stalled'}
+local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','mine','stalled'}
 local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
 local function shallow(t) local out={};for key,value in pairs(t) do out[key]=value end;return out end
 local function shallowArray(t) local out={};for i=1,#t do out[i]=shallow(t[i]) end;return out end
@@ -479,7 +483,9 @@ function Sim.create(config,content,map)
         end
     end
     for _,camp in ipairs(map.camps or {}) do
-        local e=spawn(w,camp.kind or 'neutral',0,camp.x,camp.y); e.home={x=e.x,y=e.y};e.campTier=camp.tier
+        local kind=camp.kind or 'neutral'
+        assert(content.units[kind],'the map places a camp of the unknown unit kind '..tostring(kind))
+        local e=spawn(w,kind,0,camp.x,camp.y); e.home={x=e.x,y=e.y};e.campTier=camp.tier
     end
     Control.create(w,map)
     visibility(w)
@@ -581,9 +587,8 @@ function Sim.placement(view,content,kind,x,y)
         if not mine and view.map.unbuildable and view.map.unbuildable[key] then return false,'Cannot build on a road' end
         for _,other in ipairs(view.entities) do
             if other.alive and other.category=='unit' and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
-            -- An extractor is placed on its mine, so the mine it covers is not in its way.
-            -- Carriers never obstruct anything.
-            if other.alive and other.category~='unit' and other.category~='carrier' and other.id~=mine
+            -- A building placed on its node is not obstructed by that node.
+            if other.alive and other.category~='unit' and other.id~=mine
                 and cx>=F.cell(other.x) and cx<F.cell(other.x)+other.size and cy>=F.cell(other.y) and cy<F.cell(other.y)+other.size then return false,'Occupied footprint' end
         end
     end end
@@ -630,9 +635,10 @@ claimBuild=function(w,e)
     if e.order.kind~='build' then return end
     local site=w.entities[e.order.target]
     if not site or not site.alive or site.owner~=e.owner or site.category~='building' or site.remaining<=0 then return end
-    local previous=w.entities[site.builder]
-    site.builder=e.id
-    if previous and previous.id~=e.id and previous.alive and previous.order.kind=='build' and previous.order.target==site.id then nextOrder(w,previous) end
+    -- Joining, not taking over: a site is built by everyone holding a build order on it.
+    local builders=site.builders or {}
+    for _,id in ipairs(builders) do if id==e.id then return end end
+    builders[#builders+1]=e.id;site.builders=builders
 end
 local function reject(w,c,reason) emit(w,'rejected',{player=c.player or 0,sequence=c.sequence or 0,reason=reason}) end
 -- What cancelling gives back: a whole-percent share of every resource paid, floored.
@@ -729,9 +735,10 @@ local function apply(w,c)
     local d=def(w,e)
     if c.kind=='revive' then
         local hq=w.entities[p.hq]
+        if not d.hero or not w.content.rules.xpThresholds then reject(w,c,'cannot revive'); return end
         local cost,ticks=Sim.revival(w.content,e)
         local price={[Sim.primaryResource(w.content)]=cost}
-        if not d.hero or e.alive or e.reviveRemaining or not hq.alive or not afford(p,price) then reject(w,c,'cannot revive'); return end
+        if e.alive or e.reviveRemaining or not hq.alive or not afford(p,price) then reject(w,c,'cannot revive'); return end
         spend(p,price); e.reviveRemaining=ticks; return
     end
     if not e.alive then reject(w,c,'entity is dead'); return end
@@ -912,63 +919,6 @@ function Sim.applyRally(w,e,unit)
     if x then Sim.setOrder(w,unit,{kind='move',x=x,y=y,requestX=rally.x,requestY=rally.y},false) end
 end
 local function hq(w,p) return w.entities[w.players[p].hq] end
--- A carrier reaching its drop-off is credited and recycled. It leaves no corpse: it
--- walked into the base. Recycling rather than accumulating dead entities is what keeps
--- w.order bounded -- a twenty minute match emits thousands of deliveries.
-local function deliver(w,carrier)
-    local ledger=w.players[carrier.owner].resources
-    local amount=carrier.payload or 0
-    local resource=carrier.resource or 'gold'
-    ledger[resource]=(ledger[resource] or 0)+amount
-    carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
-    emit(w,'delivered',{entity=carrier.id,amount=amount,resource=resource})
-end
--- and never more than carrierSlots deliveries in flight, which is what makes a distant
--- mine pay less and also caps how many carrier entities can exist.
-local function extraction(w)
-    local rules=w.content.rules
-    local slots=rules.carrierSlots or 9
-    -- One pass for both halves. This runs every tick in every match, including the many
-    -- that never build an extractor, so it censuses and collects sites together and
-    -- returns immediately when there is nothing emitting.
-    local inFlight,idle,sites={},{},nil
-    for _,id in ipairs(w.order) do
-        local e=w.entities[id]
-        if e.category=='carrier' then
-            if e.alive then inFlight[e.source]=(inFlight[e.source] or 0)+1
-            elseif not e.deathTick or w.tick-e.deathTick>=(rules.carrierCorpseTicks or 40) then
-                local pool=idle[e.source];if not pool then pool={};idle[e.source]=pool end
-                pool[#pool+1]=e
-            end
-        elseif e.alive and e.category=='building' and e.remaining==0 then
-            local d=def(w,e)
-            if d and d.extractor then sites=sites or {};sites[#sites+1]=e end
-        end
-    end
-    if not sites then return end
-    do
-        for _,e in ipairs(sites) do
-            local id=e.id
-            local mine=w.entities[e.mine]
-            if mine and mine.alive and mine.amount>0 and Carriers.route(w,e,route) then
-                if w.tick>=(e.nextEmit or 0) and (inFlight[id] or 0)<slots then
-                    local payload=math.min(rules.carrierPayload or 8,mine.amount)
-                    local pool=idle[id]
-                    local carrier=pool and table.remove(pool)
-                    if not carrier then carrier=spawn(w,'carrier',e.owner,F.cell(e.x),F.cell(e.y),'carrier') end
-                    carrier.alive=true;carrier.spent=nil;carrier.deathTick=nil
-                    carrier.hp=carrier.maxHp;carrier.source=id;carrier.payload=payload;carrier.resource=mine.resource
-                    carrier.leg=1;carrier.routeSerial=e.routeSerial
-                    carrier.x=e.x+((e.size or 1)-1)*128;carrier.y=e.y+((e.size or 1)-1)*128
-                    mine.amount=mine.amount-payload
-                    e.nextEmit=w.tick+(rules.carrierEmitTicks or 16)
-                    inFlight[id]=(inFlight[id] or 0)+1
-                    if mine.amount<=0 then mine.alive=false;w.navVersion=w.navVersion+1;rebuild(w);emit(w,'depleted',{entity=mine.id}) end
-                end
-            end
-        end
-    end
-end
 local harvestApi={emit=emit,nextOrder=nextOrder,approachTarget=approachTarget,rebuild=rebuild,radius=G.radius,def=def}
 local function economy(w)
     for _,id in ipairs(ids(w)) do
@@ -995,14 +945,36 @@ local function economy(w)
             if e.category=='building' then
                 if e.researchRemaining then e.researchRemaining=e.researchRemaining-1;if e.researchRemaining==0 then e.researchRemaining=nil;w.players[e.owner].tech=true;emit(w,'researched',{entity=e.id}) end end
                 if e.remaining>0 then
-                    local builder=w.entities[e.builder]
-                    -- Assigned is not the same as at work: a builder still walking to its site is
-                    -- on its way, not stopped. A site nobody is assigned to has stopped, and says
-                    -- so once, so the player can be told and the bot can send someone back.
-                    local assigned=builder and builder.alive and builder.order.kind=='build' and builder.order.target==e.id
-                    if not assigned and not e.stalled then e.stalled=true;emit(w,'build_stalled',{entity=e.id})
-                    elseif assigned and e.stalled then e.stalled=nil end
-                    if assigned and approachTarget(w,builder,e,400) then e.remaining=e.remaining-1;if e.healthCapacity then local capacity=math.ceil(d.hp/10)+math.floor((d.hp-math.ceil(d.hp/10))*(d.buildTicks-e.remaining)/d.buildTicks);e.hp=e.hp+capacity-e.healthCapacity;e.healthCapacity=capacity end; if e.remaining==0 then e.stalled=nil;nextOrder(w,builder);emit(w,'constructed',{entity=e.id}) end end
+                    -- Every worker holding a build order on the site builds it. Assigned is not
+                    -- the same as at work: one still walking is on its way. Several at work
+                    -- build faster with diminishing returns (rules.coBuild, percent of a tick's
+                    -- progress per tick by count). A site nobody is assigned to has stopped, and
+                    -- says so once, so the player can be told and the bot can send someone back.
+                    local kept,working={},0
+                    for _,id in ipairs(e.builders or {}) do local b=w.entities[id]
+                        if b and b.alive and b.order.kind=='build' and b.order.target==e.id then
+                            kept[#kept+1]=id
+                            if approachTarget(w,b,e,400) then working=working+1 end
+                        end
+                    end
+                    e.builders=#kept>0 and kept or nil
+                    if #kept==0 and not e.stalled then e.stalled=true;emit(w,'build_stalled',{entity=e.id})
+                    elseif #kept>0 and e.stalled then e.stalled=nil end
+                    if working>0 then
+                        local steps=w.content.rules.coBuild
+                        local rate=steps and steps[math.min(working,#steps)] or 100
+                        e.work=(e.work or 0)+rate
+                        while e.work>=100 and e.remaining>0 do
+                            e.work=e.work-100;e.remaining=e.remaining-1
+                            if e.healthCapacity then local capacity=math.ceil(d.hp/10)+math.floor((d.hp-math.ceil(d.hp/10))*(d.buildTicks-e.remaining)/d.buildTicks);e.hp=e.hp+capacity-e.healthCapacity;e.healthCapacity=capacity end
+                        end
+                        if e.work==0 then e.work=nil end
+                        if e.remaining==0 then
+                            e.work=nil;e.stalled=nil;e.builders=nil
+                            for _,id in ipairs(kept) do nextOrder(w,w.entities[id]) end
+                            emit(w,'constructed',{entity=e.id})
+                        end
+                    end
                 elseif #e.queue>0 then
                     local q=e.queue[1]; q.remaining=math.max(0,q.remaining-1)
                     if q.remaining==0 then
@@ -1014,12 +986,9 @@ local function economy(w)
                         elseif not e.productionBlocked then e.productionBlocked=true;emit(w,'production_blocked',{entity=e.id}) end
                     end
                 end
-            elseif e.category=='carrier' and e.alive then
-                Carriers.advance(w,e,deliver)
             end
         end
     end
-    extraction(w)
 end
 -- Formation pacing. A group move arrives together only if its members travel together,
 -- so every unit under a shared group id walks at the slowest member's speed while that
@@ -1094,6 +1063,9 @@ local BLOCK=2048
 local function blockKey(x,y) return math.floor(y/BLOCK)*512+math.floor(x/BLOCK) end
 local function enemyTarget(w,e,blocks)
     local best,distance;local sight=Stats.sight(w,e)*256;local ex,ey=e.x,e.y
+    -- A building looks out from the middle of its footprint, as its sight does, so a wide
+    -- building does not lose reach on the side away from its origin cell.
+    if e.category=='building' then ex=ex+((e.size or 1)-1)*128;ey=ey+((e.size or 1)-1)*128 end
     local x0,x1=math.floor((ex-sight)/BLOCK),math.floor((ex+sight)/BLOCK)
     local y0,y1=math.floor((ey-sight)/BLOCK),math.floor((ey+sight)/BLOCK)
     if x0<0 then x0=0 end
@@ -1338,10 +1310,7 @@ local function combat(w,pending)
             -- Authoritative tallies. The interface previously counted these from the
             -- events it happened to observe, which under-reports a kill made out of
             -- sight; these are part of the world and agree between peers.
-            -- A killed carrier destroys its gold rather than handing it over: denial
-            -- punishes without compounding a lead the way stealing would.
-            if e.category=='carrier' then e.payload=0 end
-            if e.owner>0 and e.category~='carrier' then
+            if e.owner>0 then
                 local owner=w.players[e.owner]
                 if e.category=='unit' then owner.unitsLost=(owner.unitsLost or 0)+1
                 else owner.buildingsLost=(owner.buildingsLost or 0)+1 end
@@ -1353,8 +1322,8 @@ local function combat(w,pending)
             end
             if e.category=='unit' and not def(w,e).worker and killer and killer>0 and killer~=e.owner then
                 local bounty=def(w,e).bounty;if bounty then local key=Sim.primaryResource(w.content);w.players[killer].resources[key]=(w.players[killer].resources[key] or 0)+bounty end
-                local hero=w.entities[w.players[killer].hero]
-                if hero.alive and inRange(hero,e,w.content.rules.xpRange) then local ed=def(w,e);hero.xp=hero.xp+(ed.xp or (ed.hero and (w.content.rules.heroXp or 80) or w.content.rules.combatXpPerFood and ed.food*w.content.rules.combatXpPerFood or 30)) end
+                local hero=w.entities[w.players[killer].hero or 0]
+                if hero and hero.alive and inRange(hero,e,w.content.rules.xpRange) then local ed=def(w,e);hero.xp=hero.xp+(ed.xp or (ed.hero and (w.content.rules.heroXp or 80) or w.content.rules.combatXpPerFood and ed.food*w.content.rules.combatXpPerFood or 30)) end
             end
         end
     end
@@ -1455,8 +1424,7 @@ function Sim.recomputeBlocked(w)
     local blocked=Codec.copy(w.map.blocked)
     for _,id in ipairs(w.order) do
         local e=w.entities[id]
-        -- Carriers are not obstructions: they walk through everything but terrain.
-        if e.alive and e.category~='unit' and e.category~='carrier' and e.category~='projectile' then
+        if e.alive and e.category~='unit' and e.category~='projectile' then
             local size=e.size or 1
             for y=F.cell(e.y),F.cell(e.y)+size-1 do
                 for x=F.cell(e.x),F.cell(e.x)+size-1 do blocked[Path.key(w.map,x,y)]=true end

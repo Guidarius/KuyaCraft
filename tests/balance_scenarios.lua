@@ -7,25 +7,25 @@ local P=require('src.sim.path')
 local M={}
 local function write(name,text) local f=assert(io.open('artifacts/'..name,'wb'));f:write(text);f:close();print(text) end
 function M.routes()
- local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,Maps.create())
- local e=S.unit(w,'shield',1,28,18)
+ local w=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,Maps.create())
+ local e=S.unit(w,'footman',1,28,18)
  local function route(ax,ay,bx,by)
   e.x=F.center(ax);e.y=F.center(ay);e.path={};e.goal=nil;w.metrics.directChecks=0;assert(P.request(w,e,bx,by),'blocked route endpoint')
   for _=1,1000 do w.metrics.pathExpansions=0;P.step(w);if not w.searches[e.id] then break end end
   assert(not w.searches[e.id] and not e.blockedReason,'unreachable route')
   local ticks=0;local x,y=ax,ay
-  for _,p in ipairs(e.path) do local distance=F.isqrt((p.x-x)^2*65536+(p.y-y)^2*65536);ticks=ticks+math.ceil(distance/C.units.shield.speed);x,y=p.x,p.y end
+  for _,p in ipairs(e.path) do local distance=F.isqrt((p.x-x)^2*65536+(p.y-y)^2*65536);ticks=ticks+math.ceil(distance/C.units.footman.speed);x,y=p.x,p.y end
   return ticks/20
  end
  -- The strategic targets are the 128x112 map's scaled by 1.5 with the map's width: the
  -- 192x192 map was made larger on purpose, so a longer march is the change, not a regression.
  local main=route(28,18,163,173);local natural=route(28,18,54,26);local easy=route(28,18,48,29);local center=route(96,96,28,18)
  local corner=route(28,18,22,160)+route(22,160,163,173)
- local report=string.format('Twin Marches infantry route estimates (actual A* cell paths, speed 35, rounded step ticks; no crowd waits):\nRally (28,18) to enemy rally (163,173): %.2fs [target 60–83]\nNatural approach (54,26): %.2fs [target 10–15]\nEasy camp (48,29): %.2fs [target 8–12]\nCenter to rally: %.2fs [target 30–42]\nVia the south-west corner (22,160): %.2fs (+%.1f%%) [reported only: a detour, not a flank]\n',main,natural,easy,center,corner,100*(corner/main-1))
+ local report=string.format('Twin Marches infantry route estimates (actual A* cell paths, footman speed, rounded step ticks; no crowd waits):\nRally (28,18) to enemy rally (163,173): %.2fs [target 60–83]\nNatural approach (54,26): %.2fs [target 10–15]\nEasy camp (48,29): %.2fs [target 8–12]\nCenter to rally: %.2fs [target 30–42]\nVia the south-west corner (22,160): %.2fs (+%.1f%%) [reported only: a detour, not a flank]\n',main,natural,easy,center,corner,100*(corner/main-1))
  write('balance-routes.txt',report);assert(main>=60 and main<=83 and center>=30 and center<=42,'strategic route time outside target')
 end
 function M.match(mirror,ticks)
- local config={seed=725,players={{faction='bastion'},{faction=mirror and 'bastion' or 'wild'}}}
+ local config={seed=725,players={{faction='orders'},{faction='orders'}}}
  local map=Maps.create();local w=Sim.create(config,C,map);local Bot=require('src.bot');local Replay=require('src.replay');local replay=Replay.create(config,C,map)
  local milestones={{},{}};local lines={};local label=mirror and 'mirror' or 'asymmetric'
  local firstContact;local peakFood,peakFoodTick={},{}
@@ -49,7 +49,7 @@ function M.match(mirror,ticks)
    if food>(peakFood[p] or 0) then peakFood[p]=food;peakFoodTick[p]=tick end
   end
   if tick%1200==0 then
-   local line=string.format('%ds: P1 food=%d units=%d gold=%d | P2 food=%d units=%d gold=%d',tick/20,Sim.population(w,1),Sim.unitCount(w,1),w.players[1].resources.gold,Sim.population(w,2),Sim.unitCount(w,2),w.players[2].resources.gold)
+   local line=string.format('%ds: P1 food=%d units=%d substrate=%d charge=%d | P2 food=%d units=%d substrate=%d charge=%d',tick/20,Sim.population(w,1),Sim.unitCount(w,1),w.players[1].resources.substrate,w.players[1].resources.charge or 0,Sim.population(w,2),Sim.unitCount(w,2),w.players[2].resources.substrate,w.players[2].resources.charge or 0)
    lines[#lines+1]=line;print(line)
   end
   if w.result then break end
@@ -83,10 +83,10 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
     local rows={
         {'first extra worker',milestones[1]['recruited:worker']},
         {'war hall',milestones[1]['constructed:barracks']},
-        {'first combat unit',milestones[1]['recruited:shield'] or milestones[1]['recruited:stalker']},
-        {'first extractor',milestones[1]['constructed:extractor']},
-        {'headquarters advance',milestones[1]['researched:hq']},
-        {'outpost',milestones[1]['constructed:outpost']},
+        {'first combat unit',milestones[1]['recruited:footman']},
+        {'first depot',milestones[1]['constructed:depot']},
+        {'first gryphon knight',milestones[1]['recruited:gryphon']},
+        {'second keep',milestones[1]['constructed:keep']},
         {'first contact between players',firstContact},
         {'peak army, player 1',peakFoodTick[1]},
         {'peak army, player 2',peakFoodTick[2]},
@@ -95,19 +95,17 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
     local out={string.format('Match pacing: %s. Target %d-%d minutes (docs/BALANCE_AND_PACING.md).',label,M.TARGET_MINUTES[1],M.TARGET_MINUTES[2])}
     out[#out+1]='Milestones are player 1 unless stated. Times are mm:ss of simulated match time.'
     for _,row in ipairs(rows) do out[#out+1]=string.format('  %-32s %s',row[1],clock(row[2])) end
-    out[#out+1]=string.format('  peak food                        P1 %d, P2 %d of %d',peakFood[1] or 0,peakFood[2] or 0,C.rules.population)
-    -- Income is the match now, so the report says how much of it each side actually
-    -- held: extractors standing at the end, and carriers on the road.
-    local sites,carriers={0,0},{0,0}
+    out[#out+1]=string.format('  peak food                        P1 %d, P2 %d of caps %d, %d',peakFood[1] or 0,peakFood[2] or 0,Sim.supplyCap(w,1),Sim.supplyCap(w,2))
+    -- The economy is workers on patches, so the report says how many each side kept and
+    -- how much of the map's substrate is left.
+    local workers,patches={0,0},0
     for _,id in ipairs(w.order) do
         local e=w.entities[id]
-        if e.alive and e.owner>0 then
-            if e.kind=='extractor' then sites[e.owner]=sites[e.owner]+1
-            elseif e.category=='carrier' then carriers[e.owner]=carriers[e.owner]+1 end
-        end
+        if e.alive and e.owner>0 and C.units[e.kind] and C.units[e.kind].worker then workers[e.owner]=workers[e.owner]+1
+        elseif e.alive and e.category=='node' and e.resource=='substrate' then patches=patches+1 end
     end
-    out[#out+1]=string.format('  extractors at the end            P1 %d, P2 %d',sites[1],sites[2])
-    out[#out+1]=string.format('  carriers on the road             P1 %d, P2 %d',carriers[1],carriers[2])
+    out[#out+1]=string.format('  workers at the end               P1 %d, P2 %d',workers[1],workers[2])
+    out[#out+1]=string.format('  substrate patches left           %d',patches)
     local minutes=duration/1200
     local verdict
     if minutes<M.TARGET_MINUTES[1] then verdict=string.format('%.1f minutes SHORT of the %d minute floor',M.TARGET_MINUTES[1]-minutes,M.TARGET_MINUTES[1])
@@ -127,12 +125,12 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick)
 end
 function M.stressWorld(perSide)
  perSide=perSide or 120
- local w=Sim.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,Maps.create())
+ local w=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,Maps.create())
  for _,id in ipairs(w.order) do local e=w.entities[id];if e.category=='unit' then e.alive=false end end
  -- Two adjacent blocks in the center clearing; keep casualties from reducing the workload.
  local units={};for p=1,2 do for i=1,perSide do local x=(p==1 and 84 or 99)+(i-1)%10;local y=90+math.floor((i-1)/10)
   for cy=y-1,y+1 do for cx=x-1,x+1 do w.blocked[P.key(w.map,cx,cy)]=nil;w.map.blocked[P.key(w.map,cx,cy)]=nil end end
-  local e=S.unit(w,i%3==0 and 'crossbow' or 'shield',p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
+  local e=S.unit(w,i%3==0 and 'crossbow' or 'footman',p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
  end end
  return w,units
 end

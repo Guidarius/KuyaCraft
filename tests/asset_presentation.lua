@@ -42,7 +42,7 @@ local function fixture(name)
         for i,e in ipairs(members) do
             e.x=((player==1 and 15 or 25)+(i-1)%6)*256+128
             e.y=(12+math.floor((i-1)/6))*256+128
-            if e.kind=='worker' and i%2==0 then e.category='carrier';e.kind='carrier';e.payload=8 end
+            if e.kind=='worker' and i%2==0 then e.carrying=8;e.carryResource='gold' end
         end
     end
     return world

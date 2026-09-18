@@ -80,7 +80,7 @@ function I.castLegal(app,spec,hit)
  if not spec then return true end
  if spec.target~='unit' then return true end
  if not hit or not hit.alive then return false end
- if hit.category=='node' or hit.category=='carrier' then return false end
+ if hit.category=='node' then return false end
  local filter=spec.filter or {enemy=true}
  if hit.category=='building' and not filter.building then return false end
  if hit.owner==app.player then return filter.ally==true or filter.self==true end
@@ -292,7 +292,7 @@ end
 function I.boxSelect(app,x0,y0,x1,y1)
  local own,buildings,other={},{},{}
  for _,e in ipairs(app.view.entities) do
-  if e.alive and e.category~='node' and e.category~='carrier' then
+  if e.alive and e.category~='node' then
    local sx,sy=app:screen(e.x,e.y)
    if Camera.contains(app,sx,sy) and sx>=x0 and sx<=x1 and sy>=y0 and sy<=y1 then
     if e.owner~=app.player then other[#other+1]=e.id

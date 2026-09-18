@@ -1,6 +1,11 @@
 # LoveRTS — Resource flow
 
-Status: **implemented, simulation version 8.** Supersedes the worker-harvesting economy
+> **Superseded at simulation version 22.** The extractor and carrier economy described
+> here was removed by the Brood War style pivot: workers harvest patches again and the
+> Orders' economy is in [FACTIONS.md](FACTIONS.md). This file is kept as the record of the
+> version 8 design and what it measured.
+
+Status: **implemented at simulation version 8, removed at 22.** Supersedes the worker-harvesting economy
 described in [BALANCE_AND_PACING.md](BALANCE_AND_PACING.md). Numbers here are starting
 values chosen to be measurable, not balanced; the pacing report
 (`artifacts/balance-pacing-*.txt`) is how they get judged.

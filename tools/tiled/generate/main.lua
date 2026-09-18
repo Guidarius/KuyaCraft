@@ -101,6 +101,113 @@ local function trace(grid,dist,to)
     return cells
 end
 local function write(path,text) local f=assert(io.open(path,'wb'));f:write(text);f:close() end
+-- The Lua export Tiled 1.12.2 would write for the same map, written here as well so the
+-- committed src/maps/<id>_tiled.lua can be produced on a machine without Tiled. The format
+-- is reproduced line for line (scripts/map.ps1 -Mode Check compares the two on a machine
+-- that has Tiled), so this block must change only when the Tiled export format does.
+local TILESETS=[==[
+  tilesets = {
+    {
+      name = "terrain",
+      firstgid = 1,
+      class = "",
+      tilewidth = 32,
+      tileheight = 32,
+      spacing = 0,
+      margin = 0,
+      columns = 4,
+      image = "../../maps/tilesets/terrain.png",
+      imagewidth = 128,
+      imageheight = 32,
+      objectalignment = "unspecified",
+      tilerendersize = "tile",
+      fillmode = "stretch",
+      tileoffset = {
+        x = 0,
+        y = 0
+      },
+      grid = {
+        orientation = "orthogonal",
+        width = 32,
+        height = 32
+      },
+      properties = {},
+      wangsets = {},
+      tilecount = 4,
+      tiles = {
+        {
+          id = 0,
+          properties = {
+            ["terrain"] = "grass"
+          }
+        },
+        {
+          id = 1,
+          properties = {
+            ["terrain"] = "road"
+          }
+        },
+        {
+          id = 2,
+          properties = {
+            ["terrain"] = "rock"
+          }
+        },
+        {
+          id = 3,
+          properties = {
+            ["terrain"] = "forest"
+          }
+        }
+      }
+    }
+  },
+]==]
+local function luaExport(grid,objects,W,H,nextId)
+    local out={}
+    local function add(s) out[#out+1]=s end
+    add('return {')
+    add('  version = "1.10",');add('  luaversion = "5.1",');add('  tiledversion = "1.12.2",');add('  class = "",')
+    add('  orientation = "orthogonal",');add('  renderorder = "right-down",')
+    add('  width = '..W..',');add('  height = '..H..',');add('  tilewidth = 32,');add('  tileheight = 32,')
+    add('  nextlayerid = 3,');add('  nextobjectid = '..nextId..',')
+    add('  properties = {');add('    ["id"] = "twin_marches"');add('  },')
+    add((TILESETS:gsub('\n$','')))
+    add('  layers = {');add('    {');add('      type = "tilelayer",');add('      x = 0,');add('      y = 0,')
+    add('      width = '..W..',');add('      height = '..H..',');add('      id = 1,');add('      name = "ground",');add('      class = "",')
+    add('      visible = true,');add('      opacity = 1,');add('      offsetx = 0,');add('      offsety = 0,');add('      parallaxx = 1,');add('      parallaxy = 1,')
+    add('      properties = {},');add('      encoding = "lua",');add('      data = {')
+    for y=0,H-1 do
+        local row={}
+        for x=0,W-1 do row[#row+1]=tostring(grid[key(x,y)]) end
+        add('        '..table.concat(row,', ')..(y<H-1 and ',' or ''))
+    end
+    add('      }');add('    },');add('    {')
+    add('      type = "objectgroup",');add('      draworder = "topdown",');add('      id = 2,');add('      name = "gameplay",');add('      class = "",')
+    add('      visible = true,');add('      opacity = 1,');add('      offsetx = 0,');add('      offsety = 0,');add('      parallaxx = 1,');add('      parallaxy = 1,')
+    add('      properties = {},');add('      objects = {')
+    for i,o in ipairs(objects) do
+        add('        {')
+        add('          id = '..o.id..',');add('          name = "'..(o.name or '')..'",');add('          type = "'..o.class..'",')
+        add('          shape = "'..(o.w and 'rectangle' or 'point')..'",')
+        add('          x = '..o.x..',');add('          y = '..o.y..',');add('          width = '..(o.w or 0)..',');add('          height = '..(o.h or 0)..',')
+        add('          rotation = 0,');add('          opacity = 1,');add('          visible = true,')
+        if #o.props==0 then add('          properties = {}')
+        else
+            local props={};for _,p in ipairs(o.props) do props[#props+1]=p end
+            table.sort(props,function(a,b) return a[1]<b[1] end)
+            add('          properties = {')
+            for j,p in ipairs(props) do
+                local value=p[2]=='int' and tostring(p[3]) or ('"'..p[3]..'"')
+                add('            ["'..p[1]..'"] = '..value..(j<#props and ',' or ''))
+            end
+            add('          }')
+        end
+        add(i<#objects and '        },' or '        }')
+    end
+    add('      }');add('    }');add('  }');add('}')
+    return table.concat(out,'\n')..'\n'
+end
 function love.load(args)
     local root=(args[1] or '.'):gsub('\\','/'):gsub('/$','')..'/'
     local force=false;for _,a in ipairs(args) do if a=='--force' then force=true end end
@@ -331,7 +438,7 @@ function love.load(args)
     end
     local function point(class,cx,cy,props,name) object(class,cx*32+16,cy*32+16,nil,nil,props,name) end
     for p,s in ipairs(L.starts) do object('start',s.x*32,s.y*32,5*32,5*32,{{'player','int',p}},'headquarters '..p) end
-    for _,n in ipairs(L.resources) do object('gold',n.x*32,n.y*32,n.size*32,n.size*32,{{'amount','int',n.amount}}) end
+    for _,n in ipairs(L.resources) do object(n.resource or 'gold',n.x*32,n.y*32,n.size*32,n.size*32,{{'amount','int',n.amount}}) end
     for _,c in ipairs(L.camps) do point('camp',c.x,c.y,{{'kind','string',c.kind},{'tier','string',c.tier}}) end
     for p,list in ipairs(L.unitStarts) do for slot,u in ipairs(list) do point('unit_start',u.x,u.y,{{'player','int',p},{'slot','int',slot}}) end end
     for _,kind in ipairs({'naturals','forward','contested'}) do for p,a in ipairs(L.anchors[kind]) do point('anchor',a.x,a.y,{{'kind','string',kind},{'player','int',p}},kind..' '..p) end end
@@ -378,5 +485,8 @@ function love.load(args)
     add('</map>')
     write(out,table.concat(lines,'\n')..'\n')
     print('WROTE '..out)
+    local export=root..'src/maps/twin_marches_tiled.lua'
+    write(export,luaExport(grid,objects,W,H,nextId))
+    print('WROTE '..export)
     love.event.quit(0)
 end

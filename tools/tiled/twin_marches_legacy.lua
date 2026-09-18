@@ -1,7 +1,9 @@
--- The code-authored Twin Marches that preceded the Tiled map, kept as the generator's input.
--- It is not loaded by the game: tools/tiled/generate reads it to lay out maps/twin_marches.tmx.
--- The only change from the original src/maps/twin_marches.lua is that forest cells and forest
--- rectangles are recorded, so the generator can tell forest from rock.
+-- The code-authored Twin Marches, the generator's input: tools/tiled/generate lays out
+-- maps/twin_marches.tmx and src/maps/twin_marches_tiled.lua from it. It is not loaded by the
+-- game. The terrain is the original code-authored layout with forest cells recorded; the
+-- resources are the Brood War style fields of the pivot: each base has a curved line of
+-- one-cell substrate patches four to seven cells from its keep and one two-cell charge
+-- geyser at the end of the line. Neutral camps and control points are gone.
 --
 -- Everything is authored for player one in the north-west and rotated 180 degrees for
 -- player two: a cell (x,y) becomes (191-x,191-y) and a footprint origin (192-x-size,
@@ -12,7 +14,7 @@ return function()
   starts={{x=20,y=20},{x=W-25,y=H-25}},
   anchors={naturals={{x=50,y=28},{x=W-1-50,y=H-1-28}},forward={{x=66,y=70},{x=W-1-66,y=H-1-70}},
    contested={{x=168,y=24},{x=W-1-168,y=H-1-24}}},
-  controlPoints={{x=128,y=62},{x=W-1-128,y=H-1-62}},forestCells={},forestRects={}}
+  controlPoints={},forestCells={},forestRects={}}
  local function key(x,y) return y*W+x+1 end
  for _,p in ipairs({{28,18},{16,17},{17,17},{18,17},{19,17},{26,17}}) do
   m.unitStarts[1][#m.unitStarts[1]+1]={x=p[1],y=p[2]};m.unitStarts[2][#m.unitStarts[2]+1]={x=W-1-p[1],y=H-1-p[2]}
@@ -38,10 +40,15 @@ return function()
    end end
   end)
  end
- local function resource(x,y,amount)
-  m.resources[#m.resources+1]={x=x,y=y,resource='gold',amount=amount,size=3}
-  m.resources[#m.resources+1]={x=W-x-3,y=H-y-3,resource='gold',amount=amount,size=3}
-  carve(x+1,y+1,1)
+ -- A node and its mirror, with their cells opened. Patches are one cell; geysers two.
+ local function node(x,y,size,resource,amount)
+  m.resources[#m.resources+1]={x=x,y=y,resource=resource,amount=amount,size=size}
+  m.resources[#m.resources+1]={x=W-x-size,y=H-y-size,resource=resource,amount=amount,size=size}
+  for cy=y,y+size-1 do for cx=x,x+size-1 do carve(cx,cy,0) end end
+ end
+ local function field(patches,geyser,patchAmount,geyserAmount)
+  for _,p in ipairs(patches) do node(p[1],p[2],1,'substrate',patchAmount) end
+  node(geyser[1],geyser[2],2,'charge',geyserAmount)
  end
  carve(22,22,15)
  carve(54,24,11);corridor({{30,22},{50,22}},6)
@@ -50,10 +57,13 @@ return function()
  carve(168,24,11);corridor({{60,22},{160,22}},5)
  corridor({{55,77},{20,150},{16,172}},5)
  carve(26,118,5)
- resource(21,10,12000)
- resource(58,14,9000)
- resource(54,74,9000)
- resource(174,14,9000)
+ -- Main: seven patches in an arc north of the keep at (20,20), geyser to the east.
+ field({{18,16},{19,14},{21,13},{23,13},{25,13},{27,14},{28,16}},{30,18},1500,5000)
+ -- Natural: six patches east of the expansion keep the bot raises at the naturals anchor.
+ field({{57,24},{59,25},{60,27},{60,29},{60,31},{59,33}},{56,34},1000,3500)
+ -- Forward and contested corner: small third bases.
+ field({{61,68},{60,70},{60,72},{61,74}},{57,71},800,3000)
+ field({{172,18},{174,17},{176,18},{177,20}},{178,23},800,3000)
  road({{22,13},{22,19}})
  road({{25,22},{59,22},{59,17}})
  road({{25,25},{60,60},{60,75},{57,75}})
@@ -94,6 +104,6 @@ return function()
    m.camps[#m.camps+1]={x=cx,y=cy,kind=kind,tier=tier};m.camps[#m.camps+1]={x=W-1-cx,y=H-1-cy,kind=kind,tier=tier}
   end
  end
- camp(48,31,'easy');camp(66,80,'easy');camp(110,26,'medium');camp(25,118,'medium');camp(166,32,'hard');camp(88,100,'hard')
+ -- No camps: the pivot's map has no neutral creeps. The helper stays for a map that wants them.
  return m
 end

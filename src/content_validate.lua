@@ -7,10 +7,10 @@ return function(C)
         assert(F.integer(d.radius,1,127),'invalid unit radius')
         assert(F.integer(d.speed,1,64),'invalid unit speed')
         assert(F.integer(d.range,0,65536),'invalid weapon range')
-        -- Neither carriers nor projectiles ever attack: no damage key, so nothing ever
-        -- reads a windup or a cooldown from them. Asserting a firing cadence on one
-        -- would only mean inventing numbers to satisfy the check.
-        if d.carrier or d.projectile then assert(not d.damage,'a carrier or projectile must not have damage')
+        -- A projectile never attacks: no damage key, so nothing ever reads a windup or a
+        -- cooldown from it. Asserting a firing cadence on one would only mean inventing
+        -- numbers to satisfy the check. The same holds for any unit without a weapon.
+        if d.projectile or not d.damage then assert(not d.damage,'a projectile must not have damage')
         else assert(F.integer(d.windup,1,d.cooldown-6),'invalid windup') end
     end
     for _,d in pairs(C.buildings) do if d.damage then assert(F.integer(d.windup,1,d.cooldown-1),'invalid building windup') end end

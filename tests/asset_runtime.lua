@@ -25,7 +25,7 @@ function T.run()
     eq(F.direction(0,0,'NW'),'NW')
     local e={id=1,kind='worker',x=128,y=0,alive=true,order={kind='move'}}
     eq(F.assetId(e),'worker');local state={};local a=F.select(m,e,{x=0,y=0},5,state)
-    e.kind='carrier';eq(F.assetId(e),'worker_loaded');e.kind='worker';local b=F.select(m,e,{x=0,y=0},5,state);eq(a,b)
+    e.carrying=8;eq(F.assetId(e),'worker_loaded');e.carrying=nil;local b=F.select(m,e,{x=0,y=0},5,state);eq(a,b)
     eq(state.moveMs,300);eq(state.direction,'E')
     e.attackTick=6;e.order={kind='attack',target=2}
     local attack,_,clip,d=F.select(m,e,nil,6,state,{entities={{id=3,x=-100,y=-100,alive=true}}})
@@ -68,7 +68,7 @@ function T.run()
     corpse.x=100;corpse.y=0
     renderer:observe(attackEvents,{entities={attacker,corpse}},20)
     eq(renderer.states[1].attackHeading,'N') -- duplicate consumption cannot change the recorded direction
-    eq(F.assetId({kind='carrier'}),'worker_loaded');eq(renderer.states[1].moveMs,300)
+    eq(F.assetId({kind='worker',carrying=8}),'worker_loaded');eq(renderer.states[1].moveMs,300)
     attacker.attackTick=21
     renderer:observe({{kind='attack',source=1,target=2,tick=21}},{entities={attacker}},21)
     local _,_,_,hiddenDirection=F.select(m,attacker,nil,21,renderer.states[1]);eq(hiddenDirection,'N')

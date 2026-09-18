@@ -136,23 +136,24 @@ function M.uniqueHq()
 end
 
 function M.resources()
+    -- A second resource, ore: the worker may harvest it, it lands in its own ledger, and a
+    -- building that stands on a node accepts only nodes of its own resource.
     local C=content();C.rules.resources={'gold','ore'};C.rules.startingResources={gold=650,ore=0}
-    -- `onNode` is where it stands; `extractor` is what it does once it does.
-    C.buildings.orepit={label='Ore pit',hp=400,size=3,sight=5,cost={gold=10},buildTicks=1,onNode='ore',extractor=true}
-
-    C.factions.bastion.buildings={'extractor','orepit'}
+    C.units.worker.harvest={gold=40,ore=40}
+    C.buildings.orepit={label='Ore pit',hp=400,size=1,sight=5,cost={gold=10},buildTicks=1,onNode='ore'}
+    C.buildings.goldpit={label='Gold pit',hp=400,size=1,sight=5,cost={gold=10},buildTicks=1,onNode='gold'}
+    C.factions.bastion.buildings={'orepit','goldpit'}
     assert(validate(C))
-    local w=world(C,24,{{x=6,y=6,resource='ore',amount=16,size=3},{x=14,y=6,resource='gold',amount=16,size=3}})
+    local w=world(C,24,{{x=6,y=6,resource='ore',amount=16,size=1},{x=9,y=6,resource='gold',amount=16,size=1}})
     local worker=find(w,1,'worker');local view=Sim.view(w,1)
-    -- Each node accepts only its own extractor kind.
-    local ok,reason=Sim.placement(view,C,'orepit',14,6);assert(not ok);eq(reason,'Must be built on a ore node')
-    ok,reason=Sim.placement(view,C,'extractor',6,6);assert(not ok);eq(reason,'Must be built on a gold node')
-    assert(Sim.placement(view,C,'orepit',6,6))
-    step(w,1,{command(w,1,'build',worker.id,{building='orepit',x=6,y=6})})
-    assert(find(w,1,'orepit'),'ore pit refused on an ore node')
+    local ok,reason=Sim.placement(view,C,'orepit',9,6);assert(not ok);eq(reason,'Must be built on a ore node')
+    ok,reason=Sim.placement(view,C,'goldpit',6,6);assert(not ok);eq(reason,'Must be built on a gold node')
+    assert(Sim.placement(view,C,'orepit',6,6));assert(Sim.placement(view,C,'goldpit',9,6))
+    local ore;for _,id in ipairs(w.order) do local e=w.entities[id];if e.category=='node' and e.resource=='ore' then ore=e end end
+    step(w,1,{command(w,1,'harvest',worker.id,{target=ore.id})})
     local delivered=0
     for _=1,1200 do for _,ev in ipairs(Sim.step(w,{})) do if ev.kind=='delivered' then eq(ev.resource,'ore');delivered=delivered+ev.amount end end end
-    eq(delivered,16);eq(w.players[1].resources.ore,16);eq(w.players[1].resources.gold,640,'ore was credited as gold')
+    eq(delivered,16);eq(w.players[1].resources.ore,16);eq(w.players[1].resources.gold,650,'ore was credited as gold')
     -- Cancel refunds follow the rule percentage on every resource.
     C=content();C.rules.cancelRefundPercent=75;C.rules.resources={'gold','ore'};C.buildings.barracks.cost={gold=100,ore=40}
     w=world(C,24);w.players[1].resources={gold=1000,ore=1000};worker=find(w,1,'worker')

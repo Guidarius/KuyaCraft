@@ -105,15 +105,18 @@ function T.run(app)
  -- point owned with the other half captured by the enemy, then both held: ground rings,
  -- capture fill, minimap rings and the public countdown banner, each actually drawn.
  local marches=require('src.app').create({map='twin_marches'});marches.noAutoSave=true
- local points=marches.world.control.points
- points[1].owner=1;points[2].capturer=2;points[2].progress=100
- marches.view=Sim.view(marches.world,1);Camera.center(marches,points[1].x,points[1].y)
- capture('control-contest',function() marches:draw() end)
- points[2].owner=1;points[2].capturer=0;points[2].progress=0;Sim.step(marches.world,{})
- marches.view=Sim.view(marches.world,1);assert(marches.view.control.holder==1,'a hold is not visible in the view')
- local controlState=Sim.serializeCanonical(marches.world)
- capture('control-hold',function() marches:draw() end)
- assert(Sim.serializeCanonical(marches.world)==controlState,'drawing control points mutated the simulation')
+ local controlState
+ if marches.world.control then
+  local points=marches.world.control.points
+  points[1].owner=1;points[2].capturer=2;points[2].progress=100
+  marches.view=Sim.view(marches.world,1);Camera.center(marches,points[1].x,points[1].y)
+  capture('control-contest',function() marches:draw() end)
+  points[2].owner=1;points[2].capturer=0;points[2].progress=0;Sim.step(marches.world,{})
+  marches.view=Sim.view(marches.world,1);assert(marches.view.control.holder==1,'a hold is not visible in the view')
+  controlState=Sim.serializeCanonical(marches.world)
+  capture('control-hold',function() marches:draw() end)
+  assert(Sim.serializeCanonical(marches.world)==controlState,'drawing control points mutated the simulation')
+ else controlState=Sim.serializeCanonical(marches.world) end
  -- Terrain: the base, the open field with its forests and roads, and a stretch of coast, each
  -- drawn through the chunked renderer. Drawing bakes chunks but must leave the world untouched.
  -- The view's visible set is replaced by the whole map so the ground can be seen rather than fog.
@@ -829,7 +832,7 @@ function T.tooltips(app,capture)
  capture('tooltip-world',function() app:draw() end)
  app.drag={x=0,y=0};assert(not frame(0),'the world tooltip showed during a box drag');app.drag=nil
  local mine;for _,e in ipairs(app.view.entities) do if e.category=='node' then mine=e;break end end
- if mine then assert(Tooltip.entity(app,mine).title=='Gold mine','a gold mine was not named') end
+ if mine then assert(Tooltip.entity(app,mine).title==Tooltip.RESOURCE_NAMES[mine.resource],'a resource node was not named by its resource') end
  -- Only what a view carries: an enemy hero's experience is private, so no level is shown.
  local ownHero=app:entity(app.view.player.hero)
  assert(Tooltip.entity(app,ownHero).title:find('level'),'your own hero tooltip lost its level')

@@ -6,13 +6,15 @@ local C = {
         -- exhaustion path rather than always having room to finish.
         smoothBudget = 2048,
         startingResources = { gold = 650 }, startingWorkers = 3,
-        carrierPayload = 8, carrierEmitTicks = 16, carrierSlots = 9, carrierCorpseTicks = 40,
+        -- Workers harvest: how far one looks for a free patch, and how much faster several
+        -- workers raise one site (percent of a tick's progress per tick, by count at work).
+        harvestSearch = 1536, coBuild = { 100, 150, 185, 210, 225, 235 },
         reviveTicks = 200, reviveCost = 120, xpRange = 1536, xpThresholds = { 60, 160, 320 },
         -- Matches the shipping rule, so the crowd fixtures exercise formation pacing
         -- rather than silently skipping it.
         formationPacing = true },
     units = {
-        worker = { label = 'Worker', radius = 80, windup = 4, hp = 70, damage = 3, range = 300, cooldown = 25, speed = 30, sight = 5, cost = { gold = 40 }, buildTicks = 60, worker = true },
+        worker = { label = 'Worker', radius = 80, windup = 4, hp = 70, damage = 3, range = 300, cooldown = 25, speed = 30, sight = 5, cost = { gold = 40 }, buildTicks = 60, worker = true, harvest = { gold = 40 }, carry = 8 },
         shield = { label = 'Shieldguard', radius = 80, windup = 4, hp = 180, damage = 13, range = 320, cooldown = 20, speed = 27, sight = 6, cost = { gold = 80 }, buildTicks = 80 },
         crossbow = { label = 'Crossbow', radius = 80, windup = 4, hp = 90, damage = 16, range = 1152, cooldown = 30, speed = 28, sight = 7, cost = { gold = 105 }, buildTicks = 100 },
         medic = { label = 'Standard bearer', radius = 80, windup = 4, hp = 110, damage = 6, range = 768, cooldown = 25, speed = 27, sight = 6, heal = 3, cost = { gold = 120 }, buildTicks = 100 },
@@ -28,20 +30,18 @@ local C = {
         -- run this fixture on that map. Never spawned by the fixture maps themselves.
         scout = { label = 'Camp scout', radius = 80, windup = 4, hp = 90, damage = 6, range = 340, cooldown = 25, speed = 30, sight = 5 },
         leader = { label = 'Camp leader', radius = 112, windup = 4, hp = 320, damage = 18, range = 340, cooldown = 28, speed = 24, sight = 5 },
-        carrier = { label = 'Gold carrier', radius = 56, hp = 40, cooldown = 1, windup = 1, range = 0, speed = 40, sight = 0, food = 0, buildTicks = 0, cost = {}, carrier = true },
         projectile = { label = 'Projectile', radius = 1, hp = 1, cooldown = 1, windup = 1, range = 0, speed = 1, sight = 0, food = 0, buildTicks = 0, cost = {}, projectile = true }
     },
     buildings = {
         hq = { label = 'Headquarters', hp = 2200, size = 3, sight = 9, cost = {}, buildTicks = 1, dropoff = true },
-        extractor = { label = 'Extractor', hp = 400, size = 3, sight = 5, cost = { gold = 120 }, buildTicks = 60, extractor = true },
         outpost = { label = 'Outpost', hp = 600, size = 2, sight = 8, cost = { gold = 300 }, buildTicks = 200, dropoff = true },
         barracks = { label = 'War hall', hp = 700, size = 2, sight = 6, cost = { gold = 180 }, buildTicks = 180 },
         tower = { label = 'Watchtower', windup = 4, hp = 450, size = 1, sight = 8, damage = 14, range = 1408, cooldown = 25, cost = { gold = 150 }, buildTicks = 150 }
     },
     factions = {
-        bastion = { label = 'The Bastion', hero = 'warden', roster = { 'shield', 'crossbow', 'medic', 'siege' },
+        bastion = { label = 'The Bastion', hero = 'warden', roster = { 'shield', 'crossbow', 'medic', 'siege' }, buildings = { 'barracks', 'tower', 'outpost' },
             upgrades = { { 'Wide protection', 'Deep protection' }, { 'Vanguard damage', 'Guardian health' }, { 'Quick attacks', 'Enduring aura' } } },
-        wild = { label = 'The Wild Pact', hero = 'beastkeeper', roster = { 'stalker', 'thorn', 'sprite', 'beast' },
+        wild = { label = 'The Wild Pact', hero = 'beastkeeper', roster = { 'stalker', 'thorn', 'sprite', 'beast' }, buildings = { 'barracks', 'tower', 'outpost' },
             upgrades = { { 'Rapid recovery', 'Opening sprint' }, { 'Predator damage', 'Ancient health' }, { 'Quick attacks', 'Pack recovery' } } }
     }
 }

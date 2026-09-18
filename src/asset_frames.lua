@@ -2,11 +2,8 @@
 local F={directions={'N','NE','E','SE','S','SW','W','NW'}}
 local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden'}
 function F.assetId(e)
-    -- The loaded worker recipe is the gold carrier: same body, same clips, a bundle on
-    -- its back. A carrier is only ever alive while it is holding gold, so it has no
-    -- unloaded state and the workers themselves no longer carry anything.
-    if e.kind=='carrier' then return 'worker_loaded' end
-    -- A worker with a load on its back is the loaded recipe; empty, the plain one.
+    -- A worker with a load on its back is the loaded recipe: same body, same clips, a
+    -- bundle on its back. Empty, it is the plain one.
     if e.kind=='worker' then return (e.carrying or 0)>0 and 'worker_loaded' or 'worker' end
     return assetIds[e.kind]
 end

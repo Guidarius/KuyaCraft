@@ -98,7 +98,7 @@ function M.draw(app,panel)
   if e.remembered then g.setColor(.5,.48,.4,.6) end
   local unit=app.content.units[e.kind];local hero=unit and unit.hero
   if e.category=='building' then g.rectangle(e.remembered and 'line' or 'fill',x-2,y-2,5,5)
-  elseif e.category=='node' then if e.resource=='gold' then g.polygon('fill',x,y-3,x+3,y,x,y+3,x-3,y) else g.polygon('fill',x,y-4,x+3,y+2,x-3,y+2) end
+  elseif e.category=='node' then if e.resource=='gold' or e.resource=='substrate' then g.polygon('fill',x,y-3,x+3,y,x,y+3,x-3,y) else g.polygon('fill',x,y-4,x+3,y+2,x-3,y+2) end
   elseif hero then g.polygon('fill',x,y-4,x+4,y,x,y+4,x-4,y)
   else g.circle('fill',x,y,1.8) end
   if Selection.has(app.selected,e.id) then g.setColor(.7,1,.7);g.circle('line',x,y,4) end

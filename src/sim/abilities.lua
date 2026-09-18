@@ -42,7 +42,7 @@ end
 -- ordinary target acquisition, so a camp can be hit by the same spell that hits a player.
 function A.matches(w,caster,target,filter)
     if not target or not target.alive then return false end
-    if target.category=='node' or target.category=='carrier' then return false end
+    if target.category=='node' then return false end
     filter=filter or {enemy=true}
     if target.category=='building' and not filter.building then return false end
     if target.id==caster.id then return filter.self==true end

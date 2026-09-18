@@ -73,7 +73,7 @@ function App.create(options)
     local config={seed=12345,players={{faction=faction},{faction=opponent}}}
     local map=Maps.create(options.map)
     local self=setmetatable({options=options,content=content,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
-        camera={x=28,y=115,zoom=1},previous={},message='Select a worker and build an extractor on a gold mine to begin.',effects={},fonts={}}, {__index=App})
+        camera={x=28,y=115,zoom=1},previous={},message='Select a worker and right-click a substrate patch to begin.',effects={},fonts={}}, {__index=App})
     self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12);self.fonts.card=love.graphics.newFont(10)
     if options.replay then
         self.playback=Replay.read(options.replay,content);config=self.playback.header.config;map=self.playback.header.map
@@ -187,8 +187,8 @@ function App:update(dt)
         end
         if not self.network.ready then return end
         if not self.started then
-            self.started=true;self.world=Sim.create(self.network.config,Content,self.network.map)
-            self.recording=Replay.create(self.network.config,Content,self.network.map,Replay.OFFLINE_INTERVAL)
+            self.started=true;self.world=Sim.create(self.network.config,self.content,self.network.map)
+            self.recording=Replay.create(self.network.config,self.content,self.network.map,Replay.OFFLINE_INTERVAL)
             self.selected={self:focus()};self.view=Sim.view(self.world,self.player)
             self.observation=require('src.ui.observation').create();self.observation:update(self.view)
             self.alerts=require('src.ui.alerts').create();self.healthTrails={};self.audio:clear()
@@ -234,7 +234,7 @@ function App:update(dt)
         else
             commands=self.queue;self.queue={}
             for _,c in ipairs(commands) do c.tick=tick end
-            local bot=self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),Content) or {}
+            local bot=self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),self.content) or {}
             for _,c in ipairs(bot) do
                 self.sequences[2]=self.sequences[2]+1;c.player=2;c.sequence=self.sequences[2];c.tick=tick;commands[#commands+1]=c
             end
@@ -352,7 +352,7 @@ end
 -- Income is announced from the simulation's `delivered` event, so the figure and the
 -- place it appears are both exact: the text rises over the worker that actually made the
 -- delivery, and a refund or a kill bounty is never mistaken for one.
-local RESOURCE_COLOURS={gold={.96,.82,.36}}
+local RESOURCE_COLOURS={gold={.96,.82,.36},substrate={.62,.86,.96},charge={.6,.95,.55}}
 function App:announceDelivery(event)
     local worker=self.view.byId[event.entity]
     local x,y=event.x,event.y
@@ -366,7 +366,7 @@ end
 function App:interpolated(e)
     local x,y=e.x,e.y;local prev=self.previous[e.id]
     if prev and prev.stamp~=self.previousStamp then prev=nil end
-    if prev and (e.category=='unit' or e.category=='carrier') then
+    if prev and e.category=='unit' then
         local alpha=math.min(1,self.accumulator/0.05)
         x=prev.x+(x-prev.x)*alpha;y=prev.y+(y-prev.y)*alpha
     end
@@ -434,9 +434,12 @@ function App:drawEntity(e)
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
             g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
         end
-        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
+        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
     elseif e.category=='node' then
-        if e.resource=='gold' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;g.setColor(0.9,0.71,0.27);g.polygon('fill',x-12*z,y,x-5*z,y-20*z,x+8*z,y-17*z,x+14*z,y)
+        -- A crystal for what workers pick (gold, substrate), a vent for a charge geyser, a tree
+        -- for anything else. Drawn, not sprited: the art hooks these kinds by resource.
+        if e.resource=='gold' or e.resource=='substrate' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;if e.resource=='gold' then g.setColor(0.9,0.71,0.27) else g.setColor(0.5,0.78,0.9) end;g.polygon('fill',x-12*z,y,x-5*z,y-20*z,x+8*z,y-17*z,x+14*z,y)
+        elseif e.resource=='charge' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;g.setColor(0.25,0.4,0.3);g.ellipse('fill',x,y-4*z,16*z,8*z);g.setColor(0.55,0.95,0.55,0.85);g.ellipse('fill',x,y-6*z,9*z,4*z);g.polygon('fill',x-3*z,y-8*z,x,y-22*z,x+4*z,y-8*z)
         else g.setColor(0.32,0.24,0.13);g.rectangle('fill',x-3*z,y-22*z,6*z,22*z);g.setColor(0.21,0.48,0.33);g.polygon('fill',x-16*z,y-12*z,x,y-44*z,x+16*z,y-12*z) end
     -- Carriers are drawn small and stooped, with the gold they are holding above them, so
     -- a stream of them reads at a glance as income crossing the map -- and so an enemy
@@ -453,12 +456,6 @@ function App:drawEntity(e)
         g.line(x-dx,y-dy-14*z,x+dx,y+dy-14*z)
         g.setColor(1,.75,.35,.5);g.circle('fill',x+dx,y+dy-14*z,2*z)
         g.setLineWidth(1)
-    elseif e.category=='carrier' then
-        z=z*0.66
-        color(team);g.rectangle('fill',x-6*z,y-16*z,12*z,12*z,3*z)
-        g.setColor(0.9,0.82,0.66);g.circle('fill',x,y-19*z,4*z)
-        if (e.payload or 0)>0 then g.setColor(0.96,0.82,0.36);g.polygon('fill',x-6*z,y-24*z,x,y-30*z,x+6*z,y-24*z,x,y-21*z) end
-        if self.feedback:flashing(e.id,self.world.tick) then g.setColor(1,1,1,.55);g.ellipse('fill',x,y-10*z,8*z,10*z) end
     else
         local d=self.content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
         -- Your own badly hurt units pulse on the ground, so the one about to die is found without
@@ -669,7 +666,7 @@ function App:draw()
     end
     if self.building then
         local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=self.content.buildings[self.building].size
-        local valid,reason=Sim.placement(self.view,Content,self.building,F.cell(wx),F.cell(wy))
+        local valid,reason=Sim.placement(self.view,self.content,self.building,F.cell(wx),F.cell(wy))
         g.setColor(valid and .4 or 1,valid and .85 or .3,.3,.4);g.rectangle('fill',x,y,size*26*z,size*CELL_Y*z)
         g.setColor(valid and .65 or 1,valid and 1 or .3,.4);g.rectangle('line',x,y,size*26*z,size*CELL_Y*z)
         if not valid then for offset=0,size*26*z,8 do g.line(x+offset,y,x+offset,y+size*CELL_Y*z) end end
@@ -740,7 +737,7 @@ end
 function App:pick(x,y,ownOnly,selectable)
     local best,dist
     for _,e in ipairs(self.view.entities) do
-        if e.alive and (not ownOnly or e.owner==self.player) and not (selectable and (e.category=='carrier' or e.category=='projectile')) then
+        if e.alive and (not ownOnly or e.owner==self.player) and not (selectable and e.category=='projectile') then
             local z=self.camera.zoom;local sx,sy=self:screen(e.x,e.y);local hit,distance
             if e.category~='unit' then
                 local left,top=self:screen(F.cell(e.x)*256,F.cell(e.y)*256)
@@ -768,7 +765,7 @@ function App:requestSeek(tick,player)
 end
 function App:seek(tick,player)
     if not self.playback then return end
-    self.player=player or self.player;self.world=Sim.create(self.playback.header.config,Content,self.playback.header.map)
+    self.player=player or self.player;self.world=Sim.create(self.playback.header.config,self.content,self.playback.header.map)
     self.observation=require('src.ui.observation').create();self.observation:update(Sim.view(self.world,self.player))
     for i=1,math.min(tick,#self.playback.frames) do
         Sim.step(self.world,self.playback.frames[i].commands)

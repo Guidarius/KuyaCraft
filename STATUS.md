@@ -1567,3 +1567,87 @@ Verification on the desk machine: `quick` 108 passed, `network` 4 plus the ENet 
 failures. The rendered captures under `artifacts/ui-*.png` show the fixture's Warden panel,
 stances and abilities on Twin Marches. No simulation suite beyond `quick` and `network` was
 run, because no simulation file changed.
+
+## Pivot phase 3: the Orders replace the Bastion and the Wild Pact — simulation version 22
+
+The shipping game is now The Orders against The Orders on a re-authored Twin Marches. The
+Bastion, the Wild Pact, their heroes, experience, neutral camps, control points, the
+extractor and the carriers are no longer shipped; the hero, camp and control systems stay
+in the simulation, content-gated, and remain covered by the mechanics fixture. Content is
+version 10 and its numbers are recorded, with what the tests measure, in
+[docs/FACTIONS.md](docs/FACTIONS.md).
+
+What changed in the simulation, all versioned (19 → 22 over the three pivot branches):
+
+- The extractor and carrier economy is deleted: `src/sim/carriers.lua`, `extraction`,
+  `deliver`, the `carrier` entity category and every branch that knew it. Income is workers
+  on patches (phase 2). The `onNode` placement rule stays for the Megacorp's rigs.
+- Co-construction: a site is built by every worker holding a build order on it
+  (`builders`, a list in claim order) at `rules.coBuild[count]` percent of a tick's progress
+  per tick, with the fraction carried in `work`. A second worker joins rather than takes
+  over; a site with nobody assigned stalls as before. Measured: a depot takes 499 ticks
+  alone, 332 with two builders, 235 with four (the table says 150% and 210%).
+- A building acquires targets from the middle of its footprint and shoots from the edge
+  nearest the target, so a 4×4 keep's seven cells of reach are seven cells past its wall on
+  every side. Before, both were measured from the origin cell, which cost a wide building
+  three cells on the far side. This moves the fixture's tower and headquarters too.
+- A map may only place camps of kinds its content defines; a player with no hero earns no
+  experience, and `revive` is refused without one.
+
+Content: `keep`, `depot`, `barracks`; `worker` (harvests, 8 per load, 2 s substrate and 3 s
+charge), `footman`, `crossbow`, `gryphon`. Speeds are the reference's times 0.4; windups
+are a quarter of the period; sight values are the reference's. All balance-adjacent and
+recorded as defaults for the user to confirm.
+
+The map: the code layout gains `node` and `field` helpers, and the generator now also
+writes the Lua export in Tiled's exact format (proved by regenerating the old layout byte
+for byte against the committed export before the layout changed), so a machine without
+Tiled can refresh both files. Twin Marches has 42 substrate patches and 8 geysers, no camps
+and no control points; bases and anchors are where they were, and the generator's route
+check reports every route within 0.5% of the old map.
+
+The bot is chosen by content (`faction.bot` names `src/bot/<name>.lua`); `src/bot/orders.lua`
+saturates patches (two workers a patch, three a geyser, charge once a barracks stands),
+raises a depot when the cap is six away, a barracks, a second barracks at four minutes and a
+keep at the natural at five, trains two footmen to a crossbow with a gryphon every fourth
+when the charge is there, defends the keep, and attacks at twelve supply of army or ten
+minutes. The old bot's control-point play went with the control points; the fixture bot
+harvests instead of building extractors.
+
+Presentation: nodes draw by resource (crystal for substrate, vent for a geyser), workers
+have Harvest (G) and Return cargo (C) on the card, tooltips name patches and geysers and
+say what a building provides, and the carrier drawing is gone. Docs: `docs/FACTIONS.md` is
+new; `docs/RESOURCE_FLOW.md` and `docs/BALANCE_AND_PACING.md` carry superseded banners;
+`docs/COMMAND_CARDS.md` records the harvest keys.
+
+Tests: `tests/balance.lua` is rewritten for the Orders (opening, patch income, co-build,
+the keep's reach and lives, supply and refunds, the footman duel, the field map, the bot);
+the pacing report's rows are the Orders' milestones; the fixture drops the extractor and
+carrier, harvests gold, and gains a `coBuild` table; the runner's extractor and carrier
+tests became harvesting and co-construction ones. Removed with nothing replacing them: the
+road-network test (roads no longer lead to mines) and the bot control-point test.
+
+Verification, all on the desk machine from the worktree with `-PerfBudget 40`, on the
+final tree: `quick` 100 passed; `balance` 4; `determinism` 5 plus the four-process 100,000-tick
+agreement; `network` 4 plus the ENet pair; `scenario` 2; `crowd` 20; `soak` 1; `performance`
+2; the rendered UI suite at three resolutions and the presentation suite. Zero failures.
+
+What the match reports say, honestly: the **Orders mirror does not finish**. Both bot
+matches (`artifacts/balance-pacing-mirror.txt`, and "asymmetric", which is now a second
+mirror) run to the 25-minute cap: first depot 0:27, barracks 0:47, first footman 1:10, first
+gryphon 4:34, second keep 7:00, first contact 3:46, peak food 122 and 114 of a 124 cap, and
+both mains' substrate exhausted by 25:00 with 28 of 42 patches left elsewhere. The bots
+build armies that never break a keep. The pacing rails (barracks 20–180 s, contact
+60–900 s, peak food ≥ 20) hold; the duration is reported, not asserted, as before. Whether
+the Orders bot should expand harder, attack earlier or the keep is too tough is a balance
+question the user decides; nothing was tuned to a number here.
+
+The fixture matches changed with the fixture bot: the mirror ends at tick 5353 (player 2)
+against 2778 before, the asymmetric at 2179 (player 1) against 2786. No golden was
+re-blessed silently; both are the fixture bot harvesting instead of building extractors, and
+the building reach change. Active p95 was 6.811 ms in the control fixture and 28.958 ms in
+the balance fixture, single measurements on the thermally limited laptop.
+
+Not done: a human playtest of the Orders mirror; the draft pull request (`gh` is not
+installed); `scripts/map.ps1 -Mode Check` against Tiled 1.12.2 (not installed here; the
+exporter was proved on the previous layout, not on this one).
