@@ -92,9 +92,10 @@ function A.list(app)
    add('load-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('pod_load',hq.id,{unit=kind}) end,reason,'Load a '..d.label..' into the open pod. Paid now; it arrives when the pod lands.',costs)
    list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit')
   end
-  local remaining=(pods.cooldownUntil or 0)-app.world.tick
-  add('launch','Launch ('..#pods.open.kinds..'/'..(C.rules.podCapacity or 4)..')','t',function() app.targeting={command='pod_launch'};app.building=nil end,
-   dead or #pods.open.kinds==0 and 'Pod is empty' or remaining>0 and ('Pod ready in '..math.ceil(remaining/20)..'s') or nil,'Click covered ground. The pod lands there ten seconds later and the troops step out around it.')
+  -- The same model the sidebar draws, so the card and the dial never disagree about why.
+  local model=require('src.ui.orbital').model(app.view,C);local launch=model and model.launch or {state='empty',reason='Load a unit first'}
+  add('launch','Launch ('..#pods.open.kinds..'/'..(C.rules.podCapacity or 4)..')'..(launch.state=='cooling' and ' '..launch.seconds..'s' or ''),'t',function() require('src.ui.orbital').launch(app) end,
+   dead or launch.state~='ready' and launch.reason or nil,'Click covered ground. The pod lands there ten seconds later and the troops step out around it.')
   if #pods.open.kinds>0 then add('cancel-pod','Unload pod','delete',function() app:command('cancel',hq.id,{pod=true}) end,dead,'Refund everything loaded into the open pod.') end
   back();return list
  elseif app.cardPage=='requisition' then
@@ -164,12 +165,10 @@ function A.list(app)
   if faction.coverage and e.kind==Sim.hqKind(faction) then
    -- The call-down queue lives on the Command's card: order from orbit, land what is ready.
    add('requisition-menu','Requisition','b',function() app.cardPage='requisition' end,dead,'Order a building from orbit. It lands complete inside relay coverage.',nil,true)
-   local queue=app.view.player.callDown or {}
-   for i,item in ipairs(queue) do local d=C.buildings[item.kind]
-    if item.remaining==0 then add('land-'..i,'Land '..d.label,({'z','x','c','v','n'})[i],function() app.building=item.kind;app.landing=i;app.targeting=nil end,dead,'Choose a landing site inside relay coverage. Ten seconds later it is there, complete.')
-    else add('orbit-'..i,d.label..' '..math.ceil(item.remaining/20)..'s',({'z','x','c','v','n'})[i],function() end,'In orbit','Being produced in orbit. One item at a time; two from the second Requisition Office.') end
-   end
-   if #queue>0 then add('cancel-orbit','Cancel last','delete',function() app:command('cancel',e.id,{callDown=#queue}) end,dead,'Refund 75% of the last item in orbit.') end
+   -- The queue itself lives in the sidebar (src/ui/orbital.lua), always on screen: frames with
+   -- progress, READY to click, right-click to cancel. The card keeps the way in and one key.
+   local model=require('src.ui.orbital').model(app.view,C)
+   if model and model.ready>0 then add('land-next','Land next ('..model.ready..')','z',function() require('src.ui.orbital').armNext(app) end,dead,'Arm the landing of the next building ready in orbit. F9 does the same from anywhere.') end
   add('pod-menu','Drop pod','p',function() app.cardPage='pod' end,dead,'Load troops into the open pod and drop them anywhere your relays cover.',nil,true)
   end
   if e.occupants and #e.occupants>0 then add('unload','Unload all','u',function() app:command('unload',e.id) end,dead,'Everyone inside steps out beside the building.') end

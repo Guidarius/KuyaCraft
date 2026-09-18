@@ -37,7 +37,7 @@ function I.arm(app,command,ability,px,py)
  end
  app.targeting={command=command,ability=ability,spec=spec}
 end
-function I.disarm(app) app.targeting=nil;app.building=nil end
+function I.disarm(app) app.targeting=nil;app.building=nil;app.landing=nil end
 -- Every selected unit that owns the ability casts it. Out of range is not an error: the
 -- caster walks, exactly as it does for an attack order.
 function I.castAt(app,x,y,target,ability)
@@ -73,7 +73,10 @@ function I.resolveTargeting(app,x,y,hit)
  if t.ability then return I.castAt(app,x,y,hit,t.ability) end
  -- A pod launch is aimed at ground, from the headquarters, whatever is selected.
  if t.command=='pod_launch' then
-  app:command('pod_launch',app.view.player.hq,{x=math.floor(x/256),y=math.floor(y/256)})
+  -- Checked here first, so an uncovered click says why at the cursor and keeps the aim armed.
+  local cx,cy=math.floor(x/256),math.floor(y/256);local coverage=app.view.player.coverage
+  if coverage and not coverage[cy*app.view.map.width+cx+1] then app.targeting=t;Feedback.notify(app,'rejected','Outside relay coverage','orbit-launch',nil,x,y);return end
+  app:command('pod_launch',app.view.player.hq,{x=cx,y=cy})
   app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind='move'};app.audio:play('click');return
  end
  I.intent(app,x,y,hit,t.command)
@@ -180,6 +183,8 @@ end
 function I.mousepressed(app,x,y,button,presses)
  Actions.context(app)
  if button==2 and (app.building or app.targeting) then I.disarm(app);return end
+ -- A right-click on a widget that offers a second action (an orbit frame: cancel) takes it.
+ if button==2 and app.widgets.hover and app.widgets.hover.alt and not app.overlay then app.widgets.hover.alt();return end
  if app.widgets.context and app.widgets.context~=(app.overlay or 'match') then return end
  if button==1 then local hit,reason,item=app.widgets:click(x,y);if hit then if reason then Feedback.notify(app,'rejected',reason,item.id,item.details and item.details.costs) end;return end end
  if app.overlay then return end
@@ -212,7 +217,13 @@ function I.mousepressed(app,x,y,button,presses)
    if valid then
     local issued=false
     -- A landing site for an item ready in orbit needs no worker: the headquarters lands it.
-    if app.landing then app.activeAction=app.building;issued=app:command('land',app.view.player.hq,{index=app.landing,x=cx,y=cy})~=false;if issued then Feedback.notify(app,'build_order','Landing ordered',app.building,nil,wx,wy) end;app.building=nil;app.landing=nil;app.activeAction=nil;return end
+    if app.landing then app.activeAction=app.building;issued=app:command('land',app.view.player.hq,{index=app.landing,x=cx,y=cy})~=false;if issued then Feedback.notify(app,'build_order','Landing ordered',app.building,nil,wx,wy) end
+     -- Shift lands the next ready building straight away, as it repeats a placement for workers.
+     local Orbital=require('src.ui.orbital');local landed=app.landing;local nextIndex=issued and shift() and Orbital.nextReady(Orbital.model(app.view,app.content),landed) or nil
+     app.building=nil;app.landing=nil;app.activeAction=nil
+     -- The landed item leaves the queue, so whatever was behind it moves up one place.
+     if nextIndex and nextIndex~=landed then local item=app.view.player.callDown[nextIndex];app.building=item.kind;app.landing=nextIndex>landed and nextIndex-1 or nextIndex end
+     return end
     for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.alive and e.owner==app.player and e.kind=='worker' then app.activeAction=app.building;issued=app:command('build',id,{building=app.building,x=cx,y=cy,append=shift()});app.activeAction=nil;if not issued then return end;break end end
     if issued then Feedback.notify(app,'build_order','Construction ordered',app.building,nil,wx,wy) else Feedback.notify(app,'rejected','Select workers to build',app.building,nil,wx,wy) end
     if issued and not shift() then app.awaitingPlacement=app.building;app.building=nil end
@@ -396,6 +407,17 @@ function I.keypressed(app,key)
  end
  if app.overlay then return end
  local bindings=app.settings.bindings
+ -- Orbital logistics answer from anywhere: there is no building on the map to select for what
+ -- is made off it. P stays Patrol while units are selected; the sidebar's button always works.
+ if app.sidebar and not ctrl() then
+  local Orbital=require('src.ui.orbital')
+  if key=='b' and app.cardPage~='requisition' then Orbital.openPage(app,'requisition');return end
+  if key=='p' and app.cardPage~='pod' then
+   local units=false;for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.category=='unit' and e.owner==app.player then units=true end end
+   if not units then Orbital.openPage(app,'pod');return end
+  end
+  if key==bindings.idle then Orbital.armNext(app);return end
+ end
  if key==bindings.hero then
   -- The hero, or the headquarters for a faction that has none.
   local focus=app.view.player.hero or app.view.player.hq

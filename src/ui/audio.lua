@@ -41,6 +41,7 @@ local A={manifest={
  deliver={frequency=880,endFrequency=1100,duration=.05,gain=.07,priority=0,cooldown=.6,bus='effects'},
  depleted={frequency=200,endFrequency=110,duration=.25,gain=.2,priority=3,cooldown=.5,bus='effects'},
  garrison={frequency=240,endFrequency=180,duration=.1,gain=.16,priority=2,cooldown=.15,bus='effects'},
+  pod_ready={frequency=620,endFrequency=930,duration=.12,gain=.16,priority=3,cooldown=1,bus='ui'},
  unload={frequency=180,endFrequency=260,duration=.1,gain=.16,priority=2,cooldown=.15,bus='effects'},
  victory={frequency=1040,duration=.4,gain=.25,priority=6,cooldown=2,bus='ui'}}}
 function A.create(settings)

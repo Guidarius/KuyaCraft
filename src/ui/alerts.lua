@@ -22,6 +22,13 @@ end
 function A:observe(events,app)
  for _,v in ipairs(events) do
   local own=v.owner==app.player
+  -- A building finished in orbit is something only the player can act on, so it is said, and
+  -- clicking it arms the landing.
+  if v.kind=='call_down_ready' and v.player==app.player then
+   local d=app.content.buildings[v.building];local text=(d and d.label or 'Building')..' ready to land'
+   self:add('ready'..tostring(v.building),text,nil,nil,app)
+   for _,item in ipairs(self.items) do if item.text==text then item.action=function(a) require('src.ui.orbital').armNext(a) end;item.hint='Click, then click covered ground to land it.' end end
+  end
   if v.kind=='attack' and own and (v.target==app.view.player.hero or v.target==app.view.player.hq) then self:add('attack'..v.target,v.target==app.view.player.hero and 'Hero under attack' or 'Headquarters under attack',v.x,v.y,app)
   -- Anything else of yours being hit where you are not looking. The minimap rings the spot.
   elseif v.kind=='attack' and own and v.x and not onScreen(app,v.x,v.y) then

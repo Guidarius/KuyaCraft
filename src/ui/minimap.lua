@@ -114,6 +114,10 @@ function M.draw(app,panel)
   for ring=0,1 do g.circle('line',r.x+app.localPing.x/256*r.cell,r.y+app.localPing.y/256*r.cell,4+ring*4+(age%1)*5) end
   g.setLineWidth(1)
  end
+ -- Where your own buildings and pods are coming down: a blinking chevron, yours alone to see.
+ local blink=.45+.55*math.abs(math.sin((app.clock or 0)*5))
+ for _,landing in ipairs(app.view.player.landings or {}) do local lx,ly=r.x+(landing.x+1)*r.cell,r.y+(landing.y+1)*r.cell;g.setColor(.4,.95,1,blink);g.polygon('fill',lx-4,ly-5,lx+4,ly-5,lx,ly+2) end
+ for _,pod in ipairs(app.view.player.pods and app.view.player.pods.inFlight or {}) do local lx,ly=r.x+(pod.x+.5)*r.cell,r.y+(pod.y+.5)*r.cell;g.setColor(1,.7,.3,blink);g.polygon('fill',lx-4,ly-5,lx+4,ly-5,lx,ly+2) end
  if app.orderMarker and app.clock-(app.orderMarker.time or 0)<.6 then local o=app.orderMarker;g.setColor(.65,1,.6);g.circle('line',r.x+o.x/256*r.cell,r.y+o.y/256*r.cell,4) end
  -- Control points, ringed in their owner's colour so a hold reads from anywhere on the map.
  local control=app.view.control

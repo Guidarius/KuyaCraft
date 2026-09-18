@@ -169,7 +169,43 @@ function T.run(app)
   require('src.ui.input').mousemoved(themed,w/2,h/2,0,0);require('src.ui.input').mousemoved(themed,w/3,h/3,4,4)
   themed.building=nil
   assert(themed.widgets.theme==require('src.ui.theme').of(faction),'the HUD did not take the theme of its faction')
+  assert((themed.sidebar==true)==(faction=='megacorp'),'the orbital sidebar is on the wrong faction');if faction=='orders' then assert(Camera.rect(themed).w==love.graphics.getDimensions(),'the Orders lost battlefield to a sidebar they do not have') end
   assert(Sim.serializeCanonical(themed.world)==before,'drawing the themed HUD changed the simulation');themed:close()
+ end
+ -- The Megacorp's orbital sidebar, driven end to end on the shipping content: order, wait for
+ -- READY, click the frame, F9, land, cancel a frame, B and P from anywhere, load, refund a
+ -- seat, and a launch that is refused off coverage before it is accepted on it.
+ do
+  local Orbital=require('src.ui.orbital');local C2=require('src.content')
+  local mc=require('src.app').create({map='twin_marches',content=C2,faction='megacorp',opponent='orders'});mc.noAutoSave=true
+  local s=mc.settings.scale/100;local ww=love.graphics.getDimensions()
+  assert(mc.sidebar and Camera.rect(mc).w==ww-Orbital.WIDTH*s,'the battlefield was not narrowed for the sidebar')
+  local function run(n) for _=1,n do mc:update(.05) end end
+  local function widget(id) mc:draw();for _,b in ipairs(mc.widgets.items) do if b.id==id then return b end end end
+  local function click(id) local b=assert(widget(id),'no widget '..id);mc:mousepressed((b.x+b.w/2)*s,(b.y+b.h/2)*s,1) end
+  local hq=mc.view.player.hq;mc.world.players[1].resources={substrate=5000,charge=5000};run(1)
+  for _,kind in ipairs({'mc_barracks','orbital_relay','requisition_office'}) do mc:command('requisition',hq,{building=kind});run(1) end
+  run(120);local before=Sim.serializeCanonical(mc.world);capture('orbital-queue',function() mc:draw() end);assert(Sim.serializeCanonical(mc.world)==before,'drawing the sidebar changed the simulation')
+  assert(mc.orbitalModel.frames[1].state=='producing' and mc.orbitalModel.frames[2].state=='waiting','the sidebar model is not the queue')
+  run(C2.buildings.mc_barracks.buildTicks);assert(widget('orbit-frame-1') and mc.orbitalModel.frames[1].state=='ready' and mc.orbitalModel.blocked,'the barracks is not READY and blocking')
+  click('orbit-frame-1');assert(mc.landing==1 and mc.building=='mc_barracks','clicking READY did not arm the landing')
+  local hqe=mc.world.entities[hq];Camera.center(mc,hqe.x,hqe.y);capture('orbital-landing',function() mc:draw() end)
+  local cr=Camera.rect(mc);mc:mousepressed(cr.x+cr.w/2,cr.y+cr.h/2,2);assert(not mc.landing and mc.view.player.callDown[1].remaining==0,'a right-click did not return the building to READY')
+  mc:keypressed('f9');assert(mc.landing==1,'F9 did not arm the next ready building')
+  local site;for dx=6,14 do for dy=-6,6 do if not site and Sim.placement(mc.view,C2,'mc_barracks',math.floor(hqe.x/256)+dx,math.floor(hqe.y/256)+dy,true) then site={math.floor(hqe.x/256)+dx,math.floor(hqe.y/256)+dy} end end end
+  local sx,sy=mc:screen(assert(site,'no landing site near the Command')[1]*256+128,site[2]*256+128);mc:mousepressed(sx,sy,1);run(2)
+  assert(#mc.view.player.landings==1 and not mc.landing,'the landing was not ordered');assert(mc.view.player.callDown[1].kind=='orbital_relay','the queue did not move up')
+  local cancelled=assert(widget('orbit-frame-2'),'no second frame');cancelled.alt();run(2);assert(#mc.view.player.callDown==1,'right-click on a frame did not cancel it')
+  mc.selected={};mc:keypressed('b');assert(mc.cardPage=='requisition' and mc.selected[1]==hq,'B did not open Requisition from anywhere')
+  mc.selected={};mc:keypressed('p');assert(mc.cardPage=='pod','P did not open the pod page from anywhere')
+  run(C2.rules.descentTicks+5);for _=1,2 do mc:command('pod_load',hq,{unit='associate'});run(1) end
+  before=Sim.serializeCanonical(mc.world);capture('orbital-pods',function() mc:draw() end);assert(Sim.serializeCanonical(mc.world)==before)
+  assert(mc.orbitalModel.loaded==2 and mc.orbitalModel.launch.state=='ready','the pod is not loaded and ready')
+  click('orbit-seat-1');run(2);assert(#mc.view.player.pods.open.kinds==1,'clicking a seat did not refund it')
+  click('orbit-launch');assert(mc.targeting and mc.targeting.command=='pod_launch','the dial did not arm a launch')
+  require('src.ui.input').resolveTargeting(mc,120*256,120*256,nil);run(2);assert(mc.targeting and #mc.view.player.pods.inFlight==0,'a launch off coverage was not refused at the pointer')
+  require('src.ui.input').resolveTargeting(mc,hqe.x+8*256,hqe.y,nil);run(2);assert(#mc.view.player.pods.inFlight==1,'the pod did not launch onto covered ground')
+  mc:draw();assert(mc.orbitalModel.launch.state=='away' and mc.orbitalModel.launch.cooldown>0 and mc.orbitalModel.pips[1]=='flight','the dial does not say the only pod is away');mc:close()
  end
  -- Game juice, drawn: an impact ring with its dust, a splash circle, scorch, a burst number and
  -- the owner's descent marker over a landing site, none of it touching the simulation.

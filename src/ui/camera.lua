@@ -1,7 +1,11 @@
 local C={cellX=26,cellY=26*math.sin(math.pi/3)}
 function C.rect(app)
  local w,h=love.graphics.getDimensions();local s=(app.settings and app.settings.scale or 100)/100
- return {x=0,y=40*s,w=w,h=h-220*s}
+ -- A faction with orbital logistics has a sidebar down the right edge (src/ui/orbital.lua). The
+ -- battlefield is narrowed for it rather than covered, so scrolling, culling, the minimap's view
+ -- box and click-to-world all stay true.
+ local sidebar=app.sidebar and require('src.ui.orbital').WIDTH*s or 0
+ return {x=0,y=40*s,w=w-sidebar,h=h-220*s}
 end
 function C.normalize(app)
  local r=C.rect(app);local c=app.camera;c.userZoom=c.userZoom or 1;c.zoom=r.h/(24*C.cellY)*c.userZoom;c.viewportHeight=r.h

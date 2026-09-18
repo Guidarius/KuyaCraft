@@ -12,6 +12,36 @@ The card follows the active subgroup, preferring a hero when the content has one
 - Building prerequisites come from content `requires` (Barracks needs a Keep, Sanctum a Barracks) and are shown as the grey reason. Ability cards show mana shortages and cooldowns in fixed slots. Z toggles stance (fixture) without conflicting with ability hotkeys.
 - Selection changes close incompatible menus and targeting. Mouse and keyboard both re-evaluate the action before execution. The simulation remains the final authority for delayed commands, including resources consumed by another command first. Replay and ended-match actions remain read-only.
 
+## The Megacorp's orbital sidebar
+
+Orbital logistics have no building on the map to click, so they are never behind a
+selection: a strip down the right edge of the battlefield is on screen for the whole match
+(`src/ui/orbital.lua`; the battlefield is narrowed for it, not covered). Everything it
+shows comes from one pure function, `Orbital.model(view, content)`, which the Command's card
+reads too, so the two cannot disagree.
+
+- **ORBIT n / 5**, and how many items are produced at once. Five frames, empty ones drawn,
+  so capacity reads before anything is ordered. A frame is **producing** (clock wipe and
+  seconds), **READY** (bright pulsing frame and the word; click it, then click covered
+  ground), or **waiting** (dim, its place in the queue). A READY building keeps its
+  production slot until it lands, so whatever waits behind it reads **blocked**, in words.
+  Right-click a frame to cancel it for 75%; right-click the ground while landing and the
+  building stays READY. Descents are listed with their countdowns; click one to look.
+- **PODS**, a pip per pod that could ever fly: filled is away, hollow is free, a dot is
+  locked until another Requisition Office stands. Four seat cells in the order the troops
+  step out, a bar under a heavy unit; click a seat to take that unit out for a full refund.
+  The **launch dial** has four looks that differ in shape as well as colour: lit LAUNCH, a
+  sweep with seconds while cooling, a double ring when every pod is away (with when the
+  next lands), a bare ring saying LOAD. The cooldown is shown even while loading.
+- Keys from anywhere: **B** Requisition, **P** Drop pod (P stays Patrol while units are
+  selected), **F9** arms the next READY building and cycles, **Shift** while landing arms
+  the next one at once. The pages stay open so several orders can be made in a row.
+- Aiming a pod shows the coverage tint and a ring that is green on covered ground and red
+  off it; an uncovered click says so at the pointer and keeps the aim. The owner's descent
+  markers carry the name and seconds; the minimap blinks a chevron at each; a finished
+  building raises an alert that arms the landing when clicked. Cues: `ready_to_land`,
+  `pod_ready` (the dial finishing with troops aboard), `landing`, `pod_launch`.
+
 ## Feedback and audio extension
 
 Selection, menu navigation, movement, attack orders, building orders, cancellation, stance changes, hero upgrades and research completion have distinct synthesized cues. Existing combat, construction/recruitment readiness and alert cues remain. Priority, per-cue cooldowns, volume buses and a 32-source pool bound audio; positional source reuse resets panning before non-positional UI cues.

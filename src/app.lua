@@ -91,6 +91,8 @@ function App.create(options)
     if options['audio-disabled'] then self.audio.templates={} end
     self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
     self.feedback=require('src.feedback').create()
+    -- Known before the first frame, because the battlefield rectangle depends on it.
+    self.sidebar=require('src.ui.orbital').active(self.view,self.content)
     self.juice=require('src.ui.juice').create()
     self.feedback:observe({},self.view,self.world.tick)
     self.selected={self:focus()}
@@ -689,6 +691,20 @@ function App:draw()
     if self.drag then
         local mx,my=love.mouse.getPosition();g.setColor(0.52,0.86,0.73,0.18);g.rectangle('fill',self.drag.x,self.drag.y,mx-self.drag.x,my-self.drag.y)
         g.setColor(0.52,0.86,0.73);g.setLineWidth(1);g.rectangle('line',self.drag.x,self.drag.y,mx-self.drag.x,my-self.drag.y)
+    end
+    -- Aiming a drop pod: the same territory tint a landing shows, and a ring at the pointer that
+    -- is green on covered ground and red off it, so the refusal is seen before the click.
+    if self.targeting and self.targeting.command=='pod_launch' and self.view.player.coverage then
+        local coverage=self.view.player.coverage;local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my)
+        local r=Camera.rect(self);local left,top=self:position(r.x,r.y);local right,bottom=self:position(r.x+r.w,r.y+r.h)
+        g.setColor(.4,.7,1,.13)
+        for cy=math.max(0,F.cell(top)),math.min(self.world.map.height-1,F.cell(bottom)) do for cx=math.max(0,F.cell(left)),math.min(self.world.map.width-1,F.cell(right)) do
+            if coverage[cy*self.world.map.width+cx+1] then local sx,sy=self:screen(cx*256,cy*256);g.rectangle('fill',sx,sy,26*z,CELL_Y*z) end
+        end end
+        local inside=wx>=0 and wy>=0 and F.cell(wx)<self.world.map.width and F.cell(wy)<self.world.map.height and coverage[F.cell(wy)*self.world.map.width+F.cell(wx)+1]
+        local px,py=self:screen(F.cell(wx)*256+128,F.cell(wy)*256+128)
+        g.setColor(inside and .45 or 1,inside and 1 or .35,.4,.85);g.setLineWidth(2);g.ellipse('line',px,py,2.2*26*z,2.2*CELL_Y*z);g.ellipse('line',px,py,.5*26*z,.5*CELL_Y*z);g.setLineWidth(1)
+        if not inside then g.setFont(self.fonts.small);g.print('Outside relay coverage',px+14,py-8) end
     end
     if self.building then
         local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=self.content.buildings[self.building].size

@@ -173,7 +173,7 @@ function J:drawGround(app)
     -- a reticle that tightens onto the site, and in the last stretch the thing itself coming down.
     local player=app.view.player;local descent=app.content.rules.descentTicks or 200
     local now=app.world.tick+math.min(1,(app.accumulator or 0)/0.05)
-    local function marker(cx,cy,half,at,colour)
+    local function marker(cx,cy,half,at,colour,label)
         local t=math.max(0,math.min(1,1-(at-now)/descent))
         local x,y=app:screen(cx,cy);local radius=(half+(1-t)*640)
         g.setColor(colour[1],colour[2],colour[3],.35+.4*t);g.setLineWidth(math.max(1,1.5*z))
@@ -184,12 +184,16 @@ function J:drawGround(app)
             g.setColor(1,.9,.7,.9);g.setLineWidth(math.max(2,3*z));g.line(x,y-fall-26*z,x,y-fall)
             g.setColor(1,.75,.4,.5);g.setLineWidth(math.max(1,1.5*z));g.line(x,y-fall-70*z,x,y-fall-26*z)
         end
+        -- What is coming and when, over the site, so the player need not look away to the sidebar.
+        if app.fonts and app.fonts.small then g.setFont(app.fonts.small) end
+        local text=label..'  '..math.max(0,math.ceil((at-now)/20))..'s'
+        g.setColor(0,0,0,.6);g.printf(text,x-79,y+half*sy+5,160,'center');g.setColor(colour[1],colour[2],colour[3],.95);g.printf(text,x-80,y+half*sy+4,160,'center')
     end
     for _,landing in ipairs(player.landings or {}) do
         local d=app.content.buildings[landing.kind];local half=(d and d.size or 1)*128
-        marker(landing.x*256+half,landing.y*256+half,half,landing.at,COLOURS.door)
+        marker(landing.x*256+half,landing.y*256+half,half,landing.at,COLOURS.door,d and d.label or landing.kind)
     end
-    for _,pod in ipairs(player.pods and player.pods.inFlight or {}) do marker(pod.x*256+128,pod.y*256+128,200,pod.at,COLOURS.flak) end
+    for _,pod in ipairs(player.pods and player.pods.inFlight or {}) do marker(pod.x*256+128,pod.y*256+128,200,pod.at,COLOURS.flak,'Pod of '..#pod.kinds) end
     g.pop()
 end
 -- Over the units: the particles.

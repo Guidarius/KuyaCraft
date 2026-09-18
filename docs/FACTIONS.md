@@ -133,7 +133,8 @@ exists only in the queue until `pod_launch` sends it at a covered cell, after wh
 Command waits 300 ticks (15 s) before launching again; ten seconds later the troops step
 out onto a ring of free cells around the point in the order they were loaded. Pods in
 flight at once: one, plus one per Requisition Office, at most three. Cancelling the open pod
-refunds everything in it. A partly loaded pod may be launched.
+refunds everything in it, and `cancel{pod=true,seat=i}` refunds one seat and closes the gap
+(simulation version 27). A partly loaded pod may be launched.
 
 ### Garrisons — LIVE
 

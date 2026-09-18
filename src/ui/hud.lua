@@ -44,6 +44,9 @@ function H.draw(app)
  app.widgets:region('units',430+font:getWidth(foodText),6,font:getWidth(unitText)+4,28,{title='Units',lines={'You have '..units..' living units.'}})
  app.widgets:region('clock',w-224,6,font:getWidth(clockText)+8,28,{title='Match time',lines={'Game time. It runs at the fixed simulation rate, whatever the game speed setting.'}})
  app.widgets:button('menu','Menu',w-98,6,86,28,function() app.overlay='pause' end)
+ -- Orbital logistics are always on screen for a faction that has them.
+ local Orbital=require('src.ui.orbital');app.sidebar=Orbital.active(app.view,C)
+ if app.sidebar then Orbital.draw(app,w,h) end
  Minimap.draw(app,{x=10,y=y+10,w=190,h=160})
  app.widgets:region('minimap',10,y+10,190,160,{title='Minimap',lines={'Click or drag to move the camera. Right-click to send the selection there.',{'Alt-click pings the spot for everyone.',{.62,.66,.62}}}})
  local hero=app:entity(p.hero);local hx=214
@@ -139,7 +142,7 @@ function H.draw(app)
  local pending=0;for _ in pairs(app.pending or {}) do pending=pending+1 end
  if app.uiNotice and app.uiNotice.kind=='rejected' and app.clock-app.uiNotice.time<2 then g.setColor(1,.4,.32);g.rectangle('fill',8,46,3,19) end
  text((pending>0 and (pending..' pending | ') or '')..(app.message or ''),16,48,w-32)
- for i,a in ipairs(app.alerts.items) do app.widgets:button('alert-'..i,a.text..(a.count and (' x'..a.count) or ''),16,72+(i-1)*31,285,27,function() if a.x then Camera.center(app,a.x,a.y) end end,nil,a.x and {title=a.text,lines={'Click to centre the camera here.'}} or nil) end
+ for i,a in ipairs(app.alerts.items) do app.widgets:button('alert-'..i,a.text..(a.count and (' x'..a.count) or ''),16,72+(i-1)*31,285,27,function() if a.action then a.action(app) elseif a.x then Camera.center(app,a.x,a.y) end end,nil,a.action and {title=a.text,lines={a.hint or 'Click to act on it.'}} or a.x and {title=a.text,lines={'Click to centre the camera here.'}} or nil) end
  if app.playback then
   local ry=42
   app.widgets:button('replay-pause',app.replayPaused and 'Play' or 'Pause',w-410,ry,70,26,function() app.replayPaused=not app.replayPaused end)
