@@ -6,18 +6,21 @@ local Actions=require('src.ui.actions')
 local Input=require('src.ui.input')
 local Camera=require('src.ui.camera')
 local H={}
-local function text(value,x,y,w) love.graphics.setColor(.83,.86,.81);love.graphics.printf(value,x,y,w or 180) end
+-- The faction's look for this frame (src/ui/theme.lua), set at the top of H.draw.
+local theme=require('src.ui.theme').default
+local function text(value,x,y,w) love.graphics.setColor(theme.text[1],theme.text[2],theme.text[3]);love.graphics.printf(value,x,y,w or 180) end
 local function bar(x,y,w,value,max)
- local g=love.graphics;g.setColor(.04,.07,.08);g.rectangle('fill',x,y,w,6);g.setColor(.42,.76,.55);g.rectangle('fill',x,y,w*math.max(0,math.min(1,value/math.max(1,max))),6)
+ local g=love.graphics;g.setColor(.04,.07,.08);g.rectangle('fill',x,y,w,6);g.setColor(theme.meter[1],theme.meter[2],theme.meter[3]);g.rectangle('fill',x,y,w*math.max(0,math.min(1,value/math.max(1,max))),6)
 end
 function H.draw(app)
  local C=app.content
  local g=love.graphics;local s=app.settings.scale/100;local width,height=g.getDimensions();local w,h=width/s,height/s;local y=h-180
  local actions=Actions.list(app)
  g.push('all');g.scale(s);g.setFont(app.fonts.small);app.widgets:begin(s);app.widgets.context=app.overlay or 'match';app.widgets.notice=app.uiNotice;app.widgets.clock=app.clock
- g.setColor(.065,.09,.11,.98);g.rectangle('fill',0,0,w,40);g.rectangle('fill',0,y,w,180)
- g.setColor(.48,.4,.25);g.line(0,40,w,40);g.line(0,y,w,y)
- text('LoveRTS',16,13);local p=app.view.player
+ theme=require('src.ui.theme').of(app.view.player.faction);app.widgets.theme=theme
+ g.setColor(theme.panel[1],theme.panel[2],theme.panel[3],.98);g.rectangle('fill',0,0,w,40);g.rectangle('fill',0,y,w,180)
+ g.setColor(theme.line[1],theme.line[2],theme.line[3]);g.line(0,40,w,40);g.line(0,y,w,y)
+ g.setColor(theme.accent[1],theme.accent[2],theme.accent[3]);g.print(theme.name,16,13);local p=app.view.player
  local font=g.getFont()
  -- One readout per ledger key, in content order, each explaining itself on hover the way
  -- Warcraft 3's resource bar does.
@@ -32,12 +35,12 @@ function H.draw(app)
  end
  local cap=p.supplyCap or C.rules.population
  local food,units=require('src.sim').population(app.world,app.player),require('src.sim').unitCount(app.world,app.player)
- local foodText,unitText='Food  '..food..' / '..cap,'   Units '..units
+ local foodText,unitText=theme.supply..'  '..food..' / '..cap,'   Units '..units
  text(foodText..unitText,430,13,300)
  local clockText=string.format('%02d:%02d',math.floor(app.world.tick/1200),math.floor(app.world.tick/20)%60)
  text(clockText,w-220,13,100)
- app.widgets:region('food',426,6,font:getWidth(foodText)+8,28,{title='Food',stats={food..' used','cap '..cap},
-  lines={'Every living unit and every unit in training takes food. Nothing more can be trained past the cap.'},reason=food>=cap and 'Food cap reached' or nil})
+ app.widgets:region('food',426,6,font:getWidth(foodText)+8,28,{title=theme.supply,stats={food..' used','cap '..cap},
+  lines={'Every living unit and every unit in training takes '..theme.supply:lower()..'. Nothing more can be trained past the cap'..(C.rules.supplyFromBuildings and ', which your buildings raise.' or '.')},reason=food>=cap and theme.supply..' cap reached' or nil})
  app.widgets:region('units',430+font:getWidth(foodText),6,font:getWidth(unitText)+4,28,{title='Units',lines={'You have '..units..' living units.'}})
  app.widgets:region('clock',w-224,6,font:getWidth(clockText)+8,28,{title='Match time',lines={'Game time. It runs at the fixed simulation rate, whatever the game speed setting.'}})
  app.widgets:button('menu','Menu',w-98,6,86,28,function() app.overlay='pause' end)
@@ -77,10 +80,11 @@ function H.draw(app)
  end
  -- Idle workers are the most common thing a player loses track of, so the count is
  -- always on screen and one click takes you to the next one.
+ -- A faction with no workers (the Megacorp) has nothing to lose track of here.
  local idle=Input.idleWorkers(app)
- app.widgets:button('idle-worker','Idle: '..#idle..' ['..(app.settings.bindings.idle or 'f9'):upper()..']',745,6,150,28,
+ if (C.factions[p.faction] or {}).worker~=false then app.widgets:button('idle-worker','Idle: '..#idle..' ['..(app.settings.bindings.idle or 'f9'):upper()..']',745,6,150,28,
   function() Input.selectIdleWorker(app) end,#idle==0 and 'No idle workers' or nil,
-  {title='Idle workers',key=app.settings.bindings.idle or 'f9',stats={#idle..' idle'},lines={'Select and centre on the next worker with no order and nothing to deliver.'}})
+  {title='Idle workers',key=app.settings.bindings.idle or 'f9',stats={#idle..' idle'},lines={'Select and centre on the next worker with no order and nothing to deliver.'}}) end
  local sx,sw=375,math.max(140,w-375-330);local e=app:entity(Selection.primary(app))
  local inspected=Selection.inspecting(app)
  text(inspected and 'Inspecting' or (#app.selected..' selected'),sx,y+12,sw)

@@ -155,6 +155,16 @@ function T.run(app)
   capture('weapons',function() app:draw() end)
   foe.stackFixed=nil;foe.stackHit=nil;own.channel=nil;foe.x,foe.y=homeX,homeY;app:update(.05);app.overlay=overlay
  end
+ -- The shipping factions in their own colours: the Orders' brass and oak, the Megacorp's cyan
+ -- and gunmetal, each with its headquarters selected so the command card is showing.
+ for _,faction in ipairs({'orders','megacorp'}) do
+  local themed=require('src.app').create({map='twin_marches',content=require('src.content'),faction=faction,opponent=faction=='orders' and 'megacorp' or 'orders'});themed.noAutoSave=true
+  themed:update(.05);themed.selected={themed:focus()};local hq=themed.world.entities[themed.view.player.hq];Camera.center(themed,hq.x,hq.y)
+  local before=Sim.serializeCanonical(themed.world)
+  capture('hud-'..faction,function() themed:draw() end)
+  assert(themed.widgets.theme==require('src.ui.theme').of(faction),'the HUD did not take the theme of its faction')
+  assert(Sim.serializeCanonical(themed.world)==before,'drawing the themed HUD changed the simulation');themed:close()
+ end
  -- Game juice, drawn: an impact ring with its dust, a splash circle, scorch, a burst number and
  -- the owner's descent marker over a landing site, none of it touching the simulation.
  do

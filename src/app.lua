@@ -73,7 +73,7 @@ function App.create(options)
     local config={seed=12345,players={{faction=faction},{faction=opponent}}}
     local map=Maps.create(options.map)
     local self=setmetatable({options=options,content=content,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
-        camera={x=28,y=115,zoom=1},previous={},message='Select a worker and right-click a substrate patch to begin.',effects={},fonts={}}, {__index=App})
+        camera={x=28,y=115,zoom=1},previous={},message=content.factions[faction].worker==false and 'Select the Orbital Command: Requisition (B) orders buildings from orbit, Drop pod (P) sends troops.' or content.rules.resources and 'Select a worker and right-click a substrate patch to begin.' or 'Select a worker and press B to build.',effects={},fonts={}}, {__index=App})
     self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12);self.fonts.card=love.graphics.newFont(10)
     if options.replay then
         self.playback=Replay.read(options.replay,content);config=self.playback.header.config;map=self.playback.header.map
@@ -437,7 +437,7 @@ function App:drawEntity(e)
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
             g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
         end
-        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
+        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or ((self.content.buildings[e.kind] or {}).label or e.kind):upper(),x+4,y+h-18*z)
     elseif e.category=='node' then
         -- A crystal for what workers pick (gold, substrate), a vent for a charge geyser, a tree
         -- for anything else. Drawn, not sprited: the art hooks these kinds by resource.

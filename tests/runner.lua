@@ -37,6 +37,12 @@ test('balance','new-profile mirror match',function() require('tests.balance_scen
 test('balance','new-profile asymmetric match',function() require('tests.balance_scenarios').match(false) end)
 test('balance','new-profile active performance',function() require('tests.balance_scenarios').performance() end)
 test('unit','filtered cosmetic feedback',function() require('tests.feedback').run() end)
+test('unit','every shipping faction has its own interface theme, and a stranger gets the default',function()
+    local Theme=require('src.ui.theme');local C=require('src.content')
+    for id in pairs(C.factions) do assert(Theme.factions[id],'the faction '..id..' has no interface theme') end
+    assert(Theme.of('orders')~=Theme.of('megacorp') and Theme.of('bastion')==Theme.default)
+    for key in pairs(Theme.default) do assert(Theme.of('orders')[key]~=nil and Theme.of('megacorp')[key]~=nil,'a theme is missing '..key) end
+end)
 test('unit','game juice: bounded reactions, and every simulation event answered',function() require('tests.juice').run() end)
 test('unit','PRNG golden sequence and seed bounds',function()
     local r=Rng.create(1)

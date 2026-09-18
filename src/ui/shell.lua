@@ -37,14 +37,17 @@ end
 function S:draw()
  if self.screen=='match' then return self.match:draw() end
  local g=love.graphics;local scale=self.settings.scale/100;local width,height=g.getDimensions();local w,h=width/scale,height/scale
- g.clear(.035,.058,.075);g.push('all');g.scale(scale);g.setFont(self.fonts.small);self.widgets:begin(scale);self.widgets.context=self.screen
+ -- The menus wear the chosen faction's look, so picking a side on the skirmish screen shows it.
+ local theme=require('src.ui.theme').of(self.faction);self.widgets.theme=theme
+ g.clear(theme.backdrop[1],theme.backdrop[2],theme.backdrop[3]);g.push('all');g.scale(scale);g.setFont(self.fonts.small);self.widgets:begin(scale);self.widgets.context=self.screen
  local x,y=w/2-230,math.max(105,h/2-210)
- g.setColor(.13,.2,.22);g.polygon('fill',0,h,w*.48,h*.1,w,h);g.setColor(.045,.07,.09,.92);g.rectangle('fill',x-30,y-30,520,490,8)
- g.setFont(self.fonts.title);g.setColor(.91,.83,.59);g.printf('LoveRTS',0,32,w,'center');g.setFont(self.fonts.small)
+ g.setColor(theme.shape[1],theme.shape[2],theme.shape[3]);g.polygon('fill',0,h,w*.48,h*.1,w,h);g.setColor(theme.card[1],theme.card[2],theme.card[3],.92);g.rectangle('fill',x-30,y-30,520,490,theme.radius*2)
+ g.setColor(theme.line[1],theme.line[2],theme.line[3],.6);g.rectangle('line',x-30,y-30,520,490,theme.radius*2)
+ g.setFont(self.fonts.title);g.setColor(theme.accent[1],theme.accent[2],theme.accent[3]);g.printf('LoveRTS',0,32,w,'center');g.setFont(self.fonts.small)
  local function button(id,label,row,fn,reason,tip) self.widgets:button(id,label,x,y+row*48,460,38,fn,reason,tip) end
- local function label(t,yy) g.setColor(.8,.85,.82);g.printf(t,x,yy,460) end
+ local function label(t,yy) g.setColor(theme.text[1],theme.text[2],theme.text[3]);g.printf(t,x,yy,460) end
  if self.screen=='main' then
-  label('Small armies. Distinct factions. Every order matters.',y)
+  label(require('src.ui.theme').default.motto,y)
   for i,item in ipairs({{'Skirmish','skirmish'},{'Multiplayer','multiplayer'},{'Replays','replays'},{'Settings','settings'},{'Quit','quit'}}) do
    button(item[2],item[1],i,function() if item[2]=='quit' then love.event.quit() else self.screen=item[2];self.message='';if self.screen=='replays' then self:replays() end end end)
   end

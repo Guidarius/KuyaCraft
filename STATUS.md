@@ -1992,3 +1992,27 @@ watched it in motion, which is what feel needs; footfalls and chatter stay hooks
 landing is private to its owner in the simulation, so the enemy gets no impact effect.
 One correction to the previous section: the skirmish screen capture was looked at, its
 first layout overlapped the faction blurb, and the description now sits beside the preview.
+
+## The interface wears its faction, and Play.bat shows the current game
+
+`Play.bat` runs whatever is checked out in the main folder, and that folder was still on a
+pre-pivot branch, so double-clicking it opened the old game. The folder was switched to
+`master` (its local uncommitted files carried over untouched); nothing in `Play.bat` changed.
+
+`src/ui/theme.lua` gives each shipping faction a look, read by the HUD chrome, every button
+and the menus: the Orders in dark oak, brass lines, parchment text and rounded corners; the
+Megacorp in gunmetal, cyan lines, square corners and an orange meter. The menus follow the
+faction chosen on the skirmish screen. A faction with no entry (the fixture's hero
+factions) gets the default, which is the look the interface always had, so the fixture's
+rendered tests are unchanged. The top bar names the faction, and says Supply rather than
+Food. Three things the captures showed were wrong for a faction without workers are fixed:
+the Megacorp's opening hint told it to select a worker, the idle-worker button showed for
+it, and its Command was labelled with the raw id `orbital_command` (buildings without a
+short label now show their content label). The keys in a theme are the hooks panel and
+frame art will hang on; the fills are flat colours, not placeholder art.
+
+Verified on the desk machine: quick (124 passed, with a test that every shipping faction has
+a complete theme and a stranger gets the default), `test-ui.ps1` and `test-presentation.ps1`
+(PASS). Two new captures, `hud-orders` and `hud-megacorp`, draw the shipping content with
+each faction's headquarters selected and assert the simulation is untouched; both were
+looked at. Not done: nobody has played with it.

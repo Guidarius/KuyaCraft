@@ -7,12 +7,15 @@ function W:button(id,label,x,y,w,h,action,reason,tip,icon,details)
  local over=mx>=x and mx<x+w and my>=y and my<y+h
  local item={id=id,x=x,y=y,w=w,h=h,action=action,reason=reason,label=label,tip=tip,details=details,anchor=self.anchor};self.items[#self.items+1]=item
  if over then self.hover=item end
- g.setColor(reason and .1 or over and .22 or .12,reason and .13 or over and .27 or .17,reason and .14 or over and .27 or .19);g.rectangle('fill',x,y,w,h,4)
- g.setColor(.47,.41,.27,reason and .35 or .8);g.rectangle('line',x,y,w,h,4)
+ -- The faction's look (src/ui/theme.lua), set by whoever is drawing; the default otherwise.
+ local theme=self.theme or require('src.ui.theme').default;local radius=theme.radius
+ local fill=reason and theme.buttonOff or over and theme.buttonHover or theme.button
+ g.setColor(fill[1],fill[2],fill[3]);g.rectangle('fill',x,y,w,h,radius)
+ g.setColor(theme.buttonLine[1],theme.buttonLine[2],theme.buttonLine[3],reason and .35 or .8);g.rectangle('line',x,y,w,h,radius)
  local costs=details and details.costs or {};local hasCosts=#costs>0
  local flash=self.notice and self.notice.action==id and (self.clock or 0)-self.notice.time<.45
- if flash then g.setColor(self.notice.kind=='rejected' and 1 or .65,self.notice.kind=='rejected' and .3 or .88,.35,.8);g.rectangle('line',x+1,y+1,w-2,h-2,4) end
- g.setColor(reason and .46 or .91,reason and .49 or .88,reason and .49 or .76)
+ if flash then g.setColor(self.notice.kind=='rejected' and 1 or .65,self.notice.kind=='rejected' and .3 or .88,.35,.8);g.rectangle('line',x+1,y+1,w-2,h-2,radius) end
+ if reason then g.setColor(.46,.49,.49) else g.setColor(theme.buttonText[1],theme.buttonText[2],theme.buttonText[3]) end
  if icon then require('src.ui.icons').draw(icon,x+3,y+2,10,reason~=nil) end
  if details and details.badge then g.print(details.badge,x+15,y+1) end
  if details and details.key~='' then g.printf(details.key:upper(),x+15,y+1,w-19,'right') end
