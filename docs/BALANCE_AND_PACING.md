@@ -1,273 +1,205 @@
 # LoveRTS — Balance, scale and match pacing
 
-> **Superseded at simulation version 22.** The `marches-v1` profile below (heroes, one
-> resource, the extractor economy, camps and control points) is no longer shipped; the
-> Brood War style pivot replaced it with the Orders, whose numbers and measurements are in
-> [FACTIONS.md](FACTIONS.md). The coordinate, camera and route sections still describe the
-> map and the engine. The pacing report and its rails (`tests/balance_scenarios.lua`) now
-> run the Orders mirror on the field layout.
+Profile: `orders-v1`, content version 14, simulation version 26. The Brood War style
+pivot's numbers: two resources, two asymmetric factions, supply from buildings, no heroes.
+The unit and building statistics themselves are in [FACTIONS.md](FACTIONS.md), which is
+the one place they are written down outside `src/content.lua`; this document is about
+scale, the map, the economy's shape, the pacing targets and what has been measured against
+them. Match duration is a playtest target, not a timer that forces an outcome.
 
-Profile: `marches-v1`, content version 4, simulation version 8. These are LoveRTS starting values inspired by Warcraft-style pacing, not a transcription of Blizzard's unit database. Match duration is a playtest target, not a timer that forces an outcome.
+The pre-pivot `marches-v1` profile (heroes, one resource, the extractor economy, camps and
+control points) is retired to `tests/fixture_content.lua`; its economy write-up survives
+in [RESOURCE_FLOW.md](RESOURCE_FLOW.md) under a superseded banner.
 
 ## Intent and rules
 
-- Target 15–25-minute 1v1 matches with a developed army of one hero and roughly 15–25 combat units, plus 12–18 workers. Measured against this on every balance run: see `artifacts/balance-pacing-mirror.txt` and `-asymmetric.txt`, written by `scripts/test.ps1 -Suite balance`. Both currently finish in 9–11 minutes, and the report shows why that number is misleading — the matches are decided around five minutes and spend the rest of their length finishing.
-- Start with a completed headquarters, hero, three workers and 650 gold. No initial combat troops. Workers are engineers only; nothing harvests.
-- One headquarters advancement unlocks the faction's support and heavy units. Worker production continues during research.
-- Fixed 80 food, weighted by unit role. No supply buildings, upkeep, inventory, recall, or armor/damage-type matrix.
-- Protect units, retreat on foot, recover at the base, and contest camps and expansion mines.
-- Destroy the headquarters to win. An outpost does not replace it for victory, recruitment or revival.
+- Target 15–25-minute 1v1 matches. The Orders develop 16–24 workers and an army of 20–40
+  supply; the Megacorp has no workers and spends the same minutes on rigs, relays and pods.
+  Measured on every balance run: see `artifacts/balance-pacing-mirror.txt` (Orders mirror)
+  and `-asymmetric.txt` (Orders vs Megacorp), written by `scripts/test.ps1 -Suite balance`.
+- **Substrate** (minerals) and **charge** (gas). The Orders start with a Keep, four
+  Workers and 400 substrate; the Megacorp with an Orbital Command, a Command Blimp and 400
+  substrate. Nothing starts with charge.
+- Supply is the sum of completed buildings' `supply`, capped at 200: Keep and Orbital
+  Command 10, Supply Depot 8, Substrate Rig 4. Recruitment reserves supply and resources on
+  acceptance; loaded and in-flight pod troops count.
+- The Orders lose when no Keep stands or is under construction; the Megacorp loses when its
+  starting Orbital Command dies. There is no second way to win.
+- Cancellation refunds 75%; an unstarted queue item refunds all of it. Sites start at 10%
+  health and gain it with progress.
+- No heroes, experience, neutral camps, control points, upkeep, inventory or damage-type
+  matrix. Armor is flat: `max(1, damage − armor)` per hit.
 
 ## Coordinates, unit sizes and camera
 
-Simulation remains 20 ticks/second and 256 integer subunits/cell. `src/content_time.lua` converts author-facing seconds and cells into exact tick/subunit values, rejecting unsupported fractions. Authoritative state contains integers; UI conversion to seconds does not affect gameplay.
+Simulation remains 20 ticks/second and 256 integer subunits/cell. `src/content_time.lua`
+converts author-facing seconds and cells into exact tick/subunit values, rejecting
+unsupported fractions. Authoritative state contains integers; UI conversion to seconds does
+not affect gameplay. Reference speeds convert at ×0.4 (world units per second to subunits
+per tick), so a Footman walks 40 subunits a tick, 3.125 cells a second.
 
 | Body | Radius in subunits | Diameter in cells |
 |---|---:|---:|
-| Worker | 72 | 0.5625 |
-| Ordinary combat unit | 80 | 0.625 |
-| Hero | 96 | 0.75 |
-| Heavy/ram/camp leader | 112 | 0.875 |
+| Worker, Associate, Medic, Reliquary, Crossbow | 72–80 | 0.56–0.625 |
+| Footman, Gryphon Knight | 80 | 0.625 |
+| Enforcer, Command Blimp | 96 | 0.75 |
+| Battleship | 112 | 0.875 |
 
-Collision uses the existing circle-clearance and deterministic crowd system. Allied spacing retains that system's existing reduced separation; hostile bodies use full radii. Weapon ranges below are **edge-to-edge**, including target building footprints. Short melee ranges require subcell contact destinations, not only navigation-cell centers. These contact coordinates are part of the saved path and use ordinary collision-checked movement.
+Collision uses the circle-clearance crowd system for ground units; flyers occupy no ground
+and block nothing. Weapon ranges are **edge-to-edge**, and a building's reach is measured
+from the edge of its footprint nearest the target. Melee ranges are a quarter cell past the
+bodies and need subcell contact destinations, which are part of the saved path.
 
-The default camera shows 24 cells vertically in the unobscured battlefield, independently of window height and UI scale. Zoom is 80–135% of that baseline. Horizontal coverage follows aspect ratio. Camera orientation remains fixed. Sprites, footprints, picking, terrain and selection all share the effective world zoom; HUD scaling remains independent.
-
-At 1080p/100% UI, the ordinary sprite body target is about 51 pixels, workers about 42 pixels and heroes about 61 pixels. Metadata body heights calibrate this; weapons, hats and animation silhouettes can extend beyond the body. Selected buildings display their footprint. Buildings and mines are picked by their projected extent, not a large circle around one corner.
+The default camera shows 24 cells vertically, independently of window height and UI
+scale. Zoom is 80–135% of that baseline. At 1080p/100% UI the ordinary sprite body is
+about 51 pixels and workers about 42. Selected buildings display their footprint;
+buildings and nodes are picked by their projected extent.
 
 ## Twin Marches
 
-Default skirmish map: **192×192 cells**, 1v1, with 180-degree paired terrain, resources, camps, roads and starting units. It replaced the first 128×112 layout at simulation version 11 to give Warcraft 3-scale distances. Legacy `river_pass`, `open_fields` and `movement_lab` remain available as smaller scenarios. 256×256 is the largest map the simulation accepts; the collision bins, lane cache, bounded distance helper and path keys all assume it.
+Default skirmish map: **192×192 cells**, 1v1, 180-degree paired terrain, resource fields,
+roads and starting units. Authored for player one in `tools/tiled/twin_marches_legacy.lua`;
+`tools/tiled/generate/main.lua` writes both `maps/twin_marches.tmx` and the Lua export
+`src/maps/twin_marches_tiled.lua`. 256×256 is the largest map the simulation accepts.
 
 | Feature | First side | Opposite side |
 |---|---|---|
-| HQ footprint origin | (20,20), 5×5 | (167,167), 5×5 |
-| Hero rally cell | (28,18) | (163,173) |
-| Home mine origin | (21,10), 12,000 gold | (168,179) |
-| Natural mine origin / outpost anchor | (58,14) / (50,28) | (131,175) / (141,163) |
-| Forward mine origin / anchor | (54,74) / (66,70) | (135,115) / (125,121) |
-| Contested corner mine | (174,14) north-east | (15,175) south-west |
-| Easy camps | (48,31), (66,80) | rotated counterparts |
-| Medium camps | (110,26) north corridor, (25,118) west corridor | rotated counterparts |
-| Hard camps | (166,32) guarding a corner, (88,100) in the center | rotated counterparts |
+| HQ footprint origin | (20,20), Keep 4×4 / Command 4×4 | (167,167) |
+| Main field | seven 1×1 substrate patches of 1500 in an arc north of the keep: (18,16) (19,14) (21,13) (23,13) (25,13) (27,14) (28,16); 2×2 charge geyser of 5000 at (30,18) | rotated |
+| Natural field / anchor | six patches of 1000 at (57,24) (59,25) (60,27) (60,29) (60,31) (59,33); geyser 3500 at (56,34); bot anchor (50,28) | rotated / (141,163) |
+| Forward field / anchor | four patches of 800 at (61,68) (60,70) (60,72) (61,74); geyser 3000 at (57,71); anchor (66,70) | rotated / (125,121) |
+| Contested corner field / anchor | four patches of 800 at (172,18) (174,17) (176,18) (177,20); geyser 3000 at (178,23); anchor (168,24) north-east | (23,167) south-west |
 
-Footprint origins rotate as `(width-x-size, height-y-size)`; unit cells rotate as `(width-1-x, height-1-y)`. Approximate area anchors are not footprint origins. Using this distinction prevents one-cell symmetry errors for odd and even footprints.
+Footprint origins rotate as `(width−x−size, height−y−size)`; unit and patch cells rotate
+as `(width−1−x, height−1−y)`. In all, 42 substrate patches and 8 charge geysers. There are
+no neutral camps and no control points; the generator's helpers for both remain for a map
+that wants them.
 
-The layout is a base clearing, a natural to its east, a forward expansion on the main diagonal, a large central clearing, and two long outer corridors to the corners. The two triangles between the diagonal and the outer corridors are open fields broken up by forest clumps, each holding a control point; about 60% of the map is walkable. Each corner is nearer one player — the north-east is reached along the north corridor from player one's natural, the south-west from player one's forward expansion — and the rotation makes that fair.
+The layout is a base clearing, a natural to its east, a forward expansion on the main
+diagonal, a large central clearing, and two long outer corridors to the corners. The two
+triangles between the diagonal and the outer corridors are open fields broken up by forest
+clumps; about 60% of the map is walkable. Each corner is nearer one player, and the
+rotation makes that fair.
 
 ### Roads
 
-Roads are a map layer, `map.unbuildable`: walkable, three cells wide, and **nobody may build on them**. They run home mine to headquarters, headquarters to natural to corner, headquarters to forward mine to the other corner, and forward mine to the center, where they meet the other player's. Mines and headquarters are the junctions, so every gold mine is joined to every other and to both headquarters. The purpose is that no wall of buildings, yours or an enemy's, can cut a mine off from the bases.
+Roads are a map layer, `map.unbuildable`: walkable, three cells wide, and **nobody may
+build on them**. They run from the main field to the headquarters, headquarters to natural
+to corner, headquarters to forward field to the other corner, and forward field to the
+centre, where they meet the other player's. Fields and headquarters are unpaved
+junctions, so a Keep, a Rig or a Depot goes where it belongs and no wall of buildings can
+cut a field off from the bases. `Sim.placement` refuses a road cell with *Cannot build on a
+road*, and the build and land commands revalidate through it.
 
-`Sim.placement` refuses a road cell with *Cannot build on a road*, and the build command revalidates through it, so the rule is authoritative rather than cosmetic. An extractor still goes on its own mine where a road ends. Roads change nothing about movement speed or sight. A regression test floods the road network from one headquarters and requires it to reach every mine and the other headquarters.
-
-### Control points
-
-A second way to win. Twin Marches has two control points, at (128,62) in the north-east field and its rotation (63,129) in the south-west, so each is nearer one player. The rules live in `rules.control` and `src/sim/control.lua`:
-
-| Rule | Value |
-|---|---|
-| Capture circle | 4 cells from the point's centre, paved so nothing can be built in it |
-| Capture | 10 s with your units inside and no other player's |
-| Contested | any other player's unit inside freezes progress |
-| Someone else's partial capture | unwinds at the same rate before yours begins |
-| Empty point with partial progress | fades at half rate |
-| Ownership | kept after your units leave, until another player captures it |
-| Win | own every point for 120 s without a break |
-
-Any player unit counts, workers and heroes included; carriers, projectiles and neutral camps do not. Losing either point cancels the countdown, and a new hold starts it again from zero. Destroying the last enemy headquarters still wins, and is decided first on a tick where both would. Ownership and the countdown are public: both players see the rings, the minimap markers and a countdown banner, and alerts announce captures and a hold. The bot sends its army to retake the nearest point when the enemy holds both, second only to defending its base; it does not yet try to win this way itself.
-
-Measured infantry routes use the actual pathfinder with speed 35, per-segment integer movement rounding, and no crowd delays. Strategic targets are the 128×112 targets scaled by 1.5 with the map width; the local approaches keep theirs:
+Measured infantry routes use the actual pathfinder at Footman speed 40, per-segment
+integer movement rounding, and no crowd delays (`artifacts/balance-routes.txt`, printed by
+the balance suite; the labels still name the pre-pivot approach points):
 
 | Route | Measurement | Target |
 |---|---:|---:|
-| Rally to enemy rally | 76.30 s | 60–83 s |
-| Center to rally | 38.65 s | 30–42 s |
-| Via the south-west corner (22,160) | 109.70 s, +43.8% | reported only: a detour, not a flank |
-| Natural approach at (54,26) | 9.95 s | 10–15 s |
-| First easy camp at (48,29) | 8.35 s | 8–12 s |
+| Rally (28,18) to enemy rally (163,173) | 67.00 s | 60–83 s |
+| Center to rally | 33.80 s | 30–42 s |
+| Via the south-west corner (22,160) | 96.35 s, +43.8% | reported only: a detour, not a flank |
+| Natural approach (54,26) | 9.10 s | 10–15 s |
+| Old easy-camp point (48,29) | 7.50 s | 8–12 s |
 
-The first layout measured 46.05 s rally to rally, 23.30 s center to rally, 7.25 s to the natural and 6.00 s to the first easy camp. `artifacts/balance-routes.txt` is the regenerated source of measurements.
+The two short approaches fall under their targets because the Footman is faster than the
+Shieldguard the targets were set for; the targets have not been moved.
 
-## Economy and food
+## Economy and supply
 
-**Superseded from simulation version 8.** Workers no longer harvest and lumber no longer
-exists. The economy is extractors and carriers, and its design, arithmetic and measured
-rates live in [RESOURCE_FLOW.md](RESOURCE_FLOW.md). The summary:
+**The Orders harvest.** One worker loads at a patch at a time; a second one hops to a free
+patch of the same resource within 6 cells or waits. A load is 8, taking 40 ticks at a
+substrate patch and 60 at a charge geyser, walked home to the nearest completed Keep.
+Measured on the balance fixture (`tests/balance.lua`, printed on every run):
 
-| Rule | Value |
-|---|---|
-| Starting stockpile | 650 gold |
-| Starting workers | 3 |
-| Carrier payload | 8 gold |
-| Emission interval | 16 ticks (0.8 s) |
-| Deliveries in flight per extractor | 9 |
-| Carrier speed / HP / food | 40 subunits per tick / 40 / none |
-| Carrier corpse before the slot recycles | 40 ticks |
-| Starting mine | 12,000 gold |
-| Each expansion mine | 9,000 gold |
-| Forests | terrain, not a resource; they block movement and sight |
-
-Measured: a near mine pays **600 gold/minute**, a far one **344**, and an outpost beside
-the far one restores it to **600**. The two scenarios that measure this are in
-`tests/balance.lua` and print `BALANCE gold/min:` on every balance run.
-
-Carriers deliver to the nearest living friendly drop-off — the headquarters or a completed
-outpost — chosen by squared distance with the entity id breaking ties. One cached A* route
-per extractor is shared by every carrier it emits and is recomputed when the obstruction
-set or the destination changes; no carrier ever calls the pathfinder. Carriers are their
-own entity category: not selectable, not in the collision bins, no crowd resolution, no
-food and no orders. They are ordinary combat targets, and a carrier that dies destroys its
-gold rather than handing it over.
-
-| Unit role | Food |
+| Measurement | Value |
 |---|---:|
-| Worker | 1 |
-| Hero | 5, reserved while dead or reviving |
-| Basic melee | 2 |
-| Ranged | 3 |
-| Support | 2 |
-| Heavy | 4 |
+| One worker on a patch four cells from the keep | about 136 substrate a minute |
+| The same worker on a geyser | about 104 charge a minute |
+| Two workers on that one patch | about 240 a minute, not 272: the patch is exclusive |
+| A depot alone / two builders / four | 499 / 332 / 235 ticks |
 
-Recruitment reserves food and resources on acceptance. Cancelled recruitment releases food; unit death releases food except the hero's reservation. The HUD displays **Food / 80** and actual living **Units** separately.
+Co-construction pays 100, 150, 185, 210, 225, 235 percent of a builder's rate for one to
+six builders at the site. The 42 patches and 8 geysers hold 45,800 substrate and 29,000
+charge in all; the mirror match leaves 28 patches untouched, so the map is not what ends a
+match.
 
-## Buildings and technology
+**The Megacorp mines.** A Substrate Rig lands on a patch and pays 85 a minute while its
+cell is inside relay coverage, 36 outside; a Charge Rig on a geyser pays 100 and 42. The
+rate accumulates in 1/1200ths a tick and whole units are credited, draining the node by
+the same amount. Buildings arrive from orbit through the call-down queue and troops by drop
+pod; both are in FACTIONS.md.
 
-Costs below fold the old lumber price into gold one for one, so relative prices are
-unchanged from the two-resource profile.
-
-| Building/action | Gold | Seconds | Ticks | HP | Footprint |
-|---|---:|---:|---:|---:|---|
-| Initial HQ | free | complete | — | 2,800 | 5×5 |
-| Extractor | 120 | 30 | 600 | 900 | 3×3, on a mine |
-| War hall | 220 | 60 | 1,200 | 1,500 | 4×4 |
-| Outpost | 530 | 90 | 1,800 | 1,400 | 4×4 |
-| Watchtower | 220 | 45 | 900 | 700 | 2×2 |
-| HQ advancement | 600 | 100 | 2,000 | unchanged | unchanged |
-| Gold mine | — | — | — | resource | 3×3 |
-
-One worker builds a site; no multi-worker acceleration. Construction time begins while the assigned worker is in work range. A site reserves its entire footprint immediately, starts at 10% health capacity, and gains capacity with progress. Damage persists through construction; finishing does not heal away damage already taken. Work stops whenever no worker is assigned — the builder died, took another order, or was replaced — and the site says so once (`build_stalled`, raised as an alert); progress and damage are kept. Right-clicking a stopped site with a worker resumes it from where it stopped, and sending a second worker to a site takes it over and releases the first, which becomes idle rather than standing on a job it no longer has. The bot sends its nearest free worker back to a stopped site before starting anything new.
-
-Construction cancellation refunds 50%. An unstarted production item refunds 100%; an item already training refunds 50%. HQ advancement uses a separate timer, grants one permanent player flag on completion, and refunds 50% on cancellation. Losing a researching HQ ends that player's participation. All war halls check the same completed advancement flag.
-
-| Defender | Damage | Impact period | Windup | Edge range |
-|---|---:|---:|---:|---:|
-| HQ | 30 | 1.5 s | 0.3 s | 8 cells |
-| Watchtower | 26 | 1.6 s | 0.3 s | 7.5 cells |
-
-HQ recovery heals up to three injured friendly units for 10 HP each per second within six cells of its center, after eight seconds without dealing or receiving damage. Support healing takes precedence on that pulse; the same target cannot also receive HQ recovery. No building healing.
-
-## Recruitable units and heroes
-
-All times include the complete production duration. Period means consecutive committed impacts; windup is part of the attack cycle, never added again to its steady cadence. Movement before impact cancels the hit. Movement after impact cannot erase the committed recovery deadline.
-
-| Unit | Gold | Food | Train s | HP | Damage | Period s | Windup s | Edge range cells | Speed subunits/tick | Cells/s |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Worker | 75 | 1 | 15 | 220 | 5 | 2.0 | .30 | .25 | 30 | 2.344 |
-| Shieldguard | 135 | 2 | 20 | 420 | 14 | 1.4 | .30 | .25 | 35 | 2.734 |
-| Crossbow | 220 | 3 | 26 | 320 | 22 | 1.6 | .35 | 5 | 35 | 2.734 |
-| Standard bearer* | 195 | 2 | 28 | 300 | 8 | 1.8 | .30 | 4 | 35 | 2.734 |
-| Ram* | 380 | 4 | 40 | 900 | 60 | 2.5 | .50 | .5 | 26 | 2.031 |
-| Stalker | 130 | 2 | 20 | 340 | 13 | 1.25 | .25 | .25 | 40 | 3.125 |
-| Thorn thrower | 210 | 3 | 25 | 280 | 19 | 1.45 | .30 | 4.5 | 37 | 2.891 |
-| Grove sprite* | 190 | 2 | 28 | 250 | 7 | 1.6 | .25 | 4 | 39 | 3.047 |
-| Heavy beast* | 350 | 4 | 36 | 760 | 34 | 1.7 | .40 | .375 | 35 | 2.734 |
-| Warden | initial hero | 5 | — | 1,000 | 30 | 1.5 | .30 | .25 | 42 | 3.281 |
-| Beastkeeper | initial hero | 5 | — | 900 | 27 | 1.35 | .25 | .25 | 44 | 3.438 |
-
-`*` requires HQ advancement. Ordinary sight is 12 cells, workers/ram 10, heroes/HQ 14, other buildings 12.
-
-Standard bearers heal one injured ally for 12 HP/second within five cells; sprites heal one for 10 HP/second within four. Lowest current/max HP fraction wins, then entity ID. Multiple healers choose different recipients on a pulse. Healing excludes buildings. This avoids the old unlimited stacking group heal.
-
-The isolated shieldguard duel without auras or healing measures **41 seconds**. Focus fire, positioning, heroes and healing change survival substantially; solo TTK is a calibration fixture, not a promised duration for battles.
-
-## Heroes, experience and camps
-
-Warden: six-cell protection aura, reducing each incoming hit by three in defensive stance or one in offensive stance. Offensive stance adds four damage.
-
-Beastkeeper: eight HP/second personal recovery after eight seconds out of combat. Pursuit stance adds four speed subunits/tick and subtracts four damage.
-
-| Earned XP | Warden alternatives | Beastkeeper alternatives |
-|---:|---|---|
-| 180 | Aura radius 6→8 cells **or** +2 reduction | Personal recovery 8→14 HP/s **or** +4 speed for 2 seconds when entering combat after recovery |
-| 500 | +6 damage **or** +240 max/current HP | +6 damage **or** +200 max/current HP |
-| 1,000 | Attack period −0.2 s **or** aura radius +2 cells | Attack period −0.2 s **or** nearby allies recover 4 HP/s out of combat |
-
-Choices remain pending, are committed by commands, and are mutually exclusive in milestone order. No respec. Death retains XP and choices.
-
-Revival costs 175 gold and takes 45 seconds, plus 25 gold and five seconds for every **earned** milestone, chosen or pending. Three earned milestones therefore cost 250 gold / 60 seconds. The hero's five food stays reserved.
-
-Hostile combat unit deaths grant 20 XP/food; hostile heroes grant 150. Workers/buildings grant none. The killer's living hero must be within ten cells. Camp rewards use the explicit table below instead. Reward ownership is deterministic; simultaneous damage still resolves before deaths.
-
-| Camp | Members | Member HP / damage / period | Total gold | Total XP |
-|---|---|---|---:|---:|
-| Easy | 2 scouts | 180 / 7 / 1.8 s | 40 | 60 |
-| Medium | 3 guards | 360 / 12 / 1.6 s | 90 | 150 |
-| Hard | leader + 2 guards | leader 700 / 24 / 1.8 s | 160 | 220 |
-
-Scouts/guards move at 30 subunits/tick; leaders at 28. All use .25-cell melee range. Guards/scouts have radius 80; leaders 112. Camps acquire within six cells, leash at ten from home, stop attacking when returning, and recover full HP only after three uninterrupted seconds home without receiving damage. No respawn or items; each dead creature pays its own bounty once.
-
-Each side has two easy camps, one route medium and one natural medium. Two hard camps occupy central areas. Contested mines have no dedicated guard camp. Hero plus two shieldguards can clear the isolated easy-camp regression without losses. Hard-camp approach quality and army requirements remain playtest questions.
+| Unit | Supply |
+|---|---:|
+| Worker, Associate, Medic | 1 |
+| Footman, Crossbow, Reliquary | 2 |
+| Gryphon Knight, Enforcer | 3 |
+| Battleship | 6 |
+| Command Blimp | 0 |
 
 ## Desired timeline and bot behavior
 
-| Event | Target elapsed match time |
-|---|---|
-| First completed war hall | 1:00–1:15 |
-| First combat unit | 1:20–1:35 |
-| Hero + 2–3 units begin camps | 1:45–2:45 |
-| Meaningful player conflict | 3:00–5:00 |
-| Start HQ advancement | 4:00–6:00 |
-| Establish natural expansion | 6:00–9:00 |
-| Developed army | 10:00–15:00 |
-| Match conclusion | 15:00–25:00 |
+Targets, and what the two bot matches on one seed measured at content 14. The measurement
+is the shape of a match, not balance between the factions.
 
-XP milestone targets are 3–5, 7–11 and 12–18 minutes. They are not automatically granted by time.
+| Event | Target | Orders mirror | Orders vs Megacorp |
+|---|---|---:|---:|
+| First Barracks | 0:45–1:15 | 0:47 | 0:47 (Megacorp barracks lands 1:30) |
+| First combat unit | 1:10–1:35 | 1:10 | 1:10 |
+| First contact | 3:00–5:00 | 3:46 | 3:38 |
+| First Gryphon Knight | 4:00–6:00 | 4:34 | 4:34 |
+| Second Keep | 6:00–9:00 | 6:59 | 12:08 |
+| Peak army | 10:00–15:00 | 10:54 / 7:25 | 19:20 / 12:54 |
+| Match end | 15:00–25:00 | 12:23, player 1 by headquarters | 22:45, Orders by headquarters |
+| Peak food | — | 92 / 52 of caps 100 / 24 | 74 / 34 of caps 84 / 24 |
 
-Bots read filtered views and public coordinates. They build production, keep four to six workers, put an extractor on every gold mine they can see within reach of a drop-off, save for advancement and an outpost, and recruit a mixture of unlocked roles. A production-count pattern prevents a time-based rotation from repeatedly skipping expensive ranged troops. They clear visible camps, scout public positions, pressure opponents and retreat damaged units for base recovery. Bots are a reproducible smoke/playability workload, not a substitute for human balance testing.
+The mirror finishes 2.6 minutes short of the floor; the asymmetric match is inside the
+window but the Megacorp bot has not yet won one. Neither number has been tuned: balance
+is the user's, and these are the figures to tune from.
+
+The Orders bot sends idle workers to the patch with the fewest assigned, grows to 16 then
+24 workers, raises a Depot before the cap, a Barracks at 150 substrate, a second Barracks
+later, a Keep at the natural, a Sanctum after two halls, alternates Footmen and Crossbows,
+adds Gryphon Knights once charge flows and two Reliquaries, and attacks at 12 army supply.
+The Megacorp bot requisitions Rigs on covered patches, a Barracks, a Charge Rig, an Office,
+a Relay toward the natural, a Med Bay, an Armory and a Bunker; lands what is ready; fills
+and launches pods at the natural; walks the Blimp forward; casts the barrage at flyers in
+reach; and sorties with two Battleships or 12 troop supply. Bots read filtered views and
+public coordinates and are a reproducible smoke workload, not a substitute for human
+balance testing.
 
 ## Verification and iteration
 
-Run from the repository in PowerShell:
+Run from the repository in PowerShell, always with `-PerfBudget 40` on the desk machine:
 
 ```powershell
 .\scripts\run.ps1 -Map twin_marches
-.\scripts\test.ps1
-.\scripts\test.ps1 -Suite balance
+.\scripts\test.ps1 -Suite quick -PerfBudget 40
+.\scripts\test.ps1 -Suite balance -PerfBudget 40
 .\scripts\test-ui.ps1
 ```
 
-`tests/fixture_content.lua` and `tests/fixture_bot.lua` preserve the previous short prototype workload for established movement/mechanics regressions. Playable content is always `src/content.lua`. These frozen fixtures do not certify the new pacing profile; the dedicated balance tests do that. No golden replay was silently regenerated.
+`tests/fixture_content.lua` and `tests/fixture_bot.lua` keep the pre-pivot workload for
+the movement and mechanics regressions and for the rendered suite, which plays that
+fixture. Playable content is always `src/content.lua`; the dedicated balance tests
+certify it, the fixtures do not. No golden replay was silently regenerated.
 
-New regressions exercise exact conversions, opening food, mine saturation, snapshot continuation while hauling/researching/building, construction health, tech gating, cancellation, dead-hero reservation, earned revival cost, nonstacking support healing, drop-off loss, forest succession, camp rewards/reset, melee contact, and sight equivalence. The larger-map scenario suite writes route reports, two bot-match replays/state dumps, and active simulation timing.
+The balance suite's rails (`tests/balance_scenarios.lua`): Barracks between 20 and 180 s,
+first contact between 60 and 900 s, peak supply at least 20, for both the mirror and the
+asymmetric match. The scenario files that pin the mechanics are `tests/harvest_scenarios`,
+`orders` via `tests/balance.lua`, `air_scenarios`, `megacorp_scenarios`, `pod_scenarios` and
+`weapon_scenarios`.
 
-`src/build.lua` fingerprints the new content conversion helper, map modules and all simulation modules. Old content/simulation/source combinations are rejected by replay and multiplayer compatibility checks.
+Tune in this order: income and worker travel; production and requirement affordability;
+map routes; unit survival and focus fire; then the Megacorp's coverage and pod timings.
+Change one family at a time, preserve the old report, and compare command/replay
+behaviour. Do not disguise failed acceptance gates by lowering their thresholds or changing
+fixture stats.
 
-Tune in this order: income and worker travel; production and tech affordability; map routes; unit survival and focus fire; then faction modifiers. Change one family at a time, preserve the old report, and compare command/replay behavior. Do not disguise failed acceptance gates by lowering their thresholds or changing fixture stats.
-
-Human acceptance still requires three mirror and three asymmetric matches, measuring camp safety, harassment timing, retreat success, building space, expansion value, unit readability and final match length. Physical Windows DPI checks and matches between two PCs remain separate gates. See `STATUS.md` for tests actually run and measured results; it supersedes aspirational targets here.
-
-
-Reference host for this pass: local Windows development PC, AMD Ryzen 5 5600G, pinned LÖVE 11.5. Headless timing and a rendered 1080p workload are measured separately. Filtered-view copying now uses a validated ordered deep copy rather than a serialization round trip; canonical byte serialization is unchanged. Sight uses integer row-interval coverage, verified against the original circular-cell formula.
-
-## Hero abilities — provisional, unmeasured
-
-From simulation version 10 each hero has two active abilities. They exist to prove the
-four targeting kinds run end to end through shipping content, and their numbers are a
-starting point for playtesting rather than a balanced kit. Nothing in this document's
-measured timings accounts for them: the mirror and asymmetric bot matches do not cast,
-because the bot has no ability behaviour yet.
-
-| Hero | Ability | Kind | Mana | Cooldown | Effect |
-|---|---|---|---:|---:|---|
-| Warden | Bulwark | instant, 6-cell radius | 60 | 24 s | Allies take 4 less damage per hit for 8 s |
-| Warden | Challenge | unit, 5 cells | 45 | 12 s | 60 damage, 35% slow for 4 s |
-| Beastkeeper | Thornfall | area, 8 cells, 2.5 radius | 70 | 20 s | 30 damage, burns 15 a second for 5 s |
-| Beastkeeper | Snare | skill shot, 7 cells | 50 | 16 s | Thrown at 3 cells/s; first enemy takes 35 and is rooted 3 s |
-
-Both heroes have 200 mana and regenerate 1 a second. Tune these only alongside a playtest
-that actually uses them; the isolated duel and gold-rate fixtures cannot see them at all.
-
-Auto-attacks remain instantaneous. The projectile mechanism that would make a crossbow
-bolt travel exists and is used by abilities, but enabling it for ranged attacks changes
-when every ranged trade in the game lands, which is a balance change and not a refactor.
+Human acceptance still requires three mirror and three asymmetric matches, measuring
+harassment timing, retreat success, building space, expansion value, pod landings under
+fire, unit readability and final match length. Physical Windows DPI checks and matches
+between two PCs remain separate gates. See `STATUS.md` for tests actually run and measured
+results; it supersedes aspirational targets here.

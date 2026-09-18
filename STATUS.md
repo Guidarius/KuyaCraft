@@ -1826,3 +1826,60 @@ phase 6, now ends at 22:45 with the Orders winning by headquarters, peak food 74
 34. The Megacorp still does not win against the Orders bot; the numbers are reported, not
 tuned. The fixture matches are unchanged (5353 and 2179). Not done: no PR (`gh` absent), no
 human playtest.
+
+## Pivot phase 8: the documentation sweep
+
+No code. `docs/BALANCE_AND_PACING.md` is rewritten for the `orders-v1` profile: intent and
+rules, the field layout of Twin Marches with every patch and geyser coordinate, the roads
+as they now join fields, the route report as measured at content 14 (the two short
+approaches now fall under targets set for the slower Shieldguard; the targets were not
+moved), the harvesting and rig economies with the fixture's measured rates, and a pacing
+table that puts the targets beside what the two bot matches measured. `docs/FACTIONS.md`
+carries every live number for both factions; `ABILITIES.md`, `COMMAND_CARDS.md`,
+`CONTENT_AUTHORING.md`, `CONTROL_MOVEMENT.md`, `ITERATION_LOOP.md` and the README lose
+their extractor, carrier, gold and hero wording, with the hero and stance controls marked
+as the mechanics fixture's. `RESOURCE_FLOW.md` keeps its superseded banner as the record of
+the retired economy.
+
+### What the eight phases delivered
+
+Simulation version 19 → 26, content 7 → 14, on stacked branches above the unmerged
+`desk/audit-command-fog-fixes`: `desk/faction-schema-v2` → `desk/worker-harvest` →
+`desk/presentation-content` → `desk/orders-content` → `desk/air-layer` →
+`desk/megacorp-coverage` → `desk/megacorp-pods` → `desk/megacorp-weapons` →
+`desk/pivot-docs`. Each was merged into the next; they must be merged into master in that
+order, one at a time, since every one edits `src/sim/init.lua`. No pull requests were
+opened because `gh` is not installed on this machine; the branches are pushed. The Tiled
+`-Mode Check` did not run (Tiled 1.12.2 is absent under `.tools`), so the `.tmx` is the
+generator's output, unverified by Tiled itself. No human has played a match.
+
+### Proposed ROADMAP.md changes (ROADMAP is human-owned; nothing was edited)
+
+> **Confirmed direction, rows to replace:**
+> | Victory | Destroy the enemy headquarters: every Keep for the Orders, the one Orbital Command for the Megacorp |
+> | Map activities | Harvesting and rig mining on shared fields, expansion, relay coverage, and attacking enemy bases |
+> | Economy | Substrate (minerals) and charge (gas); workers harvest for the Orders, rigs mine for the Megacorp |
+> | Construction | The Orders place grid-snapped buildings anywhere legal and several workers may build one; the Megacorp lands buildings from a call-down queue inside relay coverage |
+> | Heroes | None in the shipping factions; the hero, experience and upgrade systems remain in the simulation, content-gated, for a faction that wants them |
+> | Hero progression | (remove) |
+> | Ability emphasis | Few abilities, each a unit's signature (target stacks, the barrage); no universal ability language |
+> | Content sequence | The Orders in mirror matches, then the Megacorp as a mechanically different second faction — done; a third faction only after human playtests of these two |
+>
+> **Recommended working defaults, rows to replace:**
+> - Ground and air layers: flyers route straight, block nothing and are hit only by anti-air weapons.
+> - Headquarters: the Orders may build more Keeps and lose only when none stands; the Megacorp's Orbital Command is unique.
+> - (remove the two hero bullets)
+> - Fixed maps with resource fields; no neutral camps or control points in the shipping map (both stay available to a map that wants them).
+> - Supply comes from buildings, capped at 200; the fixed 80 cap is gone.
+>
+> **Milestone table:** 3 "Mirror match" reads "Workers, resources, building, recruitment, combat, bot, victory" without the hero kit; 6 "Second faction" is met by the Megacorp (coverage, orbital logistics, pods, garrisons, stacks, barrage).
+>
+> **Section 4, Provisional factions:** replace the Bastion/Wild table with a pointer to docs/FACTIONS.md.
+
+### Later (from the reference, designed and not live)
+
+Footman cohesion aura; Crossbow line shot; Gryphon fly/land toggle and Charge; Reliquary
+recall and ranged shield; Keep tiers, House branches and rubble; killable building
+upgrades; a Fletchery; Franchises and livery; office staffing research; Battleship repair
+at the Command; Enforcer area damage; a fixed selection cap (paging stays); a Megacorp
+bot that wins a match; a Tiled check of the exported map; human playtests of both matchups.

@@ -137,7 +137,7 @@ regressed into a staircase and every crowd test would still have passed.
 | 20 mixed units | 868 ticks | 705 |
 | 50 versus 50 counterflow | 4,079 ticks | 849 |
 
-Body radii are worker 72, ordinary 80, hero 96, heavy/ram/camp leader 112, carrier 56.
+Body radii are worker 72, ordinary 80, Enforcer and Blimp 96, Battleship 112 (fixture: hero 96, heavy/ram/camp leader 112).
 The earlier text here said 80 and 112 only. Patrol and follow shipped in simulation
 version 6 and are no longer deferred; projectile travel shipped in version 10 for
 abilities, and is deliberately still off for auto-attacks.

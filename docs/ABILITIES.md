@@ -12,6 +12,9 @@ same way the hero passives are written today.
 
 ## Authoring
 
+The example is a fixture hero's spell (the shipping content's one ability, the Battleship's
+barrage, is at the end of this file); the shape is the same.
+
 ```lua
 C.abilities = {
   challenge = {

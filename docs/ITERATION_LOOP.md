@@ -12,11 +12,12 @@ context may be summarised between iterations. Read that log first, every time.
 
 ## What the project is
 
-LoveRTS (repo KuyaCraft): a deterministic Warcraft 3-style RTS in LÖVE 11.5. 1v1 on
-Twin Marches (192×192, unbuildable roads joining every gold mine to both bases, two
-control points: own both for two minutes to win), two provisional factions, an
-extractor-and-carrier gold economy, heroes with abilities, fog with line of sight, a bot,
-replays and ENet lockstep multiplayer.
+LoveRTS (repo KuyaCraft): a deterministic Brood War style RTS in LÖVE 11.5. 1v1 on
+Twin Marches (192×192, resource fields of substrate patches and charge geysers,
+unbuildable roads joining every field to both bases), two asymmetric factions (the
+Orders harvest and build; the Megacorp lands everything from orbit inside relay
+coverage), fog with line of sight, a bot per faction, replays and ENet lockstep
+multiplayer. The pre-pivot heroes, camps and control points live on in the test fixture.
 
 The user's direction, which every choice should serve:
 

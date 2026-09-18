@@ -8,8 +8,8 @@ world units per second multiplied by 0.4 so the game keeps its pace. `src/conten
 authoritative; where this file and the content disagree, the content wins and this file is
 wrong.
 
-Status tags: **LIVE** is in `src/content.lua` and running; **PLANNED** is the pivot plan's
-later phases; **DESIGNED** is in the reference and not scheduled.
+Status tags: **LIVE** is in `src/content.lua` and running; **DESIGNED** is in the reference
+and not scheduled. Nothing is left planned: the eight pivot phases are in.
 
 ## Shared rules — LIVE
 
