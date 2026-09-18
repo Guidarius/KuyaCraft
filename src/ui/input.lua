@@ -245,7 +245,7 @@ function I.updateHover(app,x,y)
  local shape='arrow'
  if app.building then
   local wx,wy=app:position(x,y)
-  local valid=Sim.placement(app.view,Content,app.building,math.floor(wx/256),math.floor(wy/256))
+  local valid=Sim.placement(app.view,app.content,app.building,math.floor(wx/256),math.floor(wy/256),app.landing~=nil)
   shape=valid and 'build' or 'invalid'
  elseif app.targeting and app.targeting.ability then shape=I.castShape(app,hit)
  elseif app.targeting and (app.targeting.command=='attack_move' or app.targeting.command=='patrol') then shape='attack'

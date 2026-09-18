@@ -2016,3 +2016,15 @@ a complete theme and a stranger gets the default), `test-ui.ps1` and `test-prese
 (PASS). Two new captures, `hud-orders` and `hud-megacorp`, draw the shipping content with
 each faction's headquarters selected and assert the simulation is untouched; both were
 looked at. Not done: nobody has played with it.
+
+## Crash fix: moving the pointer with a building armed
+
+The user's first real match crashed with `src/sim/init.lua:614: attempt to index local
+'content' (a nil value)`. The hover path in `src/ui/input.lua` still passed a `Content`
+variable to `Sim.placement` that stopped existing when the interface was routed through
+`app.content`; the click path and the ghost drawing had been updated, the cursor path had
+not, and no rendered test moved the pointer with a building armed. It now passes
+`app.content` and the landing flag like the other two call sites; a search found no other
+stragglers. `tests/presentation.lua` moves the pointer with a Depot armed as the Orders and
+a Rig armed as the Megacorp; with the bug put back that test fails with the user's exact
+error, and with the fix quick (124) and `test-ui.ps1` pass.

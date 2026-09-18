@@ -162,6 +162,12 @@ function T.run(app)
   themed:update(.05);themed.selected={themed:focus()};local hq=themed.world.entities[themed.view.player.hq];Camera.center(themed,hq.x,hq.y)
   local before=Sim.serializeCanonical(themed.world)
   capture('hud-'..faction,function() themed:draw() end)
+  -- Moving the pointer with a building armed asks the simulation whether it fits there. This
+  -- path named a content table that no longer existed and crashed the first real match.
+  local armed=faction=='orders' and 'depot' or 'substrate_rig'
+  themed.building=armed;local w,h=love.graphics.getDimensions()
+  require('src.ui.input').mousemoved(themed,w/2,h/2,0,0);require('src.ui.input').mousemoved(themed,w/3,h/3,4,4)
+  themed.building=nil
   assert(themed.widgets.theme==require('src.ui.theme').of(faction),'the HUD did not take the theme of its faction')
   assert(Sim.serializeCanonical(themed.world)==before,'drawing the themed HUD changed the simulation');themed:close()
  end
