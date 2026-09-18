@@ -387,6 +387,11 @@ for _,case in ipairs({
     test('simulation',case[2],function() require('tests.megacorp_scenarios')[case[1]]() end)
 end
 for _,case in ipairs({
+    {'cycle','a drop pod is loaded, launched onto covered ground, lands its troops on a ring, cools down and is limited by tier'},
+    {'garrison','units inside a building are unseen and untargetable, fire from a bunker, take two slots as an enforcer, and step out'}}) do
+    test('simulation',case[2],function() require('tests.pod_scenarios')[case[1]]() end)
+end
+for _,case in ipairs({
     {'capture','a control point is captured by standing in it unopposed, and kept after leaving'},
     {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
     {'hold','owning every control point for the full hold wins, not a tick sooner'},

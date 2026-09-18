@@ -9,7 +9,7 @@ local function direction(e) return e.laneX==1 and 0 or e.laneX==-1 and 1 or e.la
 local function binKey(x,y) return F.cell(y)*256+F.cell(x) end
 local function bins(w)
     local out={directions={}}
-    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' and not w.content.units[e.kind].flying then
+    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' and not e.garrisoned and not w.content.units[e.kind].flying then
         local key=binKey(e.x,e.y);out[key]=out[key] or {};out[key][#out[key]+1]=id
         if e.goal then out.directions[key*4+direction(e)]=true end
     end end
@@ -189,7 +189,7 @@ function M.step(w,halt,route)
     -- Air first: a flyer goes straight for its waypoint through anything, with no lanes, no
     -- crowd and no re-validation, and is in no bin, so the ground pass never sees it.
     for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.category=='unit' and w.content.units[e.kind].flying and e.order.kind~='hold' and Stats.canMove(w,e) then
+        if e.alive and e.category=='unit' and not e.garrisoned and w.content.units[e.kind].flying and e.order.kind~='hold' and Stats.canMove(w,e) then
             local node=e.path[e.pathIndex]
             if node then
                 local tx,ty=node.px or F.center(node.x),node.py or F.center(node.y)
@@ -201,7 +201,7 @@ function M.step(w,halt,route)
     end
     local before=bins(w);local proposals={};local yields={}
     for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.category=='unit' and not w.content.units[e.kind].flying and e.order.kind~='hold' and Stats.canMove(w,e) then
+        if e.alive and e.category=='unit' and not e.garrisoned and not w.content.units[e.kind].flying and e.order.kind~='hold' and Stats.canMove(w,e) then
             local cx,cy=F.cell(e.x),F.cell(e.y);local lx,ly=e.laneX or 0,e.laneY or 0
             local laneArea=e.goal and (not Path.laneAllowed(w,cx,cy,lx,ly) or not Path.laneAllowed(w,cx+ly,cy-lx,lx,ly) or not Path.laneAllowed(w,cx-ly,cy+lx,lx,ly))
             e.opposed=laneArea and opposed(before,e) or nil

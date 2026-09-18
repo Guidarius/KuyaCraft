@@ -71,6 +71,11 @@ function I.resolveTargeting(app,x,y,hit)
  if not t then return end
  app.targeting=nil
  if t.ability then return I.castAt(app,x,y,hit,t.ability) end
+ -- A pod launch is aimed at ground, from the headquarters, whatever is selected.
+ if t.command=='pod_launch' then
+  app:command('pod_launch',app.view.player.hq,{x=math.floor(x/256),y=math.floor(y/256)})
+  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind='move'};app.audio:play('click');return
+ end
  I.intent(app,x,y,hit,t.command)
 end
 -- Whether the pointer is over something the armed ability may be aimed at. Only unit
@@ -123,12 +128,14 @@ function I.intent(app,x,y,target,kind)
     if target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
     -- A right-click on a patch a worker can work is a harvest order; anyone else just walks there.
     elseif target and target.category=='node' and def and def.harvest and def.harvest[target.resource] then command='harvest'
+    -- A right-click on your own building with room inside steps in.
+    elseif target and target.owner==app.player and target.category=='building' and target.remaining==0 and (app.content.buildings[target.kind] or {}).garrison and def and not def.flying then command='garrison'
     elseif target and target.owner~=app.player and target.category~='node' then command='attack'
     -- Right-clicking one of your own live units falls in behind it.
     elseif target and target.owner==app.player and target.category=='unit' and target.id~=id then command='follow'
     else command='move' end
    end
-   if command=='attack' or command=='build' or command=='follow' or command=='harvest' then args.target=target and target.id else args.x=x;args.y=y end
+   if command=='attack' or command=='build' or command=='follow' or command=='harvest' or command=='garrison' then args.target=target and target.id else args.x=x;args.y=y end
    if app:command(command,id,args)==false then return end;count=count+1;ordered[#ordered+1]={id=id,kind=e.kind,command=command}
   end
  end
@@ -294,7 +301,7 @@ end
 function I.boxSelect(app,x0,y0,x1,y1)
  local own,buildings,other={},{},{}
  for _,e in ipairs(app.view.entities) do
-  if e.alive and e.category~='node' then
+  if e.alive and e.category~='node' and not e.garrisoned then
    local sx,sy=app:screen(e.x,e.y)
    if Camera.contains(app,sx,sy) and sx>=x0 and sx<=x1 and sy>=y0 and sy<=y1 then
     if e.owner~=app.player then other[#other+1]=e.id

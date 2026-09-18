@@ -11,7 +11,7 @@ function B.commands(view,C)
  local player=view.player;local owner=player.id
  local faction=C.factions[player.faction];local hqKind=faction.hq
  local cap=player.supplyCap or 200
- local hq;local relays,halls,offices,blimps,ships,nodes,byNode={},{},{},{},{},{},{}
+ local hq;local relays,halls,offices,blimps,ships,troops,medbays,armories,bunkers,nodes,byNode={},{},{},{},{},{},{},{},{},{},{}
  local rigged={};local rigsOn={substrate=0,charge=0};local food=0
  for _,e in ipairs(view.entities) do
   if e.alive and e.category=='node' then nodes[#nodes+1]=e;byNode[e.id]=e end
@@ -21,12 +21,15 @@ function B.commands(view,C)
    local d=C.units[e.kind]
    if e.category=='unit' and d then
     food=food+(d.food or 1)
-    if d.coverage then blimps[#blimps+1]=e elseif d.damage then ships[#ships+1]=e end
+    if d.coverage then blimps[#blimps+1]=e elseif d.flying then ships[#ships+1]=e elseif not e.garrisoned then troops[#troops+1]=e end
    elseif e.category=='building' then
     if e.kind==hqKind then hq=e
     elseif e.kind=='orbital_relay' then relays[#relays+1]=e
     elseif e.kind=='mc_barracks' then halls[#halls+1]=e
-    elseif e.kind=='requisition_office' then offices[#offices+1]=e end
+    elseif e.kind=='requisition_office' then offices[#offices+1]=e
+    elseif e.kind=='med_bay' then medbays[#medbays+1]=e
+    elseif e.kind=='armory' then armories[#armories+1]=e
+    elseif e.kind=='bunker' then bunkers[#bunkers+1]=e end
     if e.mine then rigged[e.mine]=true;local n=byNode[e.mine];if n then rigsOn[n.resource]=(rigsOn[n.resource] or 0)+1 end end
     for _,q in ipairs(e.queue or {}) do food=food+(C.units[q.kind].food or 1) end
    end
@@ -93,11 +96,32 @@ function B.commands(view,C)
  elseif view.tick>=3600 and officeCount<1 then requisition('requisition_office')
  elseif view.tick>=4800 and relayCount<1 then requisition('orbital_relay')
  elseif substrateRigs<8 then requisition('substrate_rig')
+ elseif #medbays+inOrbit('med_bay')<1 and #halls>0 then requisition('med_bay')
+ elseif view.tick>=6000 and #armories+inOrbit('armory')<1 and #halls>0 then requisition('armory')
  elseif view.tick>=7200 and officeCount<2 then requisition('requisition_office')
- elseif chargeRigs<2 then requisition('charge_rig') end
+ elseif chargeRigs<2 then requisition('charge_rig')
+ elseif #relays>0 and #bunkers+inOrbit('bunker')<1 and #halls>0 then requisition('bunker') end
  -- The Command trains a Blimp when it has none, then Battleships.
  local function recruit(kind) local d=C.units[kind];if hq.remaining==0 and #hq.queue<2 and food+(d.food or 1)<=cap and afford(d.cost) then spend(d.cost);food=food+(d.food or 1);add('recruit',hq,{unit=kind}) end end
  if #blimps==0 then recruit('command_blimp') else recruit('battleship') end
+ -- Drop pods: fill the open pod from the barracks, medics and enforcers as their buildings
+ -- allow, and launch a full pod onto covered ground at the front.
+ local pods=player.pods or {open={kinds={}},inFlight={},cooldownUntil=0}
+ local open=#pods.open.kinds
+ if #halls>0 then
+  for _=open+1,(C.rules.podCapacity or 4) do
+   local kind='associate'
+   if #armories>0 and open%4==3 then kind='enforcer' elseif #medbays>0 and open%3==2 then kind='medic' end
+   local d=C.units[kind]
+   if food+(d.food or 1)<=cap and afford(d.cost) then spend(d.cost);food=food+(d.food or 1);add('pod_load',hq,{unit=kind});open=open+1 else break end
+  end
+ end
+ local unlocked=math.min(C.rules.podsMax or 3,(C.rules.podsBase or 1)+#offices)
+ if #pods.open.kinds>=(C.rules.podCapacity or 4) and view.tick>=(pods.cooldownUntil or 0) and #pods.inFlight<unlocked then
+  local px,py=F.cell(hq.x)+8,F.cell(hq.y)
+  if anchor and player.coverage and player.coverage[anchor.y*view.map.width+anchor.x+1] then px,py=anchor.x,anchor.y end
+  if player.coverage and player.coverage[py*view.map.width+px+1] then add('pod_launch',hq,{x=px,y=py}) end
+ end
  -- The Blimp carries coverage toward the natural until a relay stands there.
  for _,b in ipairs(blimps) do
   if anchor and view.tick>=2400 and #relays==0 and b.order.kind=='stop' then add('move',b,{x=anchor.x*256,y=anchor.y*256}) end
@@ -109,9 +133,11 @@ function B.commands(view,C)
    if distance<=F.sq(22*tuned) and (not threatDistance or distance<threatDistance) then threat=e;threatDistance=distance end
   end
  end
+ local troopFood=0;for _,e in ipairs(troops) do troopFood=troopFood+(C.units[e.kind].food or 1) end
  local tx,ty
  if threat then tx,ty=threat.x,threat.y
- elseif #ships>=2 or view.tick>=12000 then local start=view.map.starts and view.map.starts[owner==1 and 2 or 1];if start then tx,ty=start.x*256,start.y*256 end end
+ elseif #ships>=2 or troopFood>=12 or view.tick>=12000 then local start=view.map.starts and view.map.starts[owner==1 and 2 or 1];if start then tx,ty=start.x*256,start.y*256 end end
+ for _,e in ipairs(troops) do ships[#ships+1]=e end
  for _,e in ipairs(ships) do
   if e.hp*100<e.maxHp*30 then if e.order.kind~='move' and view.tick%100==0 then add('move',e,{x=hq.x,y=hq.y}) end
   elseif tx and (e.order.kind=='stop' or view.tick%200==0) then add('attack_move',e,{x=tx,y=ty,group=view.tick+1}) end

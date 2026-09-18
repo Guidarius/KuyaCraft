@@ -79,7 +79,25 @@ function A.list(app)
   local kind=Sim.missingRequirement(app.view,app.player,d.requires)
   if kind then return 'Requires '..((C.buildings[kind] or C.units[kind] or {}).label or kind) end
  end
-  if app.cardPage=='requisition' then
+  if app.cardPage=='pod' then
+  -- The open pod: load, launch onto covered ground, or cancel. Cost and supply are paid at
+  -- loading; the troops exist when the pod lands.
+  local hq=app:entity(app.view.player.hq);local pods=app.view.player.pods or {open={kinds={}},inFlight={},cooldownUntil=0}
+  local kinds={};for id,d in pairs(C.units) do if d.pod then kinds[#kinds+1]=id end end;table.sort(kinds)
+  local dead=(not hq or not hq.alive) and 'Orbital Command lost' or nil
+  local cap=app.view.player.supplyCap or C.rules.population
+  for i,kind in ipairs(kinds) do local d=C.units[kind]
+   local costs=A.costs(app,d.cost,hq,{{key='food',label='food',amount=d.food or 1,available=cap-Sim.population(app.world,app.player)}})
+   local reason=dead or #pods.open.kinds>=(C.rules.podCapacity or 4) and 'Pod is full' or requirement(d) or missing(costs)
+   add('load-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('pod_load',hq.id,{unit=kind}) end,reason,'Load a '..d.label..' into the open pod. Paid now; it arrives when the pod lands.',costs)
+   list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit')
+  end
+  local remaining=(pods.cooldownUntil or 0)-app.world.tick
+  add('launch','Launch ('..#pods.open.kinds..'/'..(C.rules.podCapacity or 4)..')','t',function() app.targeting={command='pod_launch'};app.building=nil end,
+   dead or #pods.open.kinds==0 and 'Pod is empty' or remaining>0 and ('Pod ready in '..math.ceil(remaining/20)..'s') or nil,'Click covered ground. The pod lands there ten seconds later and the troops step out around it.')
+  if #pods.open.kinds>0 then add('cancel-pod','Unload pod','delete',function() app:command('cancel',hq.id,{pod=true}) end,dead,'Refund everything loaded into the open pod.') end
+  back();return list
+ elseif app.cardPage=='requisition' then
   -- The Megacorp's build card: nothing is built on the ground, every building is ordered
   -- from orbit and lands later, so the reasons here are the queue's and the requirements'.
   local hq=app:entity(app.view.player.hq);local queue=app.view.player.callDown or {}
@@ -152,7 +170,9 @@ function A.list(app)
     else add('orbit-'..i,d.label..' '..math.ceil(item.remaining/20)..'s',({'z','x','c','v','n'})[i],function() end,'In orbit','Being produced in orbit. One item at a time; two from the second Requisition Office.') end
    end
    if #queue>0 then add('cancel-orbit','Cancel last','delete',function() app:command('cancel',e.id,{callDown=#queue}) end,dead,'Refund 75% of the last item in orbit.') end
+  add('pod-menu','Drop pod','p',function() app.cardPage='pod' end,dead,'Load troops into the open pod and drop them anywhere your relays cover.',nil,true)
   end
+  if e.occupants and #e.occupants>0 then add('unload','Unload all','u',function() app:command('unload',e.id) end,dead,'Everyone inside steps out beside the building.') end
   if e.kind==Sim.hqKind(faction) and C.rules.tech then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
    add('research',e.researchRemaining and ('Advancing '..math.ceil(e.researchRemaining/20)..'s') or app.view.player.tech and 'Advanced HQ' or 'Advance HQ','t',function() app:command('research',e.id) end,
     dead or e.remaining>0 and 'Building unfinished' or app.view.player.tech and 'Already researched' or e.researchRemaining and 'Research in progress' or missing(costs),

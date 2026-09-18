@@ -55,15 +55,14 @@ function M.match(mirror,ticks)
   if w.result then break end
  end
  lines[#lines+1]='Outcome: '..(w.result and tostring(w.result.winner) or 'unfinished')..' at '..(w.tick/20)..'s'..(w.result and ' by '..(w.result.reason or 'headquarters') or '')
- M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick,mirror)
+ M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick,true)
  write('balance-'..label..'.txt',table.concat(lines,'\n')..'\n');Replay.write('artifacts/balance-'..label..'.replay',replay);if mirror then Replay.write('artifacts/sample.replay',replay) end
  local file=assert(io.open('artifacts/balance-'..label..'.state','wb'));file:write(Sim.serializeCanonical(w));file:close()
  local clone=Sim.create(config,C,map)
  for _,frame in ipairs(replay.frames) do Sim.step(clone,frame.commands) end
  assert(Sim.serializeCanonical(w)==Sim.serializeCanonical(clone),'new-profile replay diverged')
- -- The Orders' bot must establish production; the Megacorp's rails wait for its pods.
  assert(milestones[1]['constructed:barracks'],'the Orders bot did not establish production')
- if mirror then assert(milestones[2]['constructed:barracks'],'the second Orders bot did not establish production') end
+ assert(milestones[2]['constructed:barracks'] or milestones[2]['constructed:mc_barracks'],'the second bot did not establish production')
  return w
 end
 -- Match pacing measured rather than assumed. docs/BALANCE_AND_PACING.md sets a 15-25

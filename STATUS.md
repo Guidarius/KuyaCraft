@@ -1736,3 +1736,47 @@ a footman-and-crossbow army with Reliquaries behind it; first contact 4:22. Repo
 planned, since the Megacorp has no ground army until phase 6. The fixture matches are
 unchanged. Active p95 11.466 ms, a single measurement. Not done: a human playtest, the draft
 pull request, and any look at the Megacorp's card by a human.
+
+## Pivot phase 6: drop pods and garrisons — simulation version 25
+
+The Megacorp has its ground army, and it arrives the way the design says: by pod.
+`pod_load` pays a unit's cost and supply and puts it in the open pod, four seats deep;
+`pod_launch` sends the pod at any covered cell, after which the Command waits fifteen seconds
+before another, and ten seconds later the troops step out onto a ring of free cells around
+the point in loading order. One pod may be in flight, plus one per Requisition Office, at
+most three; a partly loaded pod may go; cancelling the open pod refunds all of it. Loaded
+and in-flight troops count against supply. The Associate (needs a Barracks), the Medic (Med
+Bay) and the Enforcer (Armory) are the pod units, with the reference's numbers converted as
+before.
+
+Garrisons: a unit ordered into a building with `garrison` slots walks there and steps
+inside if there is room, an Enforcer taking two of the four. Inside, it is out of every
+collision bin and target list, unseen by the enemy's view, takes half of any splash, and
+fights from a Bunker but not from a Requisition Office; `unload` and the building's death
+put everyone back outside on free cells. A flyer may not garrison.
+
+The bot fills the pod from what it has (an Enforcer every fourth seat with an Armory, a
+Medic every third with a Med Bay), launches full pods at the natural once it is covered,
+orders a Med Bay, an Armory and a Bunker in turn, and sends troops with the Battleships. The
+Command's card gains a Drop pod page (load, Launch aimed at covered ground, Unload pod);
+buildings with troops inside offer Unload all, and a right-click on one of your own garrison
+buildings steps in. Garrisoned units are not drawn, picked or box-selected.
+
+Two scenarios in `tests/pod_scenarios.lua`: the whole pod cycle (the requirement, the price
+and supply at loading, the coverage rule, the cooldown, a snapshot mid-flight, the landing
+ring, the one-pod limit without an Office, a full pod and the refund) and the garrison (a
+flyer refused, three troops inside with the Enforcer's two slots turning the fourth away,
+invisibility to the enemy's view and to its attack command, the bunker firing out and the
+office not, unloading and ejection on death). The asymmetric match's rails are back on.
+Simulation version 24 → 25, content 12 → 13.
+
+Verified on the desk machine at `-PerfBudget 40`, one after another: quick (114 passed),
+balance (4), determinism (5), network (4), scenario (2), crowd (20), soak (1), performance
+(2), then `test-ui.ps1` and `test-presentation.ps1` (both PASS). Match outcomes changed:
+the Orders mirror still finishes at 12:23 (player 1 by headquarters); the Orders vs Megacorp
+match, which phase 5 recorded as an Orders win at 16:36 by headquarters, now runs to the
+25:00 cap unfinished with peak food 86 against 34 (caps 84 and 50), first contact at 3:38,
+the Megacorp barracks landing at 90 s. The Megacorp holds its base with troops in the pod
+cycle but does not win; balance is the user's call and nothing was tuned. The fixture
+matches are unchanged (5353 and 2179). Not done: no PR opened (`gh` is absent), no human
+playtest, no Tiled check.

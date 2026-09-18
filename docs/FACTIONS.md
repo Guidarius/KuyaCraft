@@ -74,7 +74,7 @@ lasts 12.5 s.
   Reliquary recall and ranged shield, Keep tiers and Houses, killable building upgrades, a
   Fletchery.
 
-## The Megacorp — LIVE (territory, rigs, orbital logistics); pods, garrisons and weapons PLANNED
+## The Megacorp — LIVE (territory, rigs, orbital logistics, pods, garrisons); weapons PLANNED
 
 No workers. Everything arrives from orbit inside relay coverage; the Orbital Command is
 unique and its loss is defeat. Start: one Orbital Command, one Command Blimp, 400 substrate.
@@ -103,12 +103,12 @@ arrival sends the item back to the head of the queue, ready; cancelling refunds 
 | `orbital_command` Orbital Command | 400 | — | — | 3500 | 5 | 4×4 | +10 | 12 | coverage 18; trains Blimp, Battleship; unique |
 | `substrate_rig` Substrate Rig | 60 | — | 300 t | 225 | 0 | 1×1 | +4 | 6 | on a substrate patch; 85/min, 36 offline |
 | `charge_rig` Charge Rig | 75 | — | 360 t | 300 | 1 | 2×2 | — | 6 | on a charge geyser; 100/min, 42 offline |
-| `mc_barracks` Barracks | 150 | — | 400 t | 1000 | 1 | 3×3 | — | 8 | pods (planned) |
+| `mc_barracks` Barracks | 150 | — | 400 t | 1000 | 1 | 3×3 | — | 8 | lets Associates be loaded |
 | `med_bay` Med Bay | 100 | 50 | 500 t | 800 | 1 | 2×2 | — | 7 | needs Barracks |
 | `armory` Armory | 200 | 100 | 500 t | 900 | 1 | 2×2 | — | 7 | needs Barracks |
-| `requisition_office` Requisition Office | 175 | 25 | 700 t | 900 | 1 | 3×3 | — | 8 | `tier`; garrison (planned) |
+| `requisition_office` Requisition Office | 175 | 25 | 700 t | 900 | 1 | 3×3 | — | 8 | `tier`; garrison 4, occupants cannot fight |
 | `orbital_relay` Orbital Relay | 125 | — | 500 t | 450 | 0 | 2×2 | — | 10 | coverage 14 |
-| `bunker` Bunker | 100 | — | 400 t | 400 | 2 | 2×2 | — | 8 | needs Barracks; garrison (planned) |
+| `bunker` Bunker | 100 | — | 400 t | 400 | 2 | 2×2 | — | 8 | needs Barracks; garrison 4, occupants fight |
 
 Rig income is exact: the per-minute rate accumulates in 1/1200ths a tick and whole units are
 credited, draining the node by the same amount.
@@ -119,14 +119,32 @@ credited, draining the node by the same amount.
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | `command_blimp` Command Blimp | 100 | — | 0 | 600 t | 200 | 0 | — | — | — | coverage 12 | 38 | 11 |
 | `battleship` Battleship | 300 | 200 | 6 | 1400 t | 500 | 3 | 50 (8 vs air) | 60 t | 15 t | 12 cells, splash 1.5 | 22 | 13 |
+| `associate` Associate | 50 | — | 1 | 320 t | 55 | 0 | 6 | 18 t | 4 t | 5 cells, can hit air | 44 | 8 |
+| `medic` Medic | 50 | 25 | 1 | 400 t | 70 | 1 | — | — | — | heals 6/s within 3 cells | 44 | 8 |
+| `enforcer` Enforcer | 125 | 50 | 3 | 600 t | 250 | 2 | 25 | 28 t | 7 t | melee | 32 | 7 |
 
-Both fly. The Battleship is trained at the Command only.
+The Blimp and the Battleship fly and train at the Command. The other three arrive by drop
+pod: the Associate needs a Barracks, the Medic a Med Bay, the Enforcer an Armory.
+
+### Drop pods — LIVE
+
+`pod_load` pays a unit's cost and supply and puts it in the open pod (four seats); the pod
+exists only in the queue until `pod_launch` sends it at a covered cell, after which the
+Command waits 300 ticks (15 s) before launching again; ten seconds later the troops step
+out onto a ring of free cells around the point in the order they were loaded. Pods in
+flight at once: one, plus one per Requisition Office, at most three. Cancelling the open pod
+refunds everything in it. A partly loaded pod may be launched.
+
+### Garrisons — LIVE
+
+A unit ordered into a building with `garrison` slots walks there and steps inside if there
+is room (an Enforcer takes two of the four). Inside it is unseen by the enemy, cannot be
+targeted, takes half of any splash, and fights from a Bunker but not from an Office.
+`unload` puts everyone out beside the building; a building's death does the same.
 
 ### PLANNED
 
-Phase 6: drop pods for the Associate, Medic and Enforcer, garrisons (Bunker fights, Office
-does not, Enforcer takes two slots), pods unlocked by Office count. Phase 7: Associate
-target stacks and the Battleship's anti-air barrage.
+Phase 7: Associate target stacks and the Battleship's anti-air barrage.
 
 ## The map
 

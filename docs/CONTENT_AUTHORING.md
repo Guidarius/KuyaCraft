@@ -49,18 +49,21 @@ buildings[kind] += produces = { unit ids }, requires = { building ids }, supply 
                    onNode = 'gold',  -- must stand squarely on a node of this resource
                    coverage = T.cells(14),          -- projects relay coverage (see factions.coverage)
                    income = { substrate = 85 }, incomeOffline = { substrate = 36 },  -- a rig's rate a minute, on a node
-                   tier = true                      -- counts toward Sim.tier (orbit slots)
+                   tier = true,                     -- counts toward Sim.tier (orbit slots, pods in flight)
+                   garrison = 4, garrisonFights = true  -- slots inside; whether occupants shoot out
 units[kind]     += armor = n, requires = { building ids },
                    harvest = { substrate = T.ticks(2), charge = T.ticks(3) }, carry = 8,
                                     -- ticks per load by resource; the unit may harvest only what is listed
                    flying = true,          -- straight routes through anything, no ground, no blocking
                    canAttackAir = true, airDamage = n,   -- may target flyers; the weaker figure against them
-                   splash = T.cells(1.5)   -- ground enemies within this radius of the target are hit too
+                   splash = T.cells(1.5),  -- ground enemies within this radius of the target are hit too
+                   pod = true, garrisonSlots = 2   -- arrives by drop pod; seats taken in a garrison
 rules           += resources = { 'gold' },      -- ledger keys in display order; every cost uses one
                    supplyFromBuildings = false, -- true: the cap is the sum of completed buildings' supply
                    cancelRefundPercent = 50,
                    harvestSearch = T.cells(6), -- how far a worker looks for a free patch of the same resource
-                   descentTicks = T.ticks(10), callDownQueue = 5  -- orbital logistics for coverage factions
+                   descentTicks = T.ticks(10), callDownQueue = 5,  -- orbital logistics for coverage factions
+                   podCapacity = 4, podCooldown = T.ticks(15), podsBase = 1, podsMax = 3, garrisonDamagePercent = 50
 ```
 
 Harvesting (simulation version 21): a worker with a `harvest` table takes a `harvest`

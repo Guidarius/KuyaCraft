@@ -89,6 +89,11 @@ return function(C)
     if C.rules.supplyCap then assert(F.integer(C.rules.supplyCap,1,1000),'invalid supply cap') end
     if C.rules.descentTicks then assert(F.integer(C.rules.descentTicks,1,10000),'invalid descent time') end
     if C.rules.callDownQueue then assert(F.integer(C.rules.callDownQueue,1,20),'invalid call-down queue size') end
+    if C.rules.podCapacity then assert(F.integer(C.rules.podCapacity,1,16),'invalid pod capacity') end
+    if C.rules.podCooldown then assert(F.integer(C.rules.podCooldown,0,10000),'invalid pod cooldown') end
+    if C.rules.podsBase then assert(F.integer(C.rules.podsBase,1,8),'invalid base pod count') end
+    if C.rules.podsMax then assert(F.integer(C.rules.podsMax,1,8),'invalid pod cap') end
+    if C.rules.garrisonDamagePercent then assert(F.integer(C.rules.garrisonDamagePercent,0,100),'invalid garrison damage percent') end
     local function refs(list,catalogue,what)
         for _,kind in ipairs(list or {}) do assert(type(kind)=='string' and catalogue[kind],what..' names the unknown kind '..tostring(kind)) end
     end
@@ -101,6 +106,8 @@ return function(C)
         if d.airDamage then assert(d.canAttackAir==true,'unit '..id..' has an air weapon it may not use');assert(F.integer(d.airDamage,1,100000),'unit '..id..' has an invalid air damage') end
         if d.splash then assert(d.damage,'unit '..id..' splashes without a weapon');assert(F.integer(d.splash,1,65536),'unit '..id..' has an invalid splash radius') end
         if d.coverage then assert(F.integer(d.coverage,256,65536),'unit '..id..' has an invalid coverage radius') end
+        if d.pod~=nil then assert(type(d.pod)=='boolean','unit '..id..' has an invalid pod flag') end
+        if d.garrisonSlots then assert(F.integer(d.garrisonSlots,1,16),'unit '..id..' has invalid garrison slots') end
         if d.armor then assert(F.integer(d.armor,0,100),'unit '..id..' has invalid armor') end
         refs(d.requires,C.buildings,'unit '..id..' requires')
     end
@@ -111,6 +118,8 @@ return function(C)
         if d.onNode then assert(type(d.onNode)=='string','building '..id..' has an invalid onNode') end
         if d.coverage then assert(F.integer(d.coverage,256,65536),'building '..id..' has an invalid coverage radius') end
         if d.tier~=nil then assert(type(d.tier)=='boolean','building '..id..' has an invalid tier flag') end
+        if d.garrison then assert(F.integer(d.garrison,1,16),'building '..id..' has an invalid garrison') end
+        if d.garrisonFights~=nil then assert(d.garrison,'building '..id..' lets occupants fight but holds none');assert(type(d.garrisonFights)=='boolean','building '..id..' has an invalid garrisonFights flag') end
         for _,field in ipairs({'income','incomeOffline'}) do if d[field] then assert(type(d[field])=='table','building '..id..' has an invalid '..field);for key,amount in pairs(d[field]) do assert(RESOURCES[key],'building '..id..' earns the unknown resource '..tostring(key));assert(F.integer(amount,0,100000),'building '..id..' has an invalid '..field..' rate') end end end
         if d.incomeOffline then assert(d.income,'building '..id..' has an offline rate but no income') end
         refs(d.produces,C.units,'building '..id..' produces')

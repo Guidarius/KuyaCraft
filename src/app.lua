@@ -457,6 +457,7 @@ function App:drawEntity(e)
         g.setColor(1,.75,.35,.5);g.circle('fill',x+dx,y+dy-14*z,2*z)
         g.setLineWidth(1)
     else
+        if e.garrisoned then return end
         local d=self.content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
         -- A flyer hangs above its shadow, so height reads without any art.
         if d.flying then g.setColor(0,0,0,.28);g.ellipse('fill',x,y,10*z,5*z);y=y-14*z end
@@ -748,7 +749,7 @@ end
 function App:pick(x,y,ownOnly,selectable)
     local best,dist
     for _,e in ipairs(self.view.entities) do
-        if e.alive and (not ownOnly or e.owner==self.player) and not (selectable and e.category=='projectile') then
+        if e.alive and (not ownOnly or e.owner==self.player) and not (selectable and (e.category=='projectile' or e.garrisoned)) then
             local z=self.camera.zoom;local sx,sy=self:screen(e.x,e.y);local hit,distance
             if e.category~='unit' then
                 local left,top=self:screen(F.cell(e.x)*256,F.cell(e.y)*256)
