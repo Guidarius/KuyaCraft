@@ -93,7 +93,11 @@ local Coverage=require('src.sim.coverage')
 -- stacks burst for `rules.stacks.burst` armour-piercing damage, and they decay after a
 -- grace period. An ability with `channel` keeps firing from its cast point every `period`
 -- for `ticks`; the caster holds and any new order breaks it. `filter.air` / `filter.ground`.
-local Sim = { VERSION = 26 }
+-- Version 27: `cancel{pod=true,seat=i}` refunds one unit out of the open pod and closes the
+-- gap; without `seat` it still refunds the whole pod. The owner's view gains `player.orbit`,
+-- a derived summary (orbit slots, queue size, pods unlocked) the interface used to work out
+-- from the world. No state is added.
+local Sim = { VERSION = 27 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Airborne: a unit whose definition flies. Buildings and nodes never do.
@@ -470,13 +474,19 @@ end
 function Sim.view(w,player)
     local p=w.players[player]
     -- Control state is public: both players see who owns each point and the countdown.
+    -- Orbital logistics at a glance, for a faction that has them: derived every time, never stored.
+    local rules=w.content.rules;local faction=Sim.factionOf(w,player);local orbit
+    if faction and faction.coverage then
+        orbit={slots=1+(Sim.tier(w,player)>=2 and 1 or 0),queueMax=rules.callDownQueue or 5,podsUnlocked=Sim.podsUnlocked(w,player),
+            podsMax=rules.podsMax or 3,podCapacity=rules.podCapacity or 4,podCooldown=rules.podCooldown or 300,descentTicks=rules.descentTicks or 200}
+    end
     local out={tick=w.tick,result=w.result,control=w.control and Codec.copy(w.control),
         map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable,terrain=w.map.terrain},
         entities={},byId={},
         player={id=player,faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,supplyCap=Sim.supplyCap(w,player),
             kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,
             resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources,
-            coverage=p.coverage,callDown=p.callDown and Codec.copy(p.callDown),landings=p.landings and Codec.copy(p.landings),pods=p.pods and Codec.copy(p.pods)}}
+            coverage=p.coverage,orbit=orbit,callDown=p.callDown and Codec.copy(p.callDown),landings=p.landings and Codec.copy(p.landings),pods=p.pods and Codec.copy(p.pods)}}
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         -- A unit inside a building is its owner's knowledge alone.
@@ -829,6 +839,11 @@ local function apply(w,c)
         if a.pod then
             local pods=p.pods
             if e.id~=p.hq or not pods or #pods.open.kinds==0 then reject(w,c,'nothing to cancel');return end
+            -- One seat: that unit is refunded in full (it was never trained) and those behind it move up.
+            if a.seat~=nil then
+                if not F.integer(a.seat,1,#pods.open.kinds) then reject(w,c,'nothing to cancel');return end
+                local kind=table.remove(pods.open.kinds,a.seat);spend(p,w.content.units[kind].cost,-1);return
+            end
             for _,kind in ipairs(pods.open.kinds) do spend(p,w.content.units[kind].cost,-1) end
             pods.open={kinds={}};return
         end

@@ -37,6 +37,7 @@ test('balance','new-profile mirror match',function() require('tests.balance_scen
 test('balance','new-profile asymmetric match',function() require('tests.balance_scenarios').match(false) end)
 test('balance','new-profile active performance',function() require('tests.balance_scenarios').performance() end)
 test('unit','filtered cosmetic feedback',function() require('tests.feedback').run() end)
+test('simulation','orbital interface model: frames, the blocking ready building, slots, seats, pips, launch states and the seat refund',function() require('tests.orbital_ui').run() end)
 test('unit','every shipping faction has its own interface theme, and a stranger gets the default',function()
     local Theme=require('src.ui.theme');local C=require('src.content')
     for id in pairs(C.factions) do assert(Theme.factions[id],'the faction '..id..' has no interface theme') end
