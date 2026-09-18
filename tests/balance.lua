@@ -112,9 +112,18 @@ function B.register(test)
   print('BALANCE footman duel seconds: '..w.tick/20)
   assert(w.tick>=200 and w.tick<=400,'a footman duel took '..w.tick..' ticks');assert(not a.alive and not b.alive)
  end)
- test('simulation','balance: supports and buildings',function()
-  -- The keep heals nobody by itself, so a hurt footman stays hurt; there is no support yet.
-  local w=isolated();local a=S.unit(w,'footman',1,22,22);a.hp=100;step(w,100);eq(a.hp,100)
+ test('simulation','balance: the sanctum needs a barracks and the reliquary heals from the air',function()
+  local w=world();w.players[1].resources={substrate=10000,charge=10000};local view=Sim.view(w,1)
+  local ok,reason=Sim.placement(view,C,'sanctum',18,12);assert(not ok);eq(reason,'Requires Barracks')
+  building(w,'barracks',20,12);view=Sim.view(w,1);local placed,why=Sim.placement(view,C,'sanctum',14,17);assert(placed,'the sanctum was refused with a barracks standing: '..tostring(why))
+  -- A hurt footman three cells from a reliquary heals twelve a second; the keep heals nobody.
+  local v=isolated();local hurt=S.unit(v,'footman',1,22,22);hurt.hp=50;local reliquary=S.unit(v,'reliquary',1,25,22)
+  step(v,100);eq(hurt.hp,50+12*5,'the reliquary did not heal twelve a second')
+  local alone=isolated();local lonely=S.unit(alone,'footman',1,22,22);lonely.hp=50;step(alone,100);eq(lonely.hp,50)
+  -- Nothing but the crossbow can touch it: a footman ordered at it is refused.
+  local foe=S.unit(v,'reliquary',2,30,22);foe.order={kind='hold'}
+  eq(rejected(Sim.step(v,{S.command(v,hurt,'attack',{target=foe.id})})),'cannot attack air')
+  local bow=S.unit(v,'crossbow',1,27,22);assert(not rejected(Sim.step(v,{S.command(v,bow,'attack',{target=foe.id})})))
  end)
  test('unit','direct copy matches codec round trip and isolates aliases',function()
   local shared={n=7};local data={a=shared,b=shared,values={true,false,3,'hello'},[-4]='negative key'}

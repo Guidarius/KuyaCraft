@@ -458,6 +458,8 @@ function App:drawEntity(e)
         g.setLineWidth(1)
     else
         local d=self.content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
+        -- A flyer hangs above its shadow, so height reads without any art.
+        if d.flying then g.setColor(0,0,0,.28);g.ellipse('fill',x,y,10*z,5*z);y=y-14*z end
         -- Your own badly hurt units pulse on the ground, so the one about to die is found without
         -- reading every bar. Drawn rather than spawned, so the effect budget is untouched.
         if e.owner==self.player and e.alive and e.hp*100<e.maxHp*LOW_HEALTH then

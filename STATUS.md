@@ -1651,3 +1651,42 @@ the balance fixture, single measurements on the thermally limited laptop.
 Not done: a human playtest of the Orders mirror; the draft pull request (`gh` is not
 installed); `scripts/map.ps1 -Mode Check` against Tiled 1.12.2 (not installed here; the
 exporter was proved on the previous layout, not on this one).
+
+## Pivot phase 4: the air layer, the Sanctum and the Reliquary — simulation version 23
+
+Flyers exist. A unit whose definition says `flying` routes straight to wherever it is sent as a
+one-node path, through terrain and units, with no search, no lanes, no crowd resolution and
+no re-validation; it is in no collision bin, so ground units walk through it and a site may
+go up under it, and it may be sent onto blocked ground. Only a weapon with `canAttackAir`
+may be ordered at or acquire a flyer, and one that carries `airDamage` uses that figure
+against it. A `splash` weapon also hits every enemy on the ground within its radius of the
+target, each against its own armor, in world order, never allies and never the air. Flyers
+see and are seen exactly as ground units are, which is a chosen default. The stat resolver's
+`damage` takes the target so the air figure lands through the one path every hit uses.
+
+The Orders gain the Sanctum (200/100, 60 s, needs a Keep and a Barracks) and the Reliquary
+(150/100, 2 supply, 150 hit points, a flying healer at 12 a second within four cells through
+the existing healer rule, which picks the most hurt ally rather than the nearest). The
+Crossbow may shoot up, for 10 instead of 20, and is the faction's only answer to the air.
+The bot raises a Sanctum after its second Barracks and keeps two Reliquaries. In the
+presentation a flyer hangs above a shadow, so height reads without any art.
+
+Five scenarios in `tests/air_scenarios.lua` on a fixture copy with a flying hawk: a flight
+across a wall on a one-node path and a hover over it; three walkers passing through a
+hovering flyer and a site placed beneath it; a melee unit refused and never acquiring a
+flyer while the crossbow hits it for its air damage and a ground target for its full one;
+splash reaching a neighbour within a cell and a half and nothing further, no ally and no
+flyer; and a flight surviving a snapshot. `tests/balance.lua` checks the Sanctum's
+requirement, the Reliquary's healing and that a footman cannot be ordered at one.
+Simulation version 22 → 23 and content 10 → 11.
+
+Verification on the desk machine from the worktree with `-PerfBudget 40`: `quick` 105
+passed; `balance` 4; `determinism` 5 plus the four-process 100,000-tick agreement;
+`network` 4 plus the ENet pair; `scenario` 2; `crowd` 20; `soak` 1; `performance` 2; the
+rendered UI suite at three resolutions and the presentation suite. Zero failures. The
+fixture matches are unchanged from phase 3 (5353 and 2179). The Orders mirror, which ran to
+the 25-minute cap in phase 3, now ends at **12:23, player 1 by headquarters**, with the same
+opening (barracks 0:47, contact 3:46, first gryphon 4:34): the difference is the Sanctum and
+two Reliquaries behind the attacking army. Reported, not tuned; whether 12 minutes is the
+right length is the user's call. Active p95 32.617 ms on this laptop, a single measurement.
+Not done: a human playtest, and the draft pull request.

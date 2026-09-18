@@ -369,6 +369,14 @@ for _,case in ipairs({
     test('simulation',case[2],function() require('tests.harvest_scenarios')[case[1]]() end)
 end
 for _,case in ipairs({
+    {'flight','a flyer crosses terrain on a straight one-node path and may hover over it'},
+    {'passThrough','ground units walk through a hovering flyer and a site goes up under it'},
+    {'targeting','only a weapon that can reach the air may be aimed at a flyer, at its air damage'},
+    {'splash','a splash weapon hits the ground around its target, never allies or the air'},
+    {'snapshot','a flight survives a snapshot identically'}}) do
+    test('simulation',case[2],function() require('tests.air_scenarios')[case[1]]() end)
+end
+for _,case in ipairs({
     {'capture','a control point is captured by standing in it unopposed, and kept after leaving'},
     {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
     {'hold','owning every control point for the full hold wins, not a tick sooner'},

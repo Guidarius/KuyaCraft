@@ -92,6 +92,12 @@ return function(C)
     end
     for id,d in pairs(C.units) do
         costOk(d.cost,'unit '..id)
+        -- The air layer: flags are booleans, an air weapon needs the flag that lets it fire,
+        -- and splash needs a weapon to splash from.
+        if d.flying~=nil then assert(type(d.flying)=='boolean','unit '..id..' has an invalid flying flag') end
+        if d.canAttackAir~=nil then assert(type(d.canAttackAir)=='boolean','unit '..id..' has an invalid canAttackAir flag') end
+        if d.airDamage then assert(d.canAttackAir==true,'unit '..id..' has an air weapon it may not use');assert(F.integer(d.airDamage,1,100000),'unit '..id..' has an invalid air damage') end
+        if d.splash then assert(d.damage,'unit '..id..' splashes without a weapon');assert(F.integer(d.splash,1,65536),'unit '..id..' has an invalid splash radius') end
         if d.armor then assert(F.integer(d.armor,0,100),'unit '..id..' has invalid armor') end
         refs(d.requires,C.buildings,'unit '..id..' requires')
     end

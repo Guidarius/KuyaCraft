@@ -73,9 +73,15 @@ local Harvest=require('src.sim.harvest')
 -- (rules.coBuild; `builders` and `work` on the site replace `builder`), a map may spawn
 -- only camps its content defines, and a player without a hero neither earns experience
 -- nor revives anyone.
-local Sim = { VERSION = 22 }
+-- Version 23: the air layer. A `flying` unit routes straight to its destination through
+-- terrain and units, is in no collision bin and blocks nothing; it may be attacked only by
+-- a `canAttackAir` weapon, which uses its `airDamage` when it has one; a `splash` weapon
+-- also hits every enemy on the ground within its radius of the target.
+local Sim = { VERSION = 23 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
+-- Airborne: a unit whose definition flies. Buildings and nodes never do.
+local function airborne(w,e) if e.category~='unit' then return false end;local d=w.content.units[e.kind];return d~=nil and d.flying==true end
 -- Faction schema v2. Every accessor here has a default that reproduces what content
 -- relied on before the schema existed, so a definition naming none of the new fields
 -- plays exactly as it did.
@@ -149,7 +155,7 @@ end
 local function occupied(w,x,y,except)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
-        if e.alive and e.category=='unit' and e.id~=except and G.rectangleDistance2(e.x,e.y,x*256,y*256,(x+1)*256,(y+1)*256)<F.sq(G.radius(w,e)) then return true end
+        if e.alive and e.category=='unit' and e.id~=except and not airborne(w,e) and G.rectangleDistance2(e.x,e.y,x*256,y*256,(x+1)*256,(y+1)*256)<F.sq(G.radius(w,e)) then return true end
     end
     return false
 end
@@ -171,6 +177,8 @@ end
 local function nearest(w,x,y,except,claimed,radius)
     radius=radius or (except and G.radius(w,w.entities[except])) or 112
     local unit=except and w.entities[except]
+    -- A flyer may be sent to any cell: it needs no walkable ground and no free body room.
+    local aloft=unit and airborne(w,unit)
     local map=w.map;local width,height=map.width,map.height
     local ux,uy=0,0;if unit then ux,uy=unit.x,unit.y end
     -- Not re-entrant: the scratch arrays are shared. Nothing reachable from G.free or
@@ -179,7 +187,7 @@ local function nearest(w,x,y,except,claimed,radius)
     local function consider(cx,cy)
         if cx<0 or cy<0 or cx>=width or cy>=height then return end
         local key=Path.key(map,cx,cy)
-        if (claimed and claimed[key]) or not Path.walkable(w,cx,cy) then return end
+        if (claimed and claimed[key]) or (not aloft and not Path.walkable(w,cx,cy)) then return end
         count=count+1
         candX[count]=cx;candY[count]=cy;candKey[count]=key
         candDistance[count]=unit and F.distance2Bounded(ux,uy,F.center(cx),F.center(cy)) or 0
@@ -197,7 +205,7 @@ local function nearest(w,x,y,except,claimed,radius)
             table.sort(candOrder,lessCandidate)
             for i=1,count do
                 local c=candOrder[i]
-                if G.free(w,F.center(candX[c]),F.center(candY[c]),radius,except) then return candX[c],candY[c] end
+                if aloft or G.free(w,F.center(candX[c]),F.center(candY[c]),radius,except) then return candX[c],candY[c] end
             end
         end
     end
@@ -232,7 +240,10 @@ local function halt(w,e)
     if #e.path>0 then e.path={} end;e.pathIndex=1;e.goal=nil;e.waitTicks=0;e.bestWaypointDistance=nil;w.searches[e.id]=nil
 end
 local function route(w,e,x,y)
-    if not e.goal or e.goal.x~=x or e.goal.y~=y then Path.request(w,e,x,y) end
+    if e.goal and e.goal.x==x and e.goal.y==y then return end
+    -- A flyer's route is the straight line: one waypoint, no search, nothing to re-validate.
+    if airborne(w,e) then e.path={{x=x,y=y,px=F.center(x),py=F.center(y)}};e.pathIndex=1;e.goal={x=x,y=y};e.pathVersion=w.navVersion;e.blockedReason=nil;w.searches[e.id]=nil;return end
+    Path.request(w,e,x,y)
 end
 local function approachTarget(w,e,t,range)
     if inRange(e,t,range) then halt(w,e); return true end
@@ -586,7 +597,8 @@ function Sim.placement(view,content,kind,x,y)
         -- build command revalidates through here, which makes this authoritative.
         if not mine and view.map.unbuildable and view.map.unbuildable[key] then return false,'Cannot build on a road' end
         for _,other in ipairs(view.entities) do
-            if other.alive and other.category=='unit' and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
+            -- A flyer occupies no ground, so a site may go up beneath it.
+            if other.alive and other.category=='unit' and not content.units[other.kind].flying and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
             -- A building placed on its node is not obstructed by that node.
             if other.alive and other.category~='unit' and other.id~=mine
                 and cx>=F.cell(other.x) and cx<F.cell(other.x)+other.size and cy>=F.cell(other.y) and cy<F.cell(other.y)+other.size then return false,'Occupied footprint' end
@@ -886,6 +898,7 @@ local function apply(w,c)
     local target=F.integer(a.target,1) and w.entities[a.target] or nil
     if not target or not target.alive or not Sim.visible(w,c.player,target) then reject(w,c,'target unavailable'); return end
     if c.kind=='attack' and (target.owner==e.owner or target.category=='node') then reject(w,c,'invalid enemy'); return end
+    if c.kind=='attack' and airborne(w,target) and not d.canAttackAir then reject(w,c,'cannot attack air'); return end
     -- Follow keeps station on another of your own units and never picks a fight of its
     -- own; a unit cannot be ordered to follow itself.
     if c.kind=='follow' and (target.owner~=e.owner or target.category~='unit' or target.id==e.id) then reject(w,c,'invalid follow target'); return end
@@ -1072,6 +1085,7 @@ local function enemyTarget(w,e,blocks)
     if y0<0 then y0=0 end
     local acquire=F.sq(w.content.rules.acquireRange or 768)
     local chaseable=e.order.kind~='hold'
+    local canAir=def(w,e).canAttackAir==true
     local engagement=e.engagement
     for by=y0,y1 do
         local row=by*512
@@ -1082,7 +1096,7 @@ local function enemyTarget(w,e,blocks)
                     local target=bin[i]
                     if math.abs(ex-target.x)<=sight and math.abs(ey-target.y)<=sight then
                         local dist=F.distance2Bounded(ex,ey,target.x,target.y)
-                        if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
+                        if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (canAir or not airborne(w,target)) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
                             local shooting=G.weaponRange(w,e,target)
                             local chasing=chaseable and (engagement and F.distance2Bounded(target.x,target.y,engagement.x,engagement.y)<=acquire or not engagement and dist<=acquire)
                             if shooting or chasing then best=target;distance=dist end
@@ -1095,7 +1109,10 @@ local function enemyTarget(w,e,blocks)
     return best
 end
 local function validTarget(w,e,t)
-    return t and t.alive and t.owner~=e.owner and t.category~='node' and (e.owner==0 or Sim.visible(w,e.owner,t))
+    if not (t and t.alive and t.owner~=e.owner and t.category~='node' and (e.owner==0 or Sim.visible(w,e.owner,t))) then return false end
+    -- Only a weapon that can reach the air may be aimed at a flyer.
+    if airborne(w,t) then local d=def(w,e);return d~=nil and d.canAttackAir==true end
+    return true
 end
 local function approachWeapon(w,e,t)
     if G.weaponRange(w,e,t) then halt(w,e);return end
@@ -1267,8 +1284,17 @@ local function combat(w,pending)
                     if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                         phase.committed=true;e.nextCommitTick=w.tick+phase.period;e.cooldown=phase.period
                         if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end
-                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e)-Stats.armor(w,target,protectors))}
+                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e,target)-Stats.armor(w,target,protectors))}
                         e.lastCombat=w.tick;e.attackTick=w.tick;emit(w,'attack',{source=e.id,target=target.id})
+                        -- Splash: every enemy on the ground within the radius of the target is hit
+                        -- too, each against its own armour, in world order. Never allies, never air.
+                        if d.splash and not airborne(w,target) then
+                            for _,otherId in ipairs(ids(w)) do local other=w.entities[otherId]
+                                if other.id~=target.id and other.alive and other.owner~=e.owner and other.category~='node' and other.category~='projectile' and not airborne(w,other) and inRange(target,other,d.splash) then
+                                    hits[#hits+1]={kind='damage',source=e.id,target=other.id,damage=math.max(1,Stats.damage(w,e,other)-Stats.armor(w,other,protectors))}
+                                end
+                            end
+                        end
                     end
                 end
                 if w.tick>=phase.finish then e.attack=nil end

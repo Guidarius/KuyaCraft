@@ -13,8 +13,8 @@ function B.commands(view,C)
  local faction=C.factions[player.faction];local hqKind=faction.hq or 'hq'
  local cap=player.supplyCap or C.rules.population or 200
  -- Census, in view order.
- local keeps,sites,workers,army,halls,nodes={},{},{},{},{},{}
- local assigned={};local queuedWorkers,food,armyFood=0,0,0
+ local keeps,sites,workers,army,halls,sanctums,nodes={},{},{},{},{},{},{}
+ local assigned={};local queuedWorkers,food,armyFood,healers=0,0,0,0
  for _,e in ipairs(view.entities) do
   if e.owner==owner and e.alive then
    local d=C.units[e.kind]
@@ -23,12 +23,13 @@ function B.commands(view,C)
     if d.worker then
      workers[#workers+1]=e
      if e.order.kind=='harvest' and e.order.target then assigned[e.order.target]=(assigned[e.order.target] or 0)+1 end
-    else army[#army+1]=e;armyFood=armyFood+(d.food or 1) end
+    else army[#army+1]=e;armyFood=armyFood+(d.food or 1);if d.heal then healers=healers+1 end end
    elseif e.category=='building' then
     if e.remaining>0 then sites[#sites+1]=e
     elseif e.kind==hqKind then keeps[#keeps+1]=e
-    elseif e.kind=='barracks' then halls[#halls+1]=e end
-    for _,q in ipairs(e.queue or {}) do local qd=C.units[q.kind];food=food+(qd.food or 1);if qd.worker then queuedWorkers=queuedWorkers+1 end end
+    elseif e.kind=='barracks' then halls[#halls+1]=e
+    elseif e.kind=='sanctum' then sanctums[#sanctums+1]=e end
+    for _,q in ipairs(e.queue or {}) do local qd=C.units[q.kind];food=food+(qd.food or 1);if qd.worker then queuedWorkers=queuedWorkers+1 end;if qd.heal then healers=healers+1 end end
    end
   elseif e.alive and e.category=='node' then nodes[#nodes+1]=e end
  end
@@ -106,9 +107,11 @@ function B.commands(view,C)
  local wantHall=#halls+(siteOf('barracks') and 1 or 0)<(view.tick>=4800 and 2 or 1)
  local anchor=view.map.anchors and view.map.anchors.naturals and view.map.anchors.naturals[owner]
  local wantKeep=view.tick>=6000 and anchor and #keeps+(siteOf(hqKind) and 1 or 0)<2
+ local wantSanctum=#halls>=2 and #sanctums+(siteOf('sanctum') and 1 or 0)<1 and C.buildings.sanctum
  if depotSoon then build('depot',hx,hy)
  elseif wantHall then build('barracks',hx,hy)
- elseif wantKeep then build(hqKind,anchor.x,anchor.y) end
+ elseif wantKeep then build(hqKind,anchor.x,anchor.y)
+ elseif wantSanctum then build('sanctum',hx,hy) end
  -- Workers: enough to fill the patches in reach, and no more.
  local target=math.min(2*reachable.substrate+3*reachable.charge,24)
  if #workers+queuedWorkers<target then for _,k in ipairs(keeps) do if recruit(k,faction.worker or 'worker') then break end end end
@@ -126,6 +129,8 @@ function B.commands(view,C)
   local kind=(produced%4==3 and (ledger.charge or 0)>=50) and 'gryphon' or (produced%3==2 and 'crossbow' or 'footman')
   if not recruit(b,kind) and kind=='gryphon' then recruit(b,'footman') end
  end
+ -- Two reliquaries follow the army once the sanctum stands and the charge is there.
+ for _,sanctum in ipairs(sanctums) do if healers<2 then recruit(sanctum,'reliquary') end end
  -- The army: defend home first, then attack once it is worth sending.
  local threat,threatDistance
  for _,e in ipairs(view.entities) do

@@ -46,8 +46,11 @@ factions[id] = {
 buildings[kind] += produces = { unit ids }, requires = { building ids }, supply = n, armor = n,
                    onNode = 'gold'   -- must stand squarely on a node of this resource
 units[kind]     += armor = n, requires = { building ids },
-                   harvest = { substrate = T.ticks(2), charge = T.ticks(3) }, carry = 8
+                   harvest = { substrate = T.ticks(2), charge = T.ticks(3) }, carry = 8,
                                     -- ticks per load by resource; the unit may harvest only what is listed
+                   flying = true,          -- straight routes through anything, no ground, no blocking
+                   canAttackAir = true, airDamage = n,   -- may target flyers; the weaker figure against them
+                   splash = T.cells(1.5)   -- ground enemies within this radius of the target are hit too
 rules           += resources = { 'gold' },      -- ledger keys in display order; every cost uses one
                    supplyFromBuildings = false, -- true: the cap is the sum of completed buildings' supply
                    cancelRefundPercent = 50,

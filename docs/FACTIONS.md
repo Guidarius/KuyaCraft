@@ -24,6 +24,8 @@ later phases; **DESIGNED** is in the reference and not scheduled.
 | Harvesting | one worker loads at a patch at a time; a second hops to a free patch within 6 cells or waits |
 | Building weapons | reach is measured from the edge of the footprint nearest the target |
 | Sight | line of sight, blocked by terrain, buildings and forests |
+| Air | a `flying` unit routes straight to its destination through terrain and units, occupies no ground and blocks nothing; only a `canAttackAir` weapon may target it, using `airDamage` when it has one |
+| Splash | a `splash` weapon also hits every enemy on the ground within its radius of the target, each against its own armor; never allies, never the air |
 
 ## The Orders — LIVE
 
@@ -37,6 +39,7 @@ from a Barracks. Start: one Keep, four Workers, 400 substrate, 0 charge.
 | `keep` Keep | 400 | — | 1400 t (70 s) | 1500 | 2 | 4×4 | +10 | 10 | Worker | — |
 | `depot` Supply Depot | 100 | — | 500 t (25 s) | 500 | 1 | 2×2 | +8 | 6 | — | Keep |
 | `barracks` Barracks | 150 | — | 900 t (45 s) | 1000 | 1 | 3×3 | — | 8 | Footman, Crossbow, Gryphon Knight | Keep |
+| `sanctum` Sanctum | 200 | 100 | 1200 t (60 s) | 900 | 1 | 3×3 | — | 9 | Reliquary | Keep, Barracks |
 
 The Keep is the drop-off, the worker producer and a life. It shoots: 20 damage every 30
 ticks (1.5 s), windup 6, reach 7 cells past its wall.
@@ -49,6 +52,12 @@ ticks (1.5 s), windup 6, reach 7 cells past its wall.
 | `footman` Footman | 50 | — | 2 | 440 t | 140 | 1 | 13 | 22 t | 6 t | melee | 40 | 7 |
 | `crossbow` Crossbow | 75 | — | 2 | 560 t | 80 | 0 | 20 | 40 t | 10 t | 9 cells | 34 | 9 |
 | `gryphon` Gryphon Knight | 150 | 50 | 3 | 760 t | 180 | 2 | 9 | 12 t | 3 t | melee | 44 | 8 |
+| `reliquary` Reliquary | 150 | 100 | 2 | 900 t | 150 | 0 | — | — | — | heals 12/s within 4 cells | 42 | 9 |
+
+The Reliquary flies and has no weapon: it heals the most hurt ally within four cells by 12
+every second (the shared healer rule picks the lowest health fraction, not the nearest).
+The Crossbow is the Orders' only anti-air weapon, at 10 damage per shot against a flyer
+instead of 20; nothing else, the Keep included, can touch one.
 
 The Worker harvests 8 per load: 40 ticks (2 s) at a substrate patch, 60 ticks (3 s) at a
 charge geyser. Melee range is a quarter cell past the bodies.
@@ -61,8 +70,6 @@ lasts 12.5 s.
 
 ### Not yet live for the Orders
 
-- **PLANNED, phase 4:** the Sanctum and the Reliquary (a flying healer), the air layer and
-  the Crossbow's anti-air shot.
 - **DESIGNED:** Footman cohesion aura, Crossbow line shot, Gryphon fly/land and Charge,
   Reliquary recall and ranged shield, Keep tiers and Houses, killable building upgrades, a
   Fletchery.

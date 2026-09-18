@@ -44,7 +44,8 @@ function G.pressedSeparation(w,a,b)
     return a.owner==b.owner and math.floor(r*G.PRESS/100) or r
 end
 local function blocks(w,e,x,y,r,except)
-        if e.alive and e.category=='unit' and e.id~=except then
+        -- A flyer blocks nothing on the ground.
+        if e.alive and e.category=='unit' and e.id~=except and not w.content.units[e.kind].flying then
             local gap=r+G.radius(w,e)
             if math.abs(x-e.x)<gap and math.abs(y-e.y)<gap and F.distance2Bounded(x,y,e.x,e.y)<gap*gap then return true end
         end
