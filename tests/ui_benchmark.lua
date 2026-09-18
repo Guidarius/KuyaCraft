@@ -1,4 +1,4 @@
-local Sim=require('src.sim');local Codec=require('src.sim.codec');local C=require('src.content')
+local Sim=require('src.sim');local Codec=require('src.sim.codec')
 local Replay=require('src.replay');local Minimap=require('src.ui.minimap')
 local B={}
 local function percentile(a,p) local s={};for i,v in ipairs(a) do s[i]=v end;table.sort(s);return s[math.max(1,math.ceil(#s*p))] or 0 end
@@ -7,7 +7,9 @@ local function percentile(a,p) local s={};for i,v in ipairs(a) do s[i]=v end;tab
 -- covers the simulation hides the view copy, the observation memory and hashing.
 local PHASES={'step','view','observation','events','feedback','replay'}
 function B.create(options)
- local app=require('src.app').create({map='open_fields'})
+ local shippingContent=options['balance-benchmark'] or options.map=='twin_marches'
+ -- The fixture battle is built from the mechanics fixture, so the app plays that content too.
+ local app=require('src.app').create({map='open_fields',content=not shippingContent and require('tests.fixture_content') or nil})
  -- --map twin_marches selects the shipping 192x192 map. stressWorld already
  -- deploys 240 units on it with the battle clearings widened, so it is the
  -- shipping-map variant of this benchmark rather than a second fixture.
@@ -25,7 +27,7 @@ function B.create(options)
  local self=setmetatable({app=app,times={},drawTimes={},minimapTimes={},tickTimes={},cadence={},steps=0,frames=0,attacks=0,accumulator=0,
   target=tonumber(options['ui-samples']) or 600,start=love.timer.getTime(),initial=collectgarbage('count'),
   maxParticles=0,maxSources=0,maxBacklog=0,maxDrawCalls=0,drawCalls={},heapSamples={},
-  recording=Replay.create({seed=1,players={{faction='bastion'},{faction='wild'}}},C,w.map,Replay.OFFLINE_INTERVAL)},{__index=B})
+  recording=Replay.create(w.config,app.content,w.map,Replay.OFFLINE_INTERVAL)},{__index=B})
  self.phase={};for _,name in ipairs(PHASES) do self.phase[name]={} end
  return self
 end

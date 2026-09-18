@@ -55,20 +55,33 @@ local function barColor(app,e)
     if e.owner==0 then return BAR_NEUTRAL end
     return BAR_ENEMY
 end
+-- The faction ids a content table offers, in a fixed order, so a default can be chosen
+-- without the app knowing any faction's name.
+local function factionIds(content)
+    local ids={};for id in pairs(content.factions) do ids[#ids+1]=id end;table.sort(ids);return ids
+end
 function App.create(options)
-    assert(Content.factions[options.faction or 'bastion'],'unknown faction: '..tostring(options.faction))
-    local config={seed=12345,players={{faction=options.faction or 'bastion'},{faction=options.opponent or 'wild'}}}
+    -- The content this app plays: the shipping catalogue unless a caller (a test with a
+    -- fixture) supplies its own. Everything the presentation reads about a unit or a
+    -- building comes from here, never from the shipping module directly.
+    local content=options.content or Content
+    local ids=factionIds(content)
+    local faction=options.faction or ids[1]
+    assert(content.factions[faction],'unknown faction: '..tostring(faction))
+    local opponent=options.opponent or ids[2] or ids[1]
+    assert(content.factions[opponent],'unknown faction: '..tostring(opponent))
+    local config={seed=12345,players={{faction=faction},{faction=opponent}}}
     local map=Maps.create(options.map)
-    local self=setmetatable({options=options,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
+    local self=setmetatable({options=options,content=content,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
         camera={x=28,y=115,zoom=1},previous={},message='Select a worker and build an extractor on a gold mine to begin.',effects={},fonts={}}, {__index=App})
     self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12);self.fonts.card=love.graphics.newFont(10)
     if options.replay then
-        self.playback=Replay.read(options.replay,Content);config=self.playback.header.config;map=self.playback.header.map
+        self.playback=Replay.read(options.replay,content);config=self.playback.header.config;map=self.playback.header.map
         self.message='Replay playback | commands are read-only'
     end
-    self.world=Sim.create(config,Content,map);self.recording=Replay.create(config,Content,map,Replay.OFFLINE_INTERVAL)
+    self.world=Sim.create(config,content,map);self.recording=Replay.create(config,content,map,Replay.OFFLINE_INTERVAL)
     if options.host or options.join then
-        self.network=require('src.net.session').create(options,config,Content,map);self.player=self.network.player
+        self.network=require('src.net.session').create(options,config,content,map);self.player=self.network.player
     end
     self.settings=options.settings or Settings.load()
     self.widgets=require('src.ui.widgets').create();self.observation=require('src.ui.observation').create()
@@ -79,12 +92,19 @@ function App.create(options)
     self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
     self.feedback=require('src.feedback').create()
     self.feedback:observe({},self.view,self.world.tick)
-    self.selected={self.world.players[self.player].hero}
+    self.selected={self:focus()}
     local ok,sprites=pcall(require,'src.sprites')
     if ok then self.sprites=sprites.load() end
     Camera.normalize(self)
-    Camera.center(self,self.world.entities[self.view.player.hero].x,self.world.entities[self.view.player.hero].y)
+    local home=self.world.entities[self:focus()]
+    Camera.center(self,home.x,home.y)
     return self
+end
+-- What the player looks at first and returns to with F1: the hero, or for a faction
+-- without one, the headquarters.
+function App:focus()
+    local p=self.world.players[self.player]
+    return p.hero or p.hq
 end
 function App:screen(x,y)
     return self.camera.x+x/256*26*self.camera.zoom,self.camera.y+y/256*CELL_Y*self.camera.zoom
@@ -169,7 +189,7 @@ function App:update(dt)
         if not self.started then
             self.started=true;self.world=Sim.create(self.network.config,Content,self.network.map)
             self.recording=Replay.create(self.network.config,Content,self.network.map,Replay.OFFLINE_INTERVAL)
-            self.selected={self.world.players[self.player].hero};self.view=Sim.view(self.world,self.player)
+            self.selected={self:focus()};self.view=Sim.view(self.world,self.player)
             self.observation=require('src.ui.observation').create();self.observation:update(self.view)
             self.alerts=require('src.ui.alerts').create();self.healthTrails={};self.audio:clear()
             if self.sprites then self.sprites:reset() end
@@ -412,7 +432,7 @@ function App:drawEntity(e)
         if e.remaining>0 then
             g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
-            g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/Content.buildings[e.kind].buildTicks),5*z)
+            g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
         end
         g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
     elseif e.category=='node' then
@@ -440,7 +460,7 @@ function App:drawEntity(e)
         if (e.payload or 0)>0 then g.setColor(0.96,0.82,0.36);g.polygon('fill',x-6*z,y-24*z,x,y-30*z,x+6*z,y-24*z,x,y-21*z) end
         if self.feedback:flashing(e.id,self.world.tick) then g.setColor(1,1,1,.55);g.ellipse('fill',x,y-10*z,8*z,10*z) end
     else
-        local d=Content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
+        local d=self.content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
         -- Your own badly hurt units pulse on the ground, so the one about to die is found without
         -- reading every bar. Drawn rather than spawned, so the effect budget is untouched.
         if e.owner==self.player and e.alive and e.hp*100<e.maxHp*LOW_HEALTH then
@@ -528,7 +548,7 @@ function App:draw()
     -- owner's colour; the fill grows with a capture in progress, in the capturer's colour.
     local control=self.view.control
     if control then
-        local rules=Content.rules.control or require('src.sim.control').DEFAULT
+        local rules=self.content.rules.control or require('src.sim.control').DEFAULT
         local rx,ry=rules.radius/256*26*z,rules.radius/256*CELL_Y*z
         for _,point in ipairs(control.points) do
             local px,py=self:screen(point.x,point.y)
@@ -648,7 +668,7 @@ function App:draw()
         g.setColor(0.52,0.86,0.73);g.setLineWidth(1);g.rectangle('line',self.drag.x,self.drag.y,mx-self.drag.x,my-self.drag.y)
     end
     if self.building then
-        local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=Content.buildings[self.building].size
+        local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=self.content.buildings[self.building].size
         local valid,reason=Sim.placement(self.view,Content,self.building,F.cell(wx),F.cell(wy))
         g.setColor(valid and .4 or 1,valid and .85 or .3,.3,.4);g.rectangle('fill',x,y,size*26*z,size*CELL_Y*z)
         g.setColor(valid and .65 or 1,valid and 1 or .3,.4);g.rectangle('line',x,y,size*26*z,size*CELL_Y*z)
@@ -711,7 +731,7 @@ function App:controlGroupBadges()
 end
 
 function App:unitVisualScale(e)
-    local d=Content.units[e.kind];if not d then return 1 end
+    local d=self.content.units[e.kind];if not d then return 1 end
     local u=self.sprites and self.sprites.units[Frames.assetId(e)]
     local target=d.hero and 38.4 or d.worker and 26.24 or 32
     return u and target/(u.metadata.bodyHeightPixels*(u.metadata.drawScale or 1)) or d.worker and .82 or 1
@@ -756,7 +776,7 @@ function App:seek(tick,player)
         self.observation:update(Sim.view(self.world,self.player))
     end
     self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.audio:clear()
-    self.alerts=require('src.ui.alerts').create();self.selected={self.view.player.hero};self.cardPage=nil;self.cardSelection=nil;self.uiNotice=nil;self.costFlash=nil;self.commandMarks={};self.orderMarker=nil;if self.sprites then self.sprites:reset() end
+    self.alerts=require('src.ui.alerts').create();self.selected={self:focus()};self.cardPage=nil;self.cardSelection=nil;self.uiNotice=nil;self.costFlash=nil;self.commandMarks={};self.orderMarker=nil;if self.sprites then self.sprites:reset() end
 end
 -- Saving a replay must never be able to take the game down with it. A packaged build
 -- can easily be sitting somewhere the player cannot write -- Program Files, a read-only

@@ -4,7 +4,6 @@ local Selection=require('src.ui.selection')
 local Icons=require('src.ui.icons')
 local Actions=require('src.ui.actions')
 local Input=require('src.ui.input')
-local C=require('src.content')
 local Camera=require('src.ui.camera')
 local H={}
 local function text(value,x,y,w) love.graphics.setColor(.83,.86,.81);love.graphics.printf(value,x,y,w or 180) end
@@ -12,6 +11,7 @@ local function bar(x,y,w,value,max)
  local g=love.graphics;g.setColor(.04,.07,.08);g.rectangle('fill',x,y,w,6);g.setColor(.42,.76,.55);g.rectangle('fill',x,y,w*math.max(0,math.min(1,value/math.max(1,max))),6)
 end
 function H.draw(app)
+ local C=app.content
  local g=love.graphics;local s=app.settings.scale/100;local width,height=g.getDimensions();local w,h=width/s,height/s;local y=h-180
  local actions=Actions.list(app)
  g.push('all');g.scale(s);g.setFont(app.fonts.small);app.widgets:begin(s);app.widgets.context=app.overlay or 'match';app.widgets.notice=app.uiNotice;app.widgets.clock=app.clock
@@ -171,6 +171,7 @@ end
 -- goes: what it is, its health, and the statistics anyone could look up. Nothing about its
 -- orders, queue or experience, which a view does not carry for someone else's entity.
 function H.inspect(app,e,x,y,width)
+ local C=app.content
  local g=love.graphics
  local d=C.units[e.kind] or C.buildings[e.kind]
  local name=e.category=='node' and (e.resource=='gold' and 'Gold mine' or 'Resource') or (d and d.label) or e.kind
@@ -193,6 +194,7 @@ H.TILES_PER_PAGE=12
 -- A page of up to twelve per-unit tiles, each with its own health. Paging keeps the
 -- dock a fixed size with any selection size; Tab still cycles subgroups as before.
 function H.unitTiles(app,x,y,width)
+ local C=app.content
  local g=love.graphics
  local ids=app.selected
  local pages=math.ceil(#ids/H.TILES_PER_PAGE)
@@ -280,6 +282,7 @@ end
 -- The control-point countdown is public, so both sides read the same clock: the holder to
 -- defend it, the other player to know how long they have to break the hold.
 function H.control(app)
+ local C=app.content
  local control=app.view and app.view.control
  if not control or control.holder==0 or app.world.result then return end
  local g=love.graphics;local w=g.getDimensions()

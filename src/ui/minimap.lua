@@ -1,5 +1,4 @@
 local Camera=require('src.ui.camera')
-local Content=require('src.content')
 local Selection=require('src.ui.selection')
 local Terrain=require('src.ui.terrain')
 local M={}
@@ -97,7 +96,7 @@ function M.draw(app,panel)
   local x,y=r.x+e.x/256*r.cell,r.y+e.y/256*r.cell
   if e.owner==app.player then g.setColor(.35,.78,1) elseif e.owner==0 then g.setColor(.85,.72,.4) else g.setColor(1,.35,.25) end
   if e.remembered then g.setColor(.5,.48,.4,.6) end
-  local unit=Content.units[e.kind];local hero=unit and unit.hero
+  local unit=app.content.units[e.kind];local hero=unit and unit.hero
   if e.category=='building' then g.rectangle(e.remembered and 'line' or 'fill',x-2,y-2,5,5)
   elseif e.category=='node' then if e.resource=='gold' then g.polygon('fill',x,y-3,x+3,y,x,y+3,x-3,y) else g.polygon('fill',x,y-4,x+3,y+2,x-3,y+2) end
   elseif hero then g.polygon('fill',x,y-4,x+4,y,x,y+4,x-4,y)

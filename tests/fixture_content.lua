@@ -24,6 +24,10 @@ local C = {
         warden = { label = 'Warden', radius = 80, windup = 4, hp = 600, damage = 24, range = 350, cooldown = 20, speed = 32, sight = 8, hero = true },
         beastkeeper = { label = 'Beastkeeper', radius = 80, windup = 4, hp = 460, damage = 22, range = 350, cooldown = 18, speed = 40, sight = 8, hero = true },
         neutral = { label = 'Camp guardian', radius = 80, windup = 4, hp = 170, damage = 10, range = 340, cooldown = 25, speed = 24, sight = 5 },
+        -- The two other camp kinds the shipping Twin Marches places, so the rendered suite can
+        -- run this fixture on that map. Never spawned by the fixture maps themselves.
+        scout = { label = 'Camp scout', radius = 80, windup = 4, hp = 90, damage = 6, range = 340, cooldown = 25, speed = 30, sight = 5 },
+        leader = { label = 'Camp leader', radius = 112, windup = 4, hp = 320, damage = 18, range = 340, cooldown = 28, speed = 24, sight = 5 },
         carrier = { label = 'Gold carrier', radius = 56, hp = 40, cooldown = 1, windup = 1, range = 0, speed = 40, sight = 0, food = 0, buildTicks = 0, cost = {}, carrier = true },
         projectile = { label = 'Projectile', radius = 1, hp = 1, cooldown = 1, windup = 1, range = 0, speed = 1, sight = 0, food = 0, buildTicks = 0, cost = {}, projectile = true }
     },

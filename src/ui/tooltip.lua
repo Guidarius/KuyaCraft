@@ -1,4 +1,3 @@
-local C=require('src.content')
 -- Tooltips, the Warcraft 3 way. A command card button answers at once, in a fixed place just above
 -- the card, so a player sweeping the pointer across the card reads each cost without the panel
 -- chasing the cursor. Everything else -- the resource bar, the hero panel, a unit in the world --
@@ -58,6 +57,7 @@ end
 -- What a player learns by resting the pointer on something in the world: what it is, whose it is,
 -- and how it is doing. Only fields a view carries for that entity, so fog and enemy privacy hold.
 function T.entity(app,e)
+ local C=app.content
  local d=C.units[e.kind] or C.buildings[e.kind]
  local side=ownerOf(app,e)
  local spec={subtitle=T.OWNER_LABELS[side],subtitleColor=T.COLORS[side],lines={},stats={}}

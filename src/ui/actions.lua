@@ -1,4 +1,3 @@
-local C=require('src.content')
 local Sim=require('src.sim')
 local Selection=require('src.ui.selection')
 local Input
@@ -33,6 +32,7 @@ local function missing(costs)
  for _,cost in ipairs(costs) do if cost.short then return 'Insufficient '..cost.label end end
 end
 function A.upgradeReason(app,hero,milestone)
+ local C=app.content
  if not hero or not hero.alive then return 'Hero is dead' end
  if hero.upgrades[milestone] then return 'Already learned' end
  if milestone>1 and not hero.upgrades[milestone-1] then return 'Learn the previous tier first' end
@@ -66,7 +66,7 @@ function A.activate(app,action)
  return true
 end
 function A.list(app)
- local ctx=A.context(app);local e=app:entity(Selection.primary(app));local list={}
+ local C=app.content;local ctx=A.context(app);local e=app:entity(Selection.primary(app));local list={}
  Input=Input or require('src.ui.input')
  local locked=app.playback and 'Replay is read-only' or app.world.result and 'Match has ended' or app.network and not app.network.ready and 'Waiting for match to start' or nil
  local function add(id,label,key,fn,reason,tip,costs,menu)
@@ -94,7 +94,7 @@ function A.list(app)
    local learned=hero.upgrades[tier];local reason=learned and (learned==choice and 'Learned' or 'Other choice learned') or A.upgradeReason(app,hero,tier)
    add('ability-'..tier..'-'..choice,label,({'q','w','e','r','t','y'})[(tier-1)*2+choice],function()
     app.overlay='upgrade';app.upgradeMilestone=tier;app.upgradeChoice=choice
-   end,reason,'Tier '..tier..': '..A.upgrades[app.view.player.faction][tier][choice]..' Choose one per tier; permanent. XP is a threshold, not spent.',costs)
+   end,reason,'Tier '..tier..': '..((A.upgrades[app.view.player.faction] or {})[tier] or {})[choice]..' Choose one per tier; permanent. XP is a threshold, not spent.',costs)
    list[#list].slot=(tier-1)*3+choice;list[#list].badge='T'..tier;list[#list].status=learned and (learned==choice and 'Learned' or 'Excluded') or nil
   end end
   back();return list
@@ -114,7 +114,7 @@ function A.list(app)
   local roster=Sim.producesFor(C,faction,e.kind)
   local cap=app.view.player.supplyCap or C.rules.population
   for i,kind in ipairs(roster) do local d=C.units[kind]
-   local costs=A.costs(app,d.cost,e,{{key='food',label='food',amount=d.food,available=cap-Sim.population(app.world,app.player)}})
+   local costs=A.costs(app,d.cost,e,{{key='food',label='food',amount=d.food or 1,available=cap-Sim.population(app.world,app.player)}})
    local reason=dead or e.remaining>0 and 'Building unfinished' or #e.queue>=5 and 'Production queue full' or d.tech and not app.view.player.tech and 'Requires HQ advancement' or requirement(d) or missing(costs)
    add('recruit-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('recruit',e.id,{unit=kind}) end,reason,
     'Train '..d.label..'; '..(d.buildTicks/C.rules.tickRate)..' seconds.'..(d.tech and ' Requires HQ advancement.' or ''),costs)

@@ -1,5 +1,9 @@
 local T={}
-local C=require('src.content');local Sim=require('src.sim');local Actions=require('src.ui.actions')
+local Sim=require('src.sim');local Actions=require('src.ui.actions')
+-- The mechanics fixture, with the two things these card checks need that it does not carry:
+-- an advancement gate on the support and heavy troops, and a heavy troop that eats real food.
+local C=require('src.sim.codec').copy(require('tests.fixture_content'))
+C.units.medic.tech=true;C.units.siege.tech=true;C.units.siege.food=4;C.rules.tech={cost={gold=100},ticks=100}
 local function fixture()
  local w=Sim.create({seed=12345,players={{faction='bastion'},{faction='wild'}}},C,require('src.maps').create('open_fields'))
  -- The audio stub records what played, so tests can hear what a player would hear.
@@ -7,7 +11,7 @@ local function fixture()
  function audio:play(name) self.played[#self.played+1]=name end
  function audio:ack(kind,order) self.acks[#self.acks+1]=order end
  function audio:selected(kind) self.played[#self.played+1]='select' end
- local app={world=w,view=Sim.view(w,1),player=1,selected={},settings={bindings={attack='a',stop='s',hold='h',build='b'}},clock=0,queue={},audio=audio}
+ local app={world=w,content=C,view=Sim.view(w,1),player=1,selected={},settings={bindings={attack='a',stop='s',hold='h',build='b'}},clock=0,queue={},audio=audio}
  function app:entity(id) for _,e in ipairs(self.view.entities) do if e.id==id then return e end end end
  function app:command(kind,id,args) self.queue[#self.queue+1]={kind=kind,id=id,args=args} end
  return app
@@ -57,7 +61,7 @@ function T.availability()
  app.playback={};assert(index(app)['ability-2-1'].reason=='Replay is read-only')
 end
 function T.rendered()
- local app=require('src.app').create({map='open_fields'});app.noAutoSave=true
+ local app=require('src.app').create({map='open_fields',content=C});app.noAutoSave=true
  local function click(id)
   app:draw();for _,b in ipairs(app.widgets.items) do if b.id==id then local s=app.widgets.scale;app:mousepressed((b.x+b.w/2)*s,(b.y+b.h/2)*s,1);return b end end;error('missing '..id)
  end

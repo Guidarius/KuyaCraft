@@ -1,4 +1,3 @@
-local Content=require('src.content')
 local S={}
 function S.has(ids,id) for _,v in ipairs(ids) do if v==id then return true end end return false end
 function S.toggle(ids,id) for i,v in ipairs(ids) do if v==id then table.remove(ids,i);return end end;ids[#ids+1]=id;table.sort(ids) end
@@ -16,11 +15,11 @@ end
 -- worker, a unit over a building. Lowest id breaks ties so the card never flickers
 -- between two equals as they move.
 local RANK={hero=0,combat=1,worker=2,building=3,other=4}
-function S.rank(e)
+function S.rank(e,app)
  if not e then return RANK.other end
  if e.category=='building' then return RANK.building end
  if e.category~='unit' then return RANK.other end
- local d=Content.units[e.kind]
+ local d=app and app.content.units[e.kind]
  if d and d.hero then return RANK.hero end
  if d and d.worker then return RANK.worker end
  return RANK.combat
@@ -39,7 +38,7 @@ function S.primary(app)
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
   if e then
-   local rank=S.rank(e)
+   local rank=S.rank(e,app)
    if not best or rank<bestRank or (rank==bestRank and id<best) then best,bestRank=id,rank end
   end
  end

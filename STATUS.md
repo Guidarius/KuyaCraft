@@ -1534,3 +1534,36 @@ rendered UI and presentation suites at all three resolutions. Zero failures. The
 asymmetric pacing reports are byte-identical to the parent run recorded under phase 1, and
 both fixture matches end on the same tick with the same winner. Not done: a human
 playtest, and the draft pull request (`gh` is not installed here).
+
+## Pivot phase 3a: the presentation plays whatever content it is given
+
+Groundwork for shipping the Orders in place of the Bastion and Wild Pact. Until now every
+HUD, card, tooltip, minimap and input module required `src/content.lua` directly and the app
+selected and centred on a hero at start, so the shipping content could not lose its heroes
+without the rendered suite losing the checks that cover the hero panel, stances, upgrades
+and abilities. Those systems are staying (retired to the mechanics fixture, per the pivot
+decisions), so the presentation now reads its definitions from the app instead.
+
+- `App.create` takes an optional `content` table and keeps it as `app.content`; the world,
+  the recording, replay reading and the network session are built from it. The default
+  faction and opponent are the first two ids in the content, so no faction name is written
+  into the app. Every UI module reads `app.content`; only the menu shell still requires the
+  shipping catalogue, because it is the shipping entry point.
+- `App:focus()` is the hero or, for a faction without one, the headquarters: it is selected
+  and centred at start, on a perspective change and by F1. Ctrl+F1 follow is offered only
+  when there is a hero. The hero upgrade prose is guarded for factions without upgrades.
+- The rendered suite (`--ui-test`) plays the mechanics fixture on the shipping map, which
+  is where the hero exercises now belong; the command card, control input, asset
+  presentation, UI benchmark and the two-process network proof do the same. The fixture
+  gains `scout` and `leader` camp kinds so Twin Marches can spawn its camps from it. The
+  Twin Marches checks in the rendered suite still run on the shipping content.
+
+No simulation change and no shipped behaviour change: the shell still starts the same
+factions on the same content. Not done: a human playtest, and the draft pull request (`gh`
+is not installed here).
+
+Verification on the desk machine: `quick` 108 passed, `network` 4 plus the ENet pair,
+`scripts/test-ui.ps1` at three resolutions and `scripts/test-presentation.ps1`, zero
+failures. The rendered captures under `artifacts/ui-*.png` show the fixture's Warden panel,
+stances and abilities on Twin Marches. No simulation suite beyond `quick` and `network` was
+run, because no simulation file changed.

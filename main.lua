@@ -25,7 +25,12 @@ else
             app=require('tests.asset_presentation').create(options)
         elseif options['asset-viewer'] then
             app=require('src.asset_viewer').create(require('src.sprites').load())
-        elseif not options.smoke then app=require(options['ui-test'] and 'src.app' or 'src.ui.shell').create(options); if options['ui-test'] then require('tests.presentation').run(app) end end
+        elseif options['ui-test'] then
+            -- The rendered suite exercises the hero panel, stances, upgrades and abilities, which
+            -- live on in the mechanics fixture; it plays the fixture factions on the shipping map.
+            options.content=options.content or require('tests.fixture_content')
+            app=require('src.app').create(options);require('tests.presentation').run(app)
+        elseif not options.smoke then app=require('src.ui.shell').create(options) end
     end
     local frames=0
     function love.update(dt)

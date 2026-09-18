@@ -199,7 +199,7 @@ function M.rightClick()
     local shield=Codec.copy(worker);shield.id=w.nextId;w.nextId=shield.id+1;shield.kind='shield';w.entities[shield.id]=shield;w.order[#w.order+1]=shield.id
     Sim.step(w,{})
     local audio={};function audio:play() end;function audio:ack() end;function audio:selected() end
-    local app={world=w,view=Sim.view(w,1),player=1,selected={worker.id,shield.id},settings={bindings={}},clock=0,queue={},audio=audio}
+    local app={world=w,content=w.content,view=Sim.view(w,1),player=1,selected={worker.id,shield.id},settings={bindings={}},clock=0,queue={},audio=audio}
     function app:entity(id) for _,e in ipairs(self.view.entities) do if e.id==id then return e end end end
     function app:command(kind,id,args) self.queue[#self.queue+1]={kind=kind,id=id,args=args} end
     local keyboard=love.keyboard.isDown;love.keyboard.isDown=function() return false end

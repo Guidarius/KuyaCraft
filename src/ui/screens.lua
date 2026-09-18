@@ -1,4 +1,3 @@
-local C=require('src.content')
 local S={}
 local Settings=require('src.ui.settings')
 local HEALTH_BAR_LABELS={always='Always',selected='Selected',damaged='Damaged too'}
@@ -51,13 +50,13 @@ function S.overlay(app,w,h)
  if app.overlay=='settings' then return S.settings(app,w,h,function() app.overlay='pause' end) end
  local x,y=w/2-220,h/2-170;g.setColor(.07,.1,.12);g.rectangle('fill',x-20,y-25,480,355,6)
  if app.overlay=='upgrade' then
-  local hero=app:entity(app.view.player.hero);local milestone=app.upgradeMilestone;local faction=C.factions[app.view.player.faction]
+  local hero=app:entity(app.view.player.hero);local milestone=app.upgradeMilestone;local faction=app.content.factions[app.view.player.faction]
   local Actions=require('src.ui.actions');local reason=app.playback and 'Replay is read-only' or Actions.upgradeReason(app,hero,milestone)
   g.setColor(.94,.85,.6);g.print('Choose a permanent hero upgrade',x,y)
   for i=1,2 do
    local xx=x+(i-1)*225
    app.widgets:button('choice-'..i,faction.upgrades[milestone][i],xx,y+40,215,45,function() app.upgradeChoice=i;app.audio:play('menu') end,reason)
-   g.setColor(.84,.88,.82);g.printf(require('src.ui.actions').upgrades[app.view.player.faction][milestone][i],xx,y+100,210)
+   g.setColor(.84,.88,.82);g.printf(((require('src.ui.actions').upgrades[app.view.player.faction] or {})[milestone] or {})[i] or '',xx,y+100,210)
    if app.upgradeChoice==i then g.setColor(.85,.75,.35);g.rectangle('line',xx-2,y+38,219,170) end
   end
   app.widgets:button('commit','Choose Upgrade',x,y+235,440,34,function()

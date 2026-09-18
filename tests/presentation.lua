@@ -20,7 +20,9 @@ function T.run(app)
  app.settings.scale=100;app:keypressed('f1');assert(app.selected[1]==app.view.player.hero)
  local worker;for _,e in ipairs(app.view.entities) do if e.kind=='worker' and e.owner==1 then worker=e;break end end
  app.selected={worker.id};Camera.center(app,worker.x,worker.y);app:draw()
- app:keypressed('a');local x,y=app:screen(10*256+128,8*256+128);app:mousepressed(x,y,1);app:update(.05)
+ -- Aimed a few cells from the worker, which the camera has just centred, so the click lands in
+ -- the field whatever map and layout the fixture put the worker on.
+ app:keypressed('a');local x,y=app:screen(worker.x+3*256,worker.y+2*256);app:mousepressed(x,y,1);app:update(.05)
  assert(app.world.entities[worker.id].order.kind=='attack_move','A left click')
  app:keypressed('h');app:update(.05);assert(app.world.entities[worker.id].order.kind=='hold')
  app:keypressed('f3');app:draw();assert(app.debugOrders);app:keypressed('f3')
@@ -197,7 +199,7 @@ end
 -- markers coloured by what was ordered, and formation ghosts. All presentation, so every draw
 -- here is checked against the world, and every check is one that fails without its feature.
 function T.feelOrders(app)
- local Sim=require('src.sim');local Input=require('src.ui.input');local Content=require('src.content')
+ local Sim=require('src.sim');local Input=require('src.ui.input')
  app.overlay=nil;app.building=nil;app.targeting=nil
  local own,enemy={},nil
  for _,e in ipairs(app.view.entities) do
@@ -307,7 +309,7 @@ function T.feelWorld(app)
  local m=require('src.app').create({map='twin_marches'});m.noAutoSave=true
  local unit
  for _,e in ipairs(m.view.entities) do if e.alive and e.category=='unit' and e.owner==m.player and e.id~=m.view.player.hero then unit=e;break end end
- assert(unit,'Twin Marches has no unit of ours besides the hero')
+ assert(unit,'Twin Marches has no unit of ours')
  local event={kind='attack',owner=m.player,target=unit.id,source=0,x=unit.x,y=unit.y}
  local function announced()
   for _,item in ipairs(m.alerts.items) do if item.text=='Your forces are under attack' then return item end end
@@ -358,7 +360,7 @@ function T.gamefeel(app)
  assert(#app.selected>0,'F2 selected nothing')
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  assert(e.category=='unit' and not require('src.content').units[e.kind].worker,'F2 selected a non-combat unit')
+  assert(e.category=='unit' and not app.content.units[e.kind].worker,'F2 selected a non-combat unit')
  end
 
  -- Camera bookmarks store ground, not a camera offset, so they survive a zoom change.
@@ -573,7 +575,7 @@ function T.warcraftControls(app)
   -- And with no subgroup chosen it picks the most interesting member, not the lowest id.
   app.subgroupKind=nil
   local primary=app:entity(Selection.primary(app))
-  assert(Selection.rank(primary)<=Selection.rank(app:entity(worker)),'the card preferred a worker over a combat unit')
+  assert(Selection.rank(primary,app)<=Selection.rank(app:entity(worker),app),'the card preferred a worker over a combat unit')
  end
  -- Box selection takes your own units over anything else in the same rectangle, and
  -- never mixes a building into an army.
@@ -621,7 +623,7 @@ end
 -- card is a spell that does not exist as far as a player is concerned.
 function T.abilities(app)
  local Input=require('src.ui.input')
- local Content=require('src.content')
+ local Content=app.content
  local Camera=require('src.ui.camera')
  local hero=app:entity(app.view.player.hero)
  if not hero or not hero.alive then return end
@@ -744,7 +746,7 @@ function eqAbility(a,b) assert(a==b,'wrong ability: '..tostring(a)..' != '..tost
 -- and stay on screen; a modal hides what is under it; the world tooltip only says what a view
 -- carries. The pointer is stubbed, because a test cannot move the real one.
 function T.tooltips(app,capture)
- local Sim=require('src.sim');local Tooltip=require('src.ui.tooltip');local C=require('src.content')
+ local Sim=require('src.sim');local Tooltip=require('src.ui.tooltip');local C=app.content
  local g=love.graphics;local s=app.settings.scale/100;local width,height=g.getDimensions();local w,h=width/s,height/s
  local realPosition=love.mouse.getPosition
  local px,py=0,0
@@ -778,7 +780,7 @@ function T.tooltips(app,capture)
  local outpost=assert(item('outpost'))
  at(outpost.x+5,outpost.y+5);tip=frame(0)
  assert(tip.id=='w:outpost' and tip.y+tip.h==anchoredBottom and tip.x+tip.w==w-16,'the card tooltip moved with the pointer')
- assert(type(tip.spec.lines[1])=='string' and tip.spec.lines[1]:find('drop%-off') and tip.spec.stats[1]=='Build 90s','the Outpost tooltip does not say what it is for or how long it takes')
+ assert(type(tip.spec.lines[1])=='string' and tip.spec.lines[1]:find('drop%-off') and tip.spec.stats[1]=='Build '..string.format('%g',C.buildings.outpost.buildTicks/20)..'s','the Outpost tooltip does not say what it is for or how long it takes')
  capture('tooltip-card',function() app:draw() end)
  player.resources.gold=gold;app.view=Sim.view(world,1);app.cardPage=nil
  -- A hero spell: its own name as the title, whatever the button shows, with cooldown and aim.

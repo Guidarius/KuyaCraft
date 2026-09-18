@@ -1,5 +1,4 @@
 local Codec=require('src.sim.codec')
-local Content=require('src.content')
 local Sim=require('src.sim')
 local Actions=require('src.ui.actions')
 local Camera=require('src.ui.camera')
@@ -19,7 +18,7 @@ local function ctrl() return love.keyboard.isDown('lctrl','rctrl') end
 function I.arm(app,command,ability,px,py)
  app.building=nil
  if not command then app.targeting=nil;return end
- local spec=ability and Content.abilities and Content.abilities[ability] or nil
+ local spec=ability and app.content.abilities and app.content.abilities[ability] or nil
  -- A no-target ability has nothing to click: it fires where the caster stands.
  if spec and spec.target=='none' then app.targeting=nil;I.castAt(app,nil,nil,nil,ability);return end
  -- Smart cast: the key is the cast. Warcraft 3 added this because arming and then
@@ -43,12 +42,12 @@ function I.disarm(app) app.targeting=nil;app.building=nil end
 -- caster walks, exactly as it does for an attack order.
 function I.castAt(app,x,y,target,ability)
  if app.playback then return end
- local spec=Content.abilities and Content.abilities[ability]
+ local spec=app.content.abilities and app.content.abilities[ability]
  if not spec then return end
  local ordered={}
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  local d=e and e.alive and e.owner==app.player and Content.units[e.kind]
+  local d=e and e.alive and e.owner==app.player and app.content.units[e.kind]
   local owns=false
   if d and d.abilities then for _,name in ipairs(d.abilities) do if name==ability then owns=true end end end
   if owns then
@@ -120,7 +119,7 @@ function I.intent(app,x,y,target,kind)
   if e and e.alive and e.category=='unit' and e.owner==app.player then
    local command=focus and 'attack' or kind;local args={append=shift(),group=app.commandGroup}
    if not command then
-    local def=app.world and app.world.content.units[e.kind]
+    local def=app.content.units[e.kind]
     if target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
     -- A right-click on a patch a worker can work is a harvest order; anyone else just walks there.
     elseif target and target.category=='node' and def and def.harvest and def.harvest[target.resource] then command='harvest'
@@ -208,7 +207,7 @@ function I.mousepressed(app,x,y,button,presses)
     for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.alive and e.owner==app.player and e.kind=='worker' then app.activeAction=app.building;issued=app:command('build',id,{building=app.building,x=cx,y=cy,append=shift()});app.activeAction=nil;if not issued then return end;break end end
     if issued then Feedback.notify(app,'build_order','Construction ordered',app.building,nil,wx,wy) else Feedback.notify(app,'rejected','Select workers to build',app.building,nil,wx,wy) end
     if issued and not shift() then app.awaitingPlacement=app.building;app.building=nil end
-   else Feedback.notify(app,'rejected',reason,app.building,Actions.costs(app,require('src.content').buildings[app.building].cost),wx,wy) end
+   else Feedback.notify(app,'rejected',reason,app.building,Actions.costs(app,app.content.buildings[app.building].cost),wx,wy) end
   elseif app.targeting then local wx,wy=app:position(x,y);I.resolveTargeting(app,wx,wy,app:pick(x,y))
   elseif (presses and presses>=2) or ctrl() then I.selectSameKind(app,x,y)
   else app.drag={x=x,y=y};app.capture='selection' end
@@ -344,7 +343,7 @@ function I.army(app)
  local ids={}
  for _,e in ipairs(app.view.entities) do
   if e.alive and e.owner==app.player and e.category=='unit' then
-   local d=Content.units[e.kind]
+   local d=app.content.units[e.kind]
    if d and not d.worker then ids[#ids+1]=e.id end
   end
  end
@@ -389,8 +388,10 @@ function I.keypressed(app,key)
  if app.overlay then return end
  local bindings=app.settings.bindings
  if key==bindings.hero then
-  if ctrl() then app.followHero=not app.followHero;app.message=app.followHero and 'Following hero' or 'Hero follow off';return end
-  app.selected={app.view.player.hero};local e=app:entity(app.view.player.hero);if app.lastHero and app.clock-app.lastHero<.35 and e then Camera.glide(app,e.x,e.y) end;app.lastHero=app.clock
+  -- The hero, or the headquarters for a faction that has none.
+  local focus=app.view.player.hero or app.view.player.hq
+  if ctrl() and app.view.player.hero then app.followHero=not app.followHero;app.message=app.followHero and 'Following hero' or 'Hero follow off';return end
+  app.selected={focus};local e=app:entity(focus);if app.lastHero and app.clock-app.lastHero<.35 and e then Camera.glide(app,e.x,e.y) end;app.lastHero=app.clock
  elseif key==bindings.alert then local a=app.alerts.items[1];if a and a.x then Camera.glide(app,a.x,a.y) end
  elseif key==bindings.idle then I.selectIdleWorker(app)
  elseif key=='f2' then
@@ -406,7 +407,7 @@ function I.keypressed(app,key)
  elseif key=='tab' then
   local kind=Selection.cycle(app)
   if kind then
-   local label=(Content.units[kind] or Content.buildings[kind] or {}).label or kind
+   local label=(app.content.units[kind] or app.content.buildings[kind] or {}).label or kind
    app.message=label..' commands';app.audio:play('click')
   end
   app.lastTab=app.clock
