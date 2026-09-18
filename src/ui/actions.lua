@@ -73,9 +73,16 @@ function A.list(app)
   list[#list+1]={id=id,label=label,key=key or '',run=fn,reason=(not menu and locked) or reason,tip=tip,costs=costs,menu=menu}
  end
  local function back() add('back-card','Back','escape',function() app.cardPage=nil;app.building=nil;app.targeting=nil end,nil,'Return to commands.',nil,true);list[#list].slot=9 end
+ local faction=C.factions[app.view.player.faction]
+ -- The name of the first unmet requirement, for a card's reason line.
+ local function requirement(d)
+  local kind=Sim.missingRequirement(app.view,app.player,d.requires)
+  if kind then return 'Requires '..((C.buildings[kind] or C.units[kind] or {}).label or kind) end
+ end
  if app.cardPage=='build' then
-  for i,kind in ipairs({'barracks','tower','outpost','extractor'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
-   add(kind,d.label,({'q',app.settings.bindings.tower or 't','e','r'})[i],function() app.building=kind;app.targeting=nil end,missing(costs),
+  for i,kind in ipairs(faction.buildings or {'barracks','tower','outpost','extractor'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
+   local key=kind=='tower' and (app.settings.bindings.tower or 't') or ({'q','w','e','r','a','s','d','f'})[i]
+   add(kind,d.label,key,function() app.building=kind;app.targeting=nil end,requirement(d) or missing(costs),
     'Place '..d.label..'. '..(d.buildTicks/C.rules.tickRate)..' seconds. Shift queues another site. One selected worker builds each site.',costs)
    list[#list].stats=require('src.ui.tooltip').statsFor(d,'building');list[#list].lines=require('src.ui.tooltip').purpose(kind,d)
   end
@@ -104,15 +111,16 @@ function A.list(app)
  if #ctx.units>0 then add('patrol','Patrol','p',function() Input.arm(app,'patrol') end,nil,'Patrol to a point and engage enemies along the way.') end
  if e and e.owner==app.player and e.category=='building' then
   local dead=not e.alive and 'Building destroyed' or nil
-  local roster=e.kind=='hq' and {'worker'} or e.kind=='barracks' and C.factions[app.view.player.faction].roster or {}
+  local roster=Sim.producesFor(C,faction,e.kind)
+  local cap=app.view.player.supplyCap or C.rules.population
   for i,kind in ipairs(roster) do local d=C.units[kind]
-   local costs=A.costs(app,d.cost,e,{{key='food',label='food',amount=d.food,available=C.rules.population-Sim.population(app.world,app.player)}})
-   local reason=dead or e.remaining>0 and 'Building unfinished' or #e.queue>=5 and 'Production queue full' or d.tech and not app.view.player.tech and 'Requires HQ advancement' or missing(costs)
+   local costs=A.costs(app,d.cost,e,{{key='food',label='food',amount=d.food,available=cap-Sim.population(app.world,app.player)}})
+   local reason=dead or e.remaining>0 and 'Building unfinished' or #e.queue>=5 and 'Production queue full' or d.tech and not app.view.player.tech and 'Requires HQ advancement' or requirement(d) or missing(costs)
    add('recruit-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('recruit',e.id,{unit=kind}) end,reason,
     'Train '..d.label..'; '..(d.buildTicks/C.rules.tickRate)..' seconds.'..(d.tech and ' Requires HQ advancement.' or ''),costs)
    list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit');list[#list].lines=d.tech and {'Requires HQ advancement.'} or {}
   end
-  if e.kind=='hq' then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
+  if e.kind==Sim.hqKind(faction) and C.rules.tech then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
    add('research',e.researchRemaining and ('Advancing '..math.ceil(e.researchRemaining/20)..'s') or app.view.player.tech and 'Advanced HQ' or 'Advance HQ','t',function() app:command('research',e.id) end,
     dead or e.remaining>0 and 'Building unfinished' or app.view.player.tech and 'Already researched' or e.researchRemaining and 'Research in progress' or missing(costs),
     'Unlock support and heavy troops; '..(tech.ticks/C.rules.tickRate)..' seconds. Worker production continues.',costs)

@@ -23,6 +23,8 @@ local function export()
                 {id=5,type='gold',shape='rectangle',x=160,y=0,width=96,height=96,properties={amount=500}},
                 {id=9,type='camp',shape='point',x=48,y=80,properties={kind='scout',tier='easy'}},
                 {id=4,type='control',shape='point',x=112,y=112,properties={}},
+                {id=11,type='substrate',shape='rectangle',x=0,y=0,width=32,height=32,properties={amount=1500}},
+                {id=12,type='charge',shape='rectangle',x=192,y=192,width=64,height=64,properties={amount=5000}},
             }},
         },
     }
@@ -43,6 +45,9 @@ function M.register(test)
         assert(m.unbuildable[2] and m.unbuildable[64] and not m.unbuildable[1],'unbuildable flags wrong')
         -- Objects in id order, whatever order the layer lists them in.
         eq(m.resources[1].amount,500,'gold not in id order');eq(m.resources[2].amount,900);eq(m.resources[1].size,3)
+        -- The object class names the resource; substrate and charge are nodes like gold.
+        eq(m.resources[3].resource,'substrate');eq(m.resources[3].size,1);eq(m.resources[3].amount,1500)
+        eq(m.resources[4].resource,'charge');eq(m.resources[4].size,2);eq(m.resources[4].x,6);eq(m.resources[4].y,6)
         eq(m.starts[1].x,0);eq(m.starts[1].y,5);eq(m.starts[2].x,1);eq(m.starts[2].y,1)
         eq(m.camps[1].x,1);eq(m.camps[1].y,2);eq(m.camps[1].kind,'scout')
         eq(#m.controlPoints,1);eq(m.controlPoints[1].x,3);eq(m.controlPoints[1].y,3)

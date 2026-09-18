@@ -1,7 +1,8 @@
 ﻿local T=require('src.content_time')
 local C = {
-    version = 7,
-    rules = { profile='marches-v1', tickRate=20, population=80, pathBudget=256, directPathBudget=16384,
+    version = 8,
+    -- The ledger's keys, in display order. Every cost anywhere must use one of them.
+    rules = { profile='marches-v1', tickRate=20, population=80, resources={'gold'}, pathBudget=256, directPathBudget=16384,
         -- Terrain samples per tick the path smoother may spend across every route
         -- completed that tick. A route that cannot be smoothed inside it is walked as
         -- A* produced it, which is correct, just less straight.
@@ -60,9 +61,15 @@ local C = {
     -- Hero abilities are defined below, after the units they belong to.
     abilities = {},
     factions = {
-        bastion = { label = 'The Bastion', hero = 'warden', roster = { 'shield', 'crossbow', 'medic', 'siege' },
+        -- `buildings` is the build card in order. What the headquarters and the war hall
+        -- train, the worker kind and the defeat rule are the schema's defaults here.
+        bastion = { label = 'The Bastion', blurb = 'Bastion: protection and sustained combat near your Warden.',
+            hero = 'warden', roster = { 'shield', 'crossbow', 'medic', 'siege' },
+            buildings = { 'barracks', 'tower', 'outpost', 'extractor' },
             upgrades = { { 'Wide protection', 'Deep protection' }, { 'Vanguard damage', 'Guardian health' }, { 'Quick attacks', 'Enduring aura' } } },
-        wild = { label = 'The Wild Pact', hero = 'beastkeeper', roster = { 'stalker', 'thorn', 'sprite', 'beast' },
+        wild = { label = 'The Wild Pact', blurb = 'Wild Pact: recovery, mobility and choosing engagements.',
+            hero = 'beastkeeper', roster = { 'stalker', 'thorn', 'sprite', 'beast' },
+            buildings = { 'barracks', 'tower', 'outpost', 'extractor' },
             upgrades = { { 'Rapid recovery', 'Opening sprint' }, { 'Predator damage', 'Ancient health' }, { 'Quick attacks', 'Pack recovery' } } }
     }
 }

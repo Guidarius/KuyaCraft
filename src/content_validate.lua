@@ -75,12 +75,53 @@ return function(C)
             assert(F.integer(d.manaRegen or 0,0,10000),'unit '..id..' has an invalid mana regeneration')
         end
     end
-    for _, faction in pairs(C.factions) do
-        assert(C.units[faction.hero] and C.units[faction.hero].hero)
-        assert(#faction.roster <= 4)
-        for _, id in ipairs(faction.roster) do assert(C.units[id] and not C.units[id].worker) end
-        assert(#faction.upgrades == 3)
-        for _, choices in ipairs(faction.upgrades) do assert(#choices == 2) end
+    -- Resources and costs. Every cost key must be a ledger key, or it could never be paid.
+    local RESOURCES={};for _,key in ipairs(C.rules.resources or {'gold'}) do assert(type(key)=='string','invalid resource key');RESOURCES[key]=true end
+    local function costOk(cost,what)
+        for key,amount in pairs(cost or {}) do
+            assert(RESOURCES[key],what..' costs the unknown resource '..tostring(key))
+            assert(F.integer(amount,0,1000000),what..' has an invalid '..key..' cost')
+        end
+    end
+    if C.rules.startingResources then costOk(C.rules.startingResources,'startingResources') end
+    if C.rules.tech then costOk(C.rules.tech.cost,'tech') end
+    assert(F.integer(C.rules.cancelRefundPercent or 50,0,100),'invalid cancel refund percent')
+    if C.rules.supplyCap then assert(F.integer(C.rules.supplyCap,1,1000),'invalid supply cap') end
+    local function refs(list,catalogue,what)
+        for _,kind in ipairs(list or {}) do assert(type(kind)=='string' and catalogue[kind],what..' names the unknown kind '..tostring(kind)) end
+    end
+    for id,d in pairs(C.units) do
+        costOk(d.cost,'unit '..id)
+        if d.armor then assert(F.integer(d.armor,0,100),'unit '..id..' has invalid armor') end
+        refs(d.requires,C.buildings,'unit '..id..' requires')
+    end
+    for id,d in pairs(C.buildings) do
+        costOk(d.cost,'building '..id)
+        if d.armor then assert(F.integer(d.armor,0,100),'building '..id..' has invalid armor') end
+        if d.supply then assert(F.integer(d.supply,0,1000),'building '..id..' has invalid supply') end
+        if d.onNode then assert(type(d.onNode)=='string','building '..id..' has an invalid onNode') end
+        refs(d.produces,C.units,'building '..id..' produces')
+        refs(d.requires,C.buildings,'building '..id..' requires')
+    end
+    -- Factions. The hero trio is the legacy shape and is checked only when a hero is named;
+    -- the rest of the schema is checked for every faction.
+    for id, faction in pairs(C.factions) do
+        if faction.hero then
+            assert(C.units[faction.hero] and C.units[faction.hero].hero,'faction '..id..' has an invalid hero')
+            assert(#faction.roster <= 4)
+            assert(#faction.upgrades == 3)
+            for _, choices in ipairs(faction.upgrades) do assert(#choices == 2) end
+        end
+        for _, unit in ipairs(faction.roster or {}) do assert(C.units[unit] and not C.units[unit].worker,'faction '..id..' has an invalid roster') end
+        assert(C.buildings[faction.hq or 'hq'],'faction '..id..' has no headquarters building')
+        if faction.worker then assert(C.units[faction.worker] and C.units[faction.worker].worker,'faction '..id..' names a worker that is not one') end
+        refs(faction.buildings,C.buildings,'faction '..id..' buildings')
+        if faction.starting then
+            costOk(faction.starting.resources,'faction '..id..' starting resources')
+            refs(faction.starting.units,C.units,'faction '..id..' starting units')
+        end
+        assert(faction.defeat==nil or faction.defeat=='all_hq' or faction.defeat=='unique_hq','faction '..id..' has an unknown defeat rule')
+        if faction.supplyCap then assert(F.integer(faction.supplyCap,1,1000),'faction '..id..' has an invalid supply cap') end
     end
     return true
 end

@@ -1425,3 +1425,66 @@ Verification: documentation only, so no test suite was run, per AGENTS.md. Every
 reference in the new document was opened and confirmed, and every icon key was cross-checked
 against the live action ids in `src/ui/actions.lua`, the ids in `src/content.lua` and the
 named branches in `src/ui/icons.lua`. No human playtesting was involved.
+
+## Pivot phase 1: faction schema v2 — simulation version 20
+
+First branch of the Brood War style pivot planned on 2026-09-17 (two resources, The Orders
+versus The Megacorp; the plan's decisions are recorded in
+[docs/CONTENT_AUTHORING.md](docs/CONTENT_AUTHORING.md) under "Faction schema"). This phase
+changes no shipped gameplay: it teaches the simulation to read faction structure from content
+so the next phases can add factions without editing the sim's assumptions. The Bastion and
+Wild Pact play exactly as before; every new field defaults to the old behaviour when absent.
+
+What the simulation now reads from content, all optional:
+
+- A faction declares its headquarters kind (`hq`), worker kind (`worker`, `false` for none),
+  build card (`buildings`), starting resources and units (`starting`), supply ceiling and its
+  defeat rule: `all_hq` loses when nothing of the headquarters kind stands or is under
+  construction, `unique_hq` loses when the starting one dies and refuses to build another.
+  `Sim.defeated` replaces the hardcoded "starting headquarters dead" check.
+- A building declares what it trains (`produces`), what it needs finished first (`requires`),
+  the supply it provides and its armour; a unit declares `armor` and `requires`. Recruiting
+  reads `Sim.produces` instead of the `hq`/`barracks` kind names; placement and recruiting
+  refuse with `Requires <label>` until the named building is complete. `onNode` generalises
+  the extractor's mine rule to any resource, and `Sim.mineAt` filters by resource.
+- `rules.resources` names the ledger keys in display order; `rules.supplyFromBuildings` turns
+  the flat population cap into the sum of completed buildings' supply, clamped at the
+  ceiling; `rules.cancelRefundPercent` replaces the three hardcoded halvings. Deliveries,
+  bounties and hero revival credit or charge the primary resource instead of the literal
+  `gold`, and a carrier records which resource it carries.
+- Content armour is added in `Stats.armor`; Tiled object classes `substrate` and `charge`
+  place nodes of those resources beside `gold`.
+
+Presentation and bot: the HUD draws one readout per ledger key and the food line reads the
+view's `supplyCap`; the build card comes from the faction's list and the recruit card from
+`Sim.producesFor`; the skirmish and lobby menus cycle through every faction in content and
+show its `blurb`; the bot keeps a copy of the whole ledger. Shipping content is version 8:
+the two factions gain a `buildings` list and a `blurb`, `rules.resources={'gold'}`.
+
+Seven regression scenarios in `tests/schema_scenarios.lua` cover the validator's acceptance
+and refusals, supply growth and clamping, requirements on units and buildings (a site under
+construction does not count), both defeat rules including a site as a life and a snapshot
+round-trip, a second resource delivered to its own ledger with placement gated by node
+resource and a 75% refund on both resources, and `produces` overriding the defaults.
+`tests/maps.lua` converts `substrate` and `charge` objects.
+
+Simulation version 19 → 20 and content 7 → 8. Replays and snapshots from earlier versions
+are rejected. No golden was re-blessed: the fixture content names none of the new fields,
+so every fixture match and determinism hash is expected to be unchanged, and the balance
+suite's opening numbers (650 gold, 8 food, 4 units) and extractor income are asserted
+unchanged.
+
+Verification, all on the desk machine from the `desk/faction-schema-v2` worktree with
+`-PerfBudget 40`: `quick` 99 passed; `balance` 4; `determinism` 5 plus the four fresh
+processes agreeing over 100,000 ticks at 30/60/144 FPS and default/tuned JIT; `network` 4
+plus the real ENet pair; `scenario` 2; `crowd` 20; `soak` 1; `performance` 2;
+`scripts/test-ui.ps1` and `scripts/test-presentation.ps1` rendered passes at all three
+resolutions. Zero failures. The balance suite's pacing reports and the scenario suite's two
+fixture matches were then produced again from the parent commit in the main checkout: the
+mirror and asymmetric pacing reports are byte-identical (match end 8:43 and 7:30, first
+contact 3:41 and 3:47), both fixture matches end on the same tick with the same winner
+(2778 and 2786, player 2), and the balance fixture's attack count is the same 7010. That is
+the evidence that this phase changed no behaviour. Active p95 was 8.376 ms here against
+18.998 ms on the parent run; both are single measurements on the thermally limited laptop
+and claim nothing. Logs: `artifacts/suite-*.log` in the worktree. Not done: a human
+playtest, and a draft pull request (the `gh` CLI is not installed on this machine).

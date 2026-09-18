@@ -8,6 +8,8 @@
 -- The simulation still reads only `blocked` and `unbuildable`; both are derived from terrain
 -- here, so nothing downstream changes when a map moves to Tiled.
 local M={}
+-- Object classes that place a resource node; the class name is the resource.
+M.RESOURCES={gold=true,substrate=true,charge=true}
 -- Terrain types. `code` is the character used for the type in map.terrain.
 M.TERRAIN={
     grass={code='g'},
@@ -89,9 +91,9 @@ function M.convert(data)
             local x,y=place(o);local player=property(o,'player','int')
             if m.starts[player] then fail(id,'two starts for player '..player) end
             m.starts[player]={x=x,y=y}
-        elseif class=='gold' then
+        elseif M.RESOURCES[class] then
             local x,y=place(o)
-            m.resources[#m.resources+1]={x=x,y=y,resource='gold',amount=property(o,'amount','int'),size=integer(id,o.width/cell,'gold '..o.id..' size',1,8)}
+            m.resources[#m.resources+1]={x=x,y=y,resource=class,amount=property(o,'amount','int'),size=integer(id,o.width/cell,class..' '..o.id..' size',1,8)}
         elseif class=='camp' then
             local x,y=place(o)
             m.camps[#m.camps+1]={x=x,y=y,kind=property(o,'kind'),tier=property(o,'tier')}

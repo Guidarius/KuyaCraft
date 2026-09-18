@@ -371,6 +371,16 @@ test('simulation','casts and statuses survive a snapshot identically',function()
 test('simulation','an area effect resolves in world order, not arrival order',function() require('tests.ability_scenarios').ordering() end)
 test('simulation','sight is blocked by terrain, buildings and forests',function() require('tests.vision_scenarios').run() end)
 for _,case in ipairs({
+    {'validator','the validator accepts the v2 faction schema and refuses dangling references'},
+    {'supply','supply from buildings grows as depots finish and clamps at the ceiling'},
+    {'requires','a unit is refused until its requirement is a completed building'},
+    {'allHq','a faction that loses on all headquarters survives on a second one or a site'},
+    {'uniqueHq','a faction that loses on its unique headquarters loses on that one alone'},
+    {'resources','a second resource is delivered to its own ledger and gates node placement'},
+    {'produces','a building trains what content says it produces'}}) do
+    test('simulation',case[2],function() require('tests.schema_scenarios')[case[1]]() end)
+end
+for _,case in ipairs({
     {'capture','a control point is captured by standing in it unopposed, and kept after leaving'},
     {'contest','an enemy in the circle freezes a capture, and a lone enemy unwinds it first'},
     {'hold','owning every control point for the full hold wins, not a tick sooner'},

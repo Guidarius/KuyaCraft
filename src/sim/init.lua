@@ -57,9 +57,52 @@ local Control=require('src.sim.control')
 -- a fifth of a second and ends up in the same place.
 -- Version 19: formation slots belong to validated commands, and queued construction takes
 -- a site over only when its order starts. Changes command-batch and builder handoff results.
-local Sim = { VERSION = 19 }
+-- Version 20: faction schema v2. A faction declares its headquarters kind, worker kind,
+-- build list, starting resources and units, and how it is defeated ('all_hq': nothing of
+-- its headquarters kind standing or under construction; 'unique_hq': the starting one
+-- dies). Buildings declare what they produce, what they require, the supply they provide
+-- and their armour. The ledger is keyed by rules.resources, and a carrier records which
+-- resource it carries. Every new field defaults to the old behaviour when absent.
+local Sim = { VERSION = 20 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
+-- Faction schema v2. Every accessor here has a default that reproduces what content
+-- relied on before the schema existed, so a definition naming none of the new fields
+-- plays exactly as it did.
+function Sim.factionOf(w,p) return w.content.factions[w.players[p].faction] end
+function Sim.hqKind(faction) return faction.hq or 'hq' end
+-- The unit that builds and harvests for this faction: named, defaulted to 'worker' when
+-- the content has one, or false for a faction that has none.
+function Sim.workerKind(content,faction)
+    if faction.worker~=nil then return faction.worker or nil end
+    return content.units.worker and 'worker' or nil
+end
+-- What a building of this kind trains for this faction.
+function Sim.producesFor(content,faction,kind)
+    local d=content.buildings[kind]
+    if d and d.produces then return d.produces end
+    if kind==Sim.hqKind(faction) then local worker=Sim.workerKind(content,faction);return worker and {worker} or {} end
+    if kind=='barracks' then return faction.roster or {} end
+    return {}
+end
+function Sim.produces(w,e) return Sim.producesFor(w.content,Sim.factionOf(w,e.owner),e.kind) end
+function Sim.primaryResource(content) return (content.rules.resources or {'gold'})[1] end
+-- The first named requirement the player has not completed, or nil. Works on a world
+-- (entities by id, walked in w.order) and on a view (an array), so the HUD and the bot
+-- give the same answer the command will.
+function Sim.missingRequirement(source,owner,requires)
+    if not requires then return nil end
+    local function has(kind)
+        if source.order then
+            for _,id in ipairs(source.order) do local e=source.entities[id];if e.alive and e.owner==owner and e.kind==kind and (e.remaining or 0)==0 then return true end end
+        else
+            for _,e in ipairs(source.entities) do if e.alive and e.owner==owner and e.kind==kind and (e.remaining or 0)==0 then return true end end
+        end
+        return false
+    end
+    for _,kind in ipairs(requires) do if type(kind)=='string' and not has(kind) then return kind end end
+    return nil
+end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
 -- call, so copying it defensively duplicated one table per event per tick for no
 -- observable difference. Events live only for the tick that produced them and are
@@ -367,7 +410,7 @@ function Sim.view(w,player)
     local out={tick=w.tick,result=w.result,control=w.control and Codec.copy(w.control),
         map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable,terrain=w.map.terrain},
         entities={},byId={},
-        player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
+        player={id=player,faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,supplyCap=Sim.supplyCap(w,player),
             kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,
             resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources}}
     for _,id in ipairs(ids(w)) do
@@ -398,8 +441,10 @@ function Sim.create(config,content,map)
         players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0,smoothChecks=0}}
     for p=1,#config.players do
         local faction=config.players[p].faction or 'bastion'
-        assert(content.factions[faction],'unknown faction')
-        w.players[p]={faction=faction,resources=Codec.copy(content.rules.startingResources or {gold=650}),sequence=0,visible={},explored={},defeated=false,
+        local definition=content.factions[faction]
+        assert(definition,'unknown faction')
+        local starting=definition.starting and definition.starting.resources or content.rules.startingResources or {gold=650}
+        w.players[p]={faction=faction,resources=Codec.copy(starting),sequence=0,visible={},explored={},defeated=false,
             kills=0,unitsLost=0,buildingsLost=0}
     end
     for _,node in ipairs(map.resources or {}) do
@@ -408,13 +453,15 @@ function Sim.create(config,content,map)
     end
     for p=1,#w.players do
         local start=map.starts[p]
-        local hq=spawn(w,'hq',p,start.x,start.y,'building'); w.players[p].hq=hq.id
+        local hq=spawn(w,Sim.hqKind(content.factions[w.players[p].faction]),p,start.x,start.y,'building'); w.players[p].hq=hq.id
     end
     rebuild(w)
     for p=1,#w.players do
         local start=map.starts[p]; local faction=content.factions[w.players[p].faction]
-        local initial={faction.hero,'worker','worker',faction.roster[1],faction.roster[2]}
-        if content.rules.startingWorkers then initial={faction.hero};for _=1,content.rules.startingWorkers do initial[#initial+1]='worker' end end
+        local initial
+        if faction.starting and faction.starting.units then initial={};for i,kind in ipairs(faction.starting.units) do initial[i]=kind end
+        elseif content.rules.startingWorkers then initial={faction.hero};for _=1,content.rules.startingWorkers do initial[#initial+1]='worker' end
+        else initial={faction.hero,'worker','worker',faction.roster[1],faction.roster[2]} end
         for slot,kind in ipairs(initial) do
             local x,y=nearest(w,start.x+3,start.y+3,nil,nil,content.units[kind].radius)
             if content.rules.profile and map.unitStarts and map.unitStarts[p] and map.unitStarts[p][slot] then x=map.unitStarts[p][slot].x;y=map.unitStarts[p][slot].y;assert(G.free(w,F.center(x),F.center(y),content.units[kind].radius),'invalid authored spawn') end
@@ -448,6 +495,34 @@ function Sim.population(w,p)
     end
     return n
 end
+-- The supply cap. A flat rule by default; with rules.supplyFromBuildings it is the sum of
+-- what the player's completed buildings provide, clamped at the faction's ceiling, so
+-- losing a depot really does cost the supply it gave.
+function Sim.supplyCap(w,p)
+    local rules=w.content.rules
+    if not rules.supplyFromBuildings then return rules.population end
+    local cap=0
+    for _,id in ipairs(ids(w)) do
+        local e=w.entities[id]
+        if e.alive and e.owner==p and e.category=='building' and e.remaining==0 then cap=cap+(def(w,e).supply or 0) end
+    end
+    local ceiling=Sim.factionOf(w,p).supplyCap or rules.supplyCap or 200
+    if cap>ceiling then cap=ceiling end
+    return cap
+end
+-- Defeat, by the faction's rule. 'unique_hq' is the old rule: the headquarters the match
+-- started with is the only one there is. 'all_hq' counts every standing headquarters of
+-- the faction's kind, sites included, so an expansion is a life.
+function Sim.defeated(w,p)
+    local faction=Sim.factionOf(w,p)
+    if (faction.defeat or 'all_hq')=='unique_hq' then return not w.entities[w.players[p].hq].alive end
+    local kind=Sim.hqKind(faction)
+    for _,id in ipairs(ids(w)) do
+        local e=w.entities[id]
+        if e.alive and e.owner==p and e.kind==kind then return false end
+    end
+    return true
+end
 function Sim.unitCount(w,p)
     local count=0;for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.owner==p and e.category=='unit' then count=count+1 end end;return count
 end
@@ -455,22 +530,33 @@ function Sim.revival(content,hero)
     local tiers=0;for _,threshold in ipairs(content.rules.xpThresholds) do if (hero.xp or 0)>=threshold then tiers=tiers+1 end end
     return content.rules.reviveCost+tiers*(content.rules.reviveTierCost or 0),content.rules.reviveTicks+tiers*(content.rules.reviveTierTicks or 0)
 end
--- The gold mine whose footprint exactly matches this one, if there is such a mine.
--- An extractor may only be built on a mine, and only squarely on it.
-function Sim.mineAt(view,x,y,size)
+-- The resource node whose footprint exactly matches this one, if there is such a node,
+-- optionally of one resource. A building that stands on a node stands squarely on it.
+function Sim.mineAt(view,x,y,size,resource)
     for _,e in ipairs(view.entities) do
-        if e.alive and e.category=='node' and e.resource=='gold'
+        if e.alive and e.category=='node' and (resource==nil or e.resource==resource)
             and F.cell(e.x)==x and F.cell(e.y)==y and e.size==size then return e end
     end
 end
 function Sim.placement(view,content,kind,x,y)
     local d=content.buildings[kind]
-    if not d or kind=='hq' or not F.integer(x,0,view.map.width-d.size) or not F.integer(y,0,view.map.height-d.size) then return false,'Outside map' end
+    local faction=content.factions[view.player.faction]
+    if not d or not F.integer(x,0,view.map.width-d.size) or not F.integer(y,0,view.map.height-d.size) then return false,'Outside map' end
+    -- The headquarters is buildable only by a faction that lists it and does not lose on
+    -- its unique one; a faction with no build list keeps the old rule of never.
+    if kind==Sim.hqKind(faction) and (not faction.buildings or faction.defeat=='unique_hq') then return false,'Cannot be built' end
+    if faction.buildings then
+        local listed=false;for _,id in ipairs(faction.buildings) do if id==kind then listed=true end end
+        if not listed then return false,'Not available to your faction' end
+    end
     if not afford(view.player,d.cost) then return false,'Insufficient resources' end
+    local missing=Sim.missingRequirement(view,view.player.id,d.requires)
+    if missing then return false,'Requires '..((content.buildings[missing] or content.units[missing] or {}).label or missing) end
     local mine
-    if d.extractor then
-        local found=Sim.mineAt(view,x,y,d.size)
-        if not found then return false,'Extractors go on a gold mine' end
+    local onNode=d.onNode or (d.extractor and 'gold') or nil
+    if onNode then
+        local found=Sim.mineAt(view,x,y,d.size,onNode)
+        if not found then return false,'Must be built on a '..onNode..' node' end
         if found.amount and found.amount<=0 then return false,'Mine is exhausted' end
         mine=found.id
     end
@@ -541,6 +627,12 @@ claimBuild=function(w,e)
     if previous and previous.id~=e.id and previous.alive and previous.order.kind=='build' and previous.order.target==site.id then nextOrder(w,previous) end
 end
 local function reject(w,c,reason) emit(w,'rejected',{player=c.player or 0,sequence=c.sequence or 0,reason=reason}) end
+-- What cancelling gives back: a whole-percent share of every resource paid, floored.
+local function refundOf(w,cost)
+    local percent=w.content.rules.cancelRefundPercent or 50
+    local out={};for _,key in ipairs(Codec.keys(cost)) do out[key]=math.floor(cost[key]*percent/100) end
+    return out
+end
 local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
     rally=true,patrol=true,follow=true,cast=true,ping=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
@@ -630,8 +722,9 @@ local function apply(w,c)
     if c.kind=='revive' then
         local hq=w.entities[p.hq]
         local cost,ticks=Sim.revival(w.content,e)
-        if not d.hero or e.alive or e.reviveRemaining or not hq.alive or not afford(p,{gold=cost}) then reject(w,c,'cannot revive'); return end
-        spend(p,{gold=cost}); e.reviveRemaining=ticks; return
+        local price={[Sim.primaryResource(w.content)]=cost}
+        if not d.hero or e.alive or e.reviveRemaining or not hq.alive or not afford(p,price) then reject(w,c,'cannot revive'); return end
+        spend(p,price); e.reviveRemaining=ticks; return
     end
     if not e.alive then reject(w,c,'entity is dead'); return end
     if c.kind=='toggle' then
@@ -648,20 +741,19 @@ local function apply(w,c)
         spend(p,tech.cost);e.researchRemaining=tech.ticks;return
     elseif c.kind=='recruit' then
         local ud=w.content.units[a.unit]
-        local allowed=a.unit=='worker' and e.kind=='hq'
-        if e.kind=='barracks' then
-            for _,kind in ipairs(w.content.factions[p.faction].roster) do if kind==a.unit then allowed=true end end
-        end
-        if not ud or not allowed or e.remaining>0 or #e.queue>=5 or (ud.tech and not p.tech) or Sim.population(w,c.player)+(ud.food or 1)>w.content.rules.population or not afford(p,ud.cost) then reject(w,c,'cannot recruit'); return end
+        local allowed=false
+        for _,kind in ipairs(Sim.produces(w,e)) do if kind==a.unit then allowed=true end end
+        if ud and allowed and Sim.missingRequirement(w,c.player,ud.requires) then reject(w,c,'requirement missing'); return end
+        if not ud or not allowed or e.remaining>0 or #e.queue>=5 or (ud.tech and not p.tech) or Sim.population(w,c.player)+(ud.food or 1)>Sim.supplyCap(w,c.player) or not afford(p,ud.cost) then reject(w,c,'cannot recruit'); return end
         spend(p,ud.cost); e.queue[#e.queue+1]={kind=a.unit,remaining=ud.buildTicks}; return
     elseif c.kind=='cancel' then
         if e.category~='building' then reject(w,c,'cannot cancel'); return end
         if a.research then
             if not e.researchRemaining then reject(w,c,'no research');return end
-            local refund={};for _,key in ipairs(Codec.keys(w.content.rules.tech.cost)) do refund[key]=math.floor(w.content.rules.tech.cost[key]/2) end;spend(p,refund,-1);e.researchRemaining=nil;return
+            spend(p,refundOf(w,w.content.rules.tech.cost),-1);e.researchRemaining=nil;return
         end
-        if e.remaining>0 then local refund={}; for _,key in ipairs(Codec.keys(d.cost)) do refund[key]=math.floor(d.cost[key]/2) end; spend(p,refund,-1); e.alive=false; w.navVersion=w.navVersion+1; rebuild(w)
-        elseif #e.queue>0 then local index=a.index or #e.queue;if not F.integer(index,1,#e.queue) then reject(w,c,'invalid queue slot');return end;local item=table.remove(e.queue,index);local cost=w.content.units[item.kind].cost;if w.content.rules.profile and item.remaining<w.content.units[item.kind].buildTicks then local refund={};for _,key in ipairs(Codec.keys(cost)) do refund[key]=math.floor(cost[key]/2) end;cost=refund end;spend(p,cost,-1)
+        if e.remaining>0 then spend(p,refundOf(w,d.cost),-1); e.alive=false; w.navVersion=w.navVersion+1; rebuild(w)
+        elseif #e.queue>0 then local index=a.index or #e.queue;if not F.integer(index,1,#e.queue) then reject(w,c,'invalid queue slot');return end;local item=table.remove(e.queue,index);local cost=w.content.units[item.kind].cost;if w.content.rules.profile and item.remaining<w.content.units[item.kind].buildTicks then cost=refundOf(w,cost) end;spend(p,cost,-1)
         else reject(w,c,'nothing to cancel') end
         return
     elseif c.kind=='build' then
@@ -678,7 +770,8 @@ local function apply(w,c)
         -- An extractor stands on its mine, and a mine is a blocked, occupied footprint by
         -- construction. Those two checks are therefore skipped for it; Sim.placement has
         -- already established that the footprint is exactly a live mine.
-        local mine=bd.extractor and Sim.mineAt(view,a.x,a.y,bd.size) or nil
+        local onNode=bd.onNode or (bd.extractor and 'gold') or nil
+        local mine=onNode and Sim.mineAt(view,a.x,a.y,bd.size,onNode) or nil
         for y=a.y,a.y+bd.size-1 do for x=a.x,a.x+bd.size-1 do
             if not mine and not p.visible[Path.key(w.map,x,y)] then reject(w,c,'blocked or unseen footprint'); return end
             if not mine and (not Path.walkable(w,x,y) or occupied(w,x,y)) then reject(w,c,'blocked or unseen footprint'); return end
@@ -805,9 +898,10 @@ local function hq(w,p) return w.entities[w.players[p].hq] end
 local function deliver(w,carrier)
     local ledger=w.players[carrier.owner].resources
     local amount=carrier.payload or 0
-    ledger.gold=(ledger.gold or 0)+amount
+    local resource=carrier.resource or 'gold'
+    ledger[resource]=(ledger[resource] or 0)+amount
     carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
-    emit(w,'delivered',{entity=carrier.id,amount=amount,resource='gold'})
+    emit(w,'delivered',{entity=carrier.id,amount=amount,resource=resource})
 end
 -- and never more than carrierSlots deliveries in flight, which is what makes a distant
 -- mine pay less and also caps how many carrier entities can exist.
@@ -843,7 +937,7 @@ local function extraction(w)
                     local carrier=pool and table.remove(pool)
                     if not carrier then carrier=spawn(w,'carrier',e.owner,F.cell(e.x),F.cell(e.y),'carrier') end
                     carrier.alive=true;carrier.spent=nil;carrier.deathTick=nil
-                    carrier.hp=carrier.maxHp;carrier.source=id;carrier.payload=payload
+                    carrier.hp=carrier.maxHp;carrier.source=id;carrier.payload=payload;carrier.resource=mine.resource
                     carrier.leg=1;carrier.routeSerial=e.routeSerial
                     carrier.x=e.x+((e.size or 1)-1)*128;carrier.y=e.y+((e.size or 1)-1)*128
                     mine.amount=mine.amount-payload
@@ -1236,7 +1330,7 @@ local function combat(w,pending)
                 if source then source.kills=(source.kills or 0)+1 end
             end
             if e.category=='unit' and not def(w,e).worker and killer and killer>0 and killer~=e.owner then
-                local bounty=def(w,e).bounty;if bounty then w.players[killer].resources.gold=w.players[killer].resources.gold+bounty end
+                local bounty=def(w,e).bounty;if bounty then local key=Sim.primaryResource(w.content);w.players[killer].resources[key]=(w.players[killer].resources[key] or 0)+bounty end
                 local hero=w.entities[w.players[killer].hero]
                 if hero.alive and inRange(hero,e,w.content.rules.xpRange) then local ed=def(w,e);hero.xp=hero.xp+(ed.xp or (ed.hero and (w.content.rules.heroXp or 80) or w.content.rules.combatXpPerFood and ed.food*w.content.rules.combatXpPerFood or 30)) end
             end
@@ -1278,7 +1372,7 @@ function Sim.step(w,commands)
     if combat(w,pendingEffects) then visibility(w) end
     local survivors={}
     for p=1,#w.players do
-        w.players[p].defeated=not hq(w,p).alive
+        w.players[p].defeated=Sim.defeated(w,p)
         if not w.players[p].defeated then survivors[#survivors+1]=p end
     end
     -- w.result is retained world state; emit owns what it is given, so hand it a copy.

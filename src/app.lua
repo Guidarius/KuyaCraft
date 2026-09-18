@@ -56,7 +56,7 @@ local function barColor(app,e)
     return BAR_ENEMY
 end
 function App.create(options)
-    assert(Content.factions[options.faction or 'bastion'],'unknown faction: use bastion or wild')
+    assert(Content.factions[options.faction or 'bastion'],'unknown faction: '..tostring(options.faction))
     local config={seed=12345,players={{faction=options.faction or 'bastion'},{faction=options.opponent or 'wild'}}}
     local map=Maps.create(options.map)
     local self=setmetatable({options=options,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,

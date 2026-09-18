@@ -18,21 +18,26 @@ function H.draw(app)
  g.setColor(.065,.09,.11,.98);g.rectangle('fill',0,0,w,40);g.rectangle('fill',0,y,w,180)
  g.setColor(.48,.4,.25);g.line(0,40,w,40);g.line(0,y,w,y)
  text('LoveRTS',16,13);local p=app.view.player
- for _,r in ipairs({{key='gold',label='Gold',x=135}}) do
-  local flash=app.costFlash and app.clock-app.costFlash.time<.9 and app.costFlash.keys[r.key]
-  g.setColor(flash and 1 or .83,flash and .38 or .86,flash and .32 or .81);g.print(r.label..'  '..p.resources[r.key],r.x,13)
+ local font=g.getFont()
+ -- One readout per ledger key, in content order, each explaining itself on hover the way
+ -- Warcraft 3's resource bar does.
+ local rx=135
+ for _,key in ipairs(C.rules.resources or {'gold'}) do
+  local label=key:sub(1,1):upper()..key:sub(2);local readout=label..'  '..(p.resources[key] or 0)
+  local flash=app.costFlash and app.clock-app.costFlash.time<.9 and app.costFlash.keys[key]
+  g.setColor(flash and 1 or .83,flash and .38 or .86,flash and .32 or .81);g.print(readout,rx,13)
+  app.widgets:region(key,rx-4,6,font:getWidth(readout)+8,28,{title=label,
+   lines=key=='gold' and {'Pays for units, buildings, hero revival and HQ advancement.','Carriers bring it from Extractors built on gold mines.'} or {'Pays for units and buildings.'}})
+  rx=rx+font:getWidth(readout)+28
  end
+ local cap=p.supplyCap or C.rules.population
  local food,units=require('src.sim').population(app.world,app.player),require('src.sim').unitCount(app.world,app.player)
- local foodText,unitText='Food  '..food..' / '..C.rules.population,'   Units '..units
+ local foodText,unitText='Food  '..food..' / '..cap,'   Units '..units
  text(foodText..unitText,430,13,300)
  local clockText=string.format('%02d:%02d',math.floor(app.world.tick/1200),math.floor(app.world.tick/20)%60)
  text(clockText,w-220,13,100)
- -- The resource bar explains itself on hover, the way Warcraft 3's does.
- local font=g.getFont()
- app.widgets:region('gold',131,6,font:getWidth('Gold  '..p.resources.gold)+8,28,{title='Gold',
-  lines={'Pays for units, buildings, hero revival and HQ advancement.','Carriers bring it from Extractors built on gold mines.'}})
- app.widgets:region('food',426,6,font:getWidth(foodText)+8,28,{title='Food',stats={food..' used','cap '..C.rules.population},
-  lines={'Every living unit and every unit in training takes food. Nothing more can be trained past the cap.'},reason=food>=C.rules.population and 'Food cap reached' or nil})
+ app.widgets:region('food',426,6,font:getWidth(foodText)+8,28,{title='Food',stats={food..' used','cap '..cap},
+  lines={'Every living unit and every unit in training takes food. Nothing more can be trained past the cap.'},reason=food>=cap and 'Food cap reached' or nil})
  app.widgets:region('units',430+font:getWidth(foodText),6,font:getWidth(unitText)+4,28,{title='Units',lines={'You have '..units..' living units.'}})
  app.widgets:region('clock',w-224,6,font:getWidth(clockText)+8,28,{title='Match time',lines={'Game time. It runs at the fixed simulation rate, whatever the game speed setting.'}})
  app.widgets:button('menu','Menu',w-98,6,86,28,function() app.overlay='pause' end)

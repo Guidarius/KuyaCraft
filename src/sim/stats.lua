@@ -140,7 +140,9 @@ function S.armor(w,e,protectors)
             end
         end
     end
-    local flat=modifiers(w,e,'armor')
+    -- Content armour is the base every unit and building carries into the fight.
+    local d=def(w,e)
+    local flat=modifiers(w,e,'armor')+(d and d.armor or 0)
     return reduction+flat
 end
 -- Commit-to-commit period in ticks. The windup lives inside it and is never added to it.

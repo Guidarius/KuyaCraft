@@ -7,7 +7,11 @@ function B.commands(view,C)
  local owner,hq,hero;local workers,army,halls,nodes,outposts={},{},{},{},{}
  for _,e in ipairs(view.entities) do if e.id==view.player.hq then hq=e;owner=e.owner end end
  if not hq or not hq.alive then return out end
- local ledger={gold=view.player.resources.gold};local food=0;local queuedWorkers=0
+ -- A working copy of the ledger, so what this tick already spent is not spent twice.
+ local ledger={};for key,amount in pairs(view.player.resources) do ledger[key]=amount end
+ local primary=(C.rules.resources or {'gold'})[1]
+ local cap=view.player.supplyCap or C.rules.population
+ local food=0;local queuedWorkers=0
  -- Mines already carrying an extractor, whoever owns it. A mine takes one.
  local covered={}
  for _,e in ipairs(view.entities) do
@@ -25,10 +29,10 @@ function B.commands(view,C)
   elseif e.alive and e.category=='node' then nodes[#nodes+1]=e
   elseif e.alive and e.mine then covered[e.mine]=true end
  end
- local function afford(cost) return ledger.gold>=(cost.gold or 0) end
- local function spend(cost) ledger.gold=ledger.gold-(cost.gold or 0) end
+ local function afford(cost) for key,amount in pairs(cost) do if (ledger[key] or 0)<amount then return false end end;return true end
+ local function spend(cost) for key,amount in pairs(cost) do ledger[key]=(ledger[key] or 0)-amount end end
  local function add(kind,e,args) args=args or {};args.entity=e.id;out[#out+1]={kind=kind,args=args} end
- local function recruit(b,kind) local d=C.units[kind];if b.remaining==0 and #b.queue<2 and food+d.food<=C.rules.population and afford(d.cost) and (not d.tech or view.player.tech) then spend(d.cost);food=food+d.food;add('recruit',b,{unit=kind});return true end end
+ local function recruit(b,kind) local d=C.units[kind];if b.remaining==0 and #b.queue<2 and food+d.food<=cap and afford(d.cost) and (not d.tech or view.player.tech) then spend(d.cost);food=food+d.food;add('recruit',b,{unit=kind});return true end end
  local used={};local function build(kind,cx,cy)
   local d=C.buildings[kind];if not afford(d.cost) then return false end
   local builder;for _,e in ipairs(workers) do if e.order.kind~='build' and not used[e.id] then builder=e;break end end
@@ -120,7 +124,7 @@ function B.commands(view,C)
   for _,b in ipairs(halls) do local pattern=view.player.tech and {1,2,1,3,2,4} or {1,2,1};local index=pattern[1+(b.produced or 0)%#pattern];recruit(b,roster[index]) end
  end
  if hero then
-  if not hero.alive and not hero.reviveRemaining then local cost=Sim.revival(C,hero);if ledger.gold>=cost then add('revive',hero) end
+  if not hero.alive and not hero.reviveRemaining then local cost=Sim.revival(C,hero);if (ledger[primary] or 0)>=cost then add('revive',hero) end
   elseif hero.alive then for i,t in ipairs(C.rules.xpThresholds) do if hero.xp>=t and not hero.upgrades[i] then add('upgrade',hero,{milestone=i,choice=1+(owner+i)%2}) end end end
  end
  if hero and hero.alive then army[#army+1]=hero end
