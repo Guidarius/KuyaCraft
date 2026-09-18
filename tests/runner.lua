@@ -37,6 +37,7 @@ test('balance','new-profile mirror match',function() require('tests.balance_scen
 test('balance','new-profile asymmetric match',function() require('tests.balance_scenarios').match(false) end)
 test('balance','new-profile active performance',function() require('tests.balance_scenarios').performance() end)
 test('unit','filtered cosmetic feedback',function() require('tests.feedback').run() end)
+test('unit','game juice: bounded reactions, and every simulation event answered',function() require('tests.juice').run() end)
 test('unit','PRNG golden sequence and seed bounds',function()
     local r=Rng.create(1)
     for _,n in ipairs({16807,282475249,1622650073,984943658,1144108930}) do eq(Rng.next(r),n) end

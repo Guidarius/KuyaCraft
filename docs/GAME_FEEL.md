@@ -112,6 +112,39 @@ Nothing below needs code to take effect.
 - **Sprites.** Unit art comes from the asset catalog (`src/asset_catalog.lua`, loaded by
   `src/sprites.lua`); see `tools/blender/README.md` for how a unit enters it.
 
+## Game juice: every event answered (src/ui/juice.lua)
+
+The pivot added two dozen simulation events that nothing in the interface reacted to. They
+are now all accounted for in one table, `REACTIONS`, keyed by event kind; each row may name
+a cue, a ground ring, a burst of particles, a shake and a word. `tests/juice.lua` reads the
+simulation's sources and fails when an event is emitted that is neither in that table, nor
+listed as handled elsewhere, nor listed as silent with its reason, so a new mechanic cannot
+ship unanswered by accident.
+
+| Event | What the player gets |
+|---|---|
+| `stack_burst` | gold ring, sparks, the burst damage as a number, a small shake |
+| `pod_landed`, `landed` | impact ring, dust, scorch under a pod, a shake; before that the owner sees a reticle tightening on the site and the thing coming down over the last stretch (read from the view's own landing and pod queues, so the enemy sees nothing early) |
+| `landing`, `pod_launched`, `requisitioned`, `call_down_ready`, `landing_blocked` | a cue each; ready and blocked also say so over the Command |
+| `attack` | two sparks; a splash weapon draws the circle it covers, throws dust and is felt |
+| `cast`, `channel_started` | the area an ability hit; a barrage throws flak about the sky inside its circle on every pulse |
+| `death` | debris; a building also throws embers and leaves scorch that fades over 24 s |
+| `harvest_started`, `delivered`, `depleted` | chips off the patch, a quiet tick on delivery, dust and "Exhausted" when a patch runs out |
+| `garrisoned`, `unloaded`, `garrison_full` | a door flash on the building, a ring where a unit steps out, "Full" |
+| `projectile_hit`, `status_applied`, `healed`, `constructed` | sparks, a ring, rising motes, dust |
+
+Bounds: 384 particles, 96 rings, 48 decals, all aged in wall-clock; a replay seek clears
+them; `--effects-disabled` turns the whole layer off; shake obeys the Screen shake setting
+and is only added for what is on screen. Randomness is cosmetic and comes from the module's
+own generator. Sound: every cue named by a reaction exists in `src/ui/audio.lua` as a
+stand-in tone under the name the recording will take (`burst`, `splash`, `barrage`, `cast`,
+`pod_launch`, `pod_land`, `landing`, `land`, `requisition`, `ready_to_land`, `harvest`,
+`deliver`, `depleted`, `garrison`, `unload`); give a row a `path` and the file plays instead.
+Still hooks only: footfalls and unit chatter (item 15), which want the art and the voices.
+A pod landing is private to its owner in the simulation, so the enemy sees troops appear
+without the impact; making that event public where the cell is visible is a simulation
+change and was left alone.
+
 ## Not to do
 
 - **Hit-stop or animation-driven pauses.** The simulation runs at a fixed 20 Hz for every peer;

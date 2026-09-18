@@ -1959,3 +1959,36 @@ both bots had production and 15 or 16 rigs against two barracks by 6:00. The Twi
 matches are unchanged (12:23 and 10:23). Not done: no Tiled check, no human has played the
 new maps, and the skirmish screen's new description line was captured but layouts remain
 the user's to judge from the previews in `artifacts/map-<id>.png`.
+
+## Game juice: every simulation event answered
+
+The user asked to wire up game juice and game feel now, with voice acting and sound effects
+to follow. A survey found 26 of the simulation's 44 event kinds had no reaction in the
+interface at all, including everything the pivot added. `src/ui/juice.lua` is a
+presentation-only layer fed the same filtered events and view as the rest of the interface:
+a table of reactions keyed by event kind (a cue name, a ground ring, a burst of particles,
+a shake, a word), a particle pool capped at 384, rings capped at 96, scorch decals capped at
+48 and fading over 24 s, and the owner's descent markers for call-downs and drop pods, read
+from the view's own queues so the enemy sees nothing early. Stack bursts show their number,
+splash weapons draw the ground they cover, a barrage throws flak inside its circle on every
+pulse, pods and buildings land with a ring, dust and a shake, buildings die into debris,
+embers and scorch, patches chip and run dry, garrison doors flash. docs/GAME_FEEL.md has the
+full table. Fifteen named audio cues were added as stand-in tones under the names the
+recordings will take; a row given a `path` plays the file instead, with no code change.
+
+`tests/juice.lua` (unit): one reaction per event and none on a repeated tick, no effect for
+a target out of sight (this caught a real slip: the reaction fell back to the event's own
+position), the splash ring equal to the weapon's radius, scorch for buildings only, the
+caps holding under a hundred simultaneous deaths, everything ageing out, a rewind clearing
+the layer, every reaction's cue present in the manifest, and completeness: the test scans
+`src/sim` for emitted kinds and fails if one is neither reacted to, handled elsewhere, nor
+listed as silent with a reason. `tests/presentation.lua` draws the layer (capture `juice`)
+and asserts the canonical state is unchanged.
+
+Verified on the desk machine: quick (123 passed), `test-ui.ps1`, `test-presentation.ps1`
+(PASS), and the `juice` capture was looked at; the particles were enlarged after it. No
+simulation, content or map change, so the long suites were not rerun. Not done: nobody has
+watched it in motion, which is what feel needs; footfalls and chatter stay hooks; a pod
+landing is private to its owner in the simulation, so the enemy gets no impact effect.
+One correction to the previous section: the skirmish screen capture was looked at, its
+first layout overlapped the faction blurb, and the description now sits beside the preview.

@@ -155,6 +155,23 @@ function T.run(app)
   capture('weapons',function() app:draw() end)
   foe.stackFixed=nil;foe.stackHit=nil;own.channel=nil;foe.x,foe.y=homeX,homeY;app:update(.05);app.overlay=overlay
  end
+ -- Game juice, drawn: an impact ring with its dust, a splash circle, scorch, a burst number and
+ -- the owner's descent marker over a landing site, none of it touching the simulation.
+ do
+  local overlay=app.overlay;app.overlay=nil
+  local own=app.world.entities[app.view.player.hero];local tick=app.world.tick
+  local before=Sim.serializeCanonical(app.world)
+  app.juice:reset();Camera.center(app,own.x,own.y)
+  app.juice:observe({{kind='landed',entity=own.id,x=own.x+1024,y=own.y,tick=tick},{kind='stack_burst',entity=own.id,x=own.x-768,y=own.y+256,damage=45,tick=tick},
+   {kind='death',entity=0,unitKind='barracks',x=own.x,y=own.y+1280,tick=tick},{kind='cast',source=own.id,ability='thornfall',castX=own.x-1536,castY=own.y-768,tick=tick}},app)
+  app.juice:update(.08);app.feedback:update(.08)
+  assert(#app.juice.particles>30 and #app.juice.rings>=3 and #app.juice.decals==1,'the juice reactions did not all appear')
+  app.view.player.landings={{kind='barracks',x=math.floor(own.x/256)+6,y=math.floor(own.y/256)-5,at=tick+40}}
+  capture('juice',function() app:draw() end)
+  app.view.player.landings=nil;app.juice:reset()
+  assert(Sim.serializeCanonical(app.world)==before,'game juice changed the simulation')
+  app.overlay=overlay
+ end
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  require('tests.command_card').captures(app,capture)
  T.tooltips(app,capture)

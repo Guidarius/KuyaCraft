@@ -91,6 +91,7 @@ function App.create(options)
     if options['audio-disabled'] then self.audio.templates={} end
     self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
     self.feedback=require('src.feedback').create()
+    self.juice=require('src.ui.juice').create()
     self.feedback:observe({},self.view,self.world.tick)
     self.selected={self:focus()}
     local ok,sprites=pcall(require,'src.sprites')
@@ -147,6 +148,7 @@ function App:update(dt)
         else trail.value=e.hp;trail.seen=e.hp;trail.first=nil end
     end
     if self.feedback.update then self.feedback:update(dt) end
+    self.juice:update(dt)
     if self.seeking then
         local target=self.seeking;local limit=math.min(target,self.world.tick+40)
         while self.world.tick<limit do
@@ -194,7 +196,7 @@ function App:update(dt)
             self.alerts=require('src.ui.alerts').create();self.healthTrails={};self.audio:clear()
             if self.sprites then self.sprites:reset() end
             self.previous={}
-            self.feedback:reset();self.feedback:observe({},self.view,self.world.tick)
+            self.feedback:reset();self.juice:reset();self.feedback:observe({},self.view,self.world.tick)
             for tick=1,3 do self.network:submit(tick,{}) end
         end
     end
@@ -265,6 +267,7 @@ function App:update(dt)
         self.alerts:observe(events,self)
         if self.sprites then self.sprites:observe(events,self.view,self.world.tick) end
         self.feedback:observe(events,self.view,self.world.tick)
+        if not self.options['effects-disabled'] then self.juice:observe(events,self) end
         local acceptedCount,rejectedCount,firstReason=0,0,nil
         for _,event in ipairs(events) do
             if (event.kind=='rejected' or event.kind=='accepted') and event.player==self.player then
@@ -601,8 +604,10 @@ function App:draw()
         end
     end
     table.sort(entities,byDepth)
+    -- Scorch, impact rings and descent markers lie on the ground, under whatever stands on it.
+    if not self.options['effects-disabled'] then self.juice:drawGround(self) end
     for i=1,count do self:drawEntity(entities[i]) end
-    if not self.options['effects-disabled'] then self.feedback:draw(self);require('src.ui.command_feedback').draw(self) end
+    if not self.options['effects-disabled'] then self.feedback:draw(self);self.juice:draw(self);require('src.ui.command_feedback').draw(self) end
     -- Target marker: green for a move, red for an attack, contracting rather than
     -- expanding so the eye is pulled to the destination instead of away from it.
     local marker=self.orderMarker
@@ -802,7 +807,7 @@ function App:seek(tick,player)
         if self.playback.hashes[i] then assert(self.playback.hashes[i]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..i) end
         self.observation:update(Sim.view(self.world,self.player))
     end
-    self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.audio:clear()
+    self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.juice:reset();self.audio:clear()
     self.alerts=require('src.ui.alerts').create();self.selected={self:focus()};self.cardPage=nil;self.cardSelection=nil;self.uiNotice=nil;self.costFlash=nil;self.commandMarks={};self.orderMarker=nil;if self.sprites then self.sprites:reset() end
 end
 -- Saving a replay must never be able to take the game down with it. A packaged build
