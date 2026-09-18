@@ -62,8 +62,9 @@ function M.register(test)
         refuses(function(d) d.layers[3]={type='tilelayer',name='decals'} end,'unknown layer')
         refuses(function(d) table.remove(d.layers[2].objects,3) end,'no start for player 1')
     end)
-    test('unit','maps: Twin Marches terrain agrees with the flags the simulation reads',function()
-        local m=require('src.maps').create();local W,H=m.width,m.height
+    for _,mapId in ipairs(require('src.maps').tiled) do
+    test('unit','maps: '..mapId..' terrain agrees with the flags the simulation reads',function()
+        local m=require('src.maps').create(mapId);local W,H=m.width,m.height
         eq(#m.terrain,W*H)
         local counts={}
         for k=1,W*H do
@@ -74,5 +75,6 @@ function M.register(test)
         end
         assert((counts.f or 0)>0 and (counts.k or 0)>0 and (counts.r or 0)>0 and (counts.g or 0)>0,'a terrain type is missing')
     end)
+    end
 end
 return M

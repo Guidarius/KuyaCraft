@@ -30,6 +30,9 @@ require('tests.controls').register(test)
 require('tests.control_scenarios').register(test)
 require('tests.maps').register(test)
 test('balance','new-profile route report',function() require('tests.balance_scenarios').routes() end)
+for _,mapId in ipairs(require('src.maps').tiled) do if mapId~='twin_marches' then
+    test('balance','map '..mapId..': routes and a six-minute bot match',function() require('tests.balance_scenarios').mapReport(mapId) end)
+end end
 test('balance','new-profile mirror match',function() require('tests.balance_scenarios').match(true) end)
 test('balance','new-profile asymmetric match',function() require('tests.balance_scenarios').match(false) end)
 test('balance','new-profile active performance',function() require('tests.balance_scenarios').performance() end)

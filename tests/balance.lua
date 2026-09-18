@@ -131,11 +131,16 @@ function B.register(test)
   copy.a.n=9;eq(data.a.n,7);eq(copy.b.n,7)
   local cycle={};cycle.self=cycle;assert(not pcall(Codec.copy,cycle));assert(not pcall(Codec.copy,{fraction=.1}));assert(not pcall(Codec.copy,{fn=function() end}))
  end)
- test('unit','Twin Marches: footprint safety, symmetry and fields at every base',function()
-  local m=require('src.maps').create();eq(m.width,192);eq(m.height,192);local cells={}
+ -- Every shipping map: its size, and how much of it must be walkable. The lane maps are
+ -- mostly rock on purpose; the open ones are not.
+ local SHIPPING={twin_marches={192,192,50},the_narrows={160,224,25},open_reach={224,224,50},crossroads={192,192,25}}
+ for _,mapId in ipairs(require('src.maps').tiled) do
+ test('unit','map '..mapId..': footprint safety, symmetry and fields at every base',function()
+  local spec=assert(SHIPPING[mapId],'a shipping map with no expectations in tests/balance.lua')
+  local m=require('src.maps').create(mapId);eq(m.id,mapId);eq(m.width,spec[1]);eq(m.height,spec[2]);local cells={};local W,H=m.width,m.height
   for _,n in ipairs(m.resources) do for y=n.y,n.y+(n.size or 1)-1 do for x=n.x,n.x+(n.size or 1)-1 do local k=P.key(m,x,y);assert(not cells[k],'overlapping resources at '..x..','..y);cells[k]=n.resource
    assert(not m.blocked[k],'a patch on impassable ground at '..x..','..y);assert(not m.unbuildable[k],'a patch on a road at '..x..','..y) end end end
-  for y=0,191 do for x=0,191 do local k,r=P.key(m,x,y),P.key(m,191-x,191-y)
+  for y=0,H-1 do for x=0,W-1 do local k,r=P.key(m,x,y),P.key(m,W-1-x,H-1-y)
    eq(m.blocked[k],m.blocked[r]);eq(m.unbuildable[k],m.unbuildable[r]);eq(cells[k],cells[r])
   end end
   -- Each base site (both starts, both naturals, both forward and both contested anchors)
@@ -153,9 +158,16 @@ function B.register(test)
   end
   eq(#m.camps,0,'the pivot map has no camps');assert(m.controlPoints==nil,'the pivot map has no control points')
   local open=0;for y=0,m.height-1 do for x=0,m.width-1 do if not m.blocked[P.key(m,x,y)] then open=open+1 end end end
-  assert(open*2>m.width*m.height,'less than half of the map is walkable ('..open..' cells)')
+  assert(open*100>=spec[3]*m.width*m.height,'less than '..spec[3]..'% of the map is walkable ('..open..' cells)')
   local w=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,m);S.clearance(w);eq(Sim.unitCount(w,1),4)
+  -- The Megacorp starts here too, and its Command's coverage reaches every patch of its main.
+  local mc=Sim.create({seed=1,players={{faction='megacorp'},{faction='megacorp'}}},C,require('src.maps').create(mapId));Sim.step(mc,{})
+  for p,s in ipairs(m.starts) do for _,n in ipairs(m.resources) do
+   local dx,dy=n.x-(s.x+2),n.y-(s.y+2)
+   if dx*dx+dy*dy<=12*12 then assert(require('src.sim.coverage').covers(mc,p,n.x,n.y),'a main patch of player '..p..' is outside the coverage of its Command') end
+  end end
  end)
+ end
  -- The bot's economy: idle workers go to patches, a depot goes up before the cap binds, and a
  -- stopped site gets a worker back.
  test('unit','bot: sends workers to patches, raises a depot ahead of the cap, and returns to a stopped site',function()

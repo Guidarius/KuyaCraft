@@ -6,6 +6,43 @@ local F=require('src.sim.fixed')
 local P=require('src.sim.path')
 local M={}
 local function write(name,text) local f=assert(io.open('artifacts/'..name,'wb'));f:write(text);f:close();print(text) end
+-- Every shipping map but the default, which has its own longer matches below: the march
+-- between the bases and to the natural at Footman speed, then six minutes of Orders against
+-- Megacorp to prove both bots can live on the layout (production up, an economy running).
+-- The numbers are reported for comparing layouts; only survival is asserted.
+function M.mapReport(id)
+ local map=Maps.create(id);local w=Sim.create({seed=725,players={{faction='orders'},{faction='megacorp'}}},C,map);local Bot=require('src.bot')
+ local probe=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,Maps.create(id))
+ local a,b=map.unitStarts[1][1],map.unitStarts[2][1];local e=S.unit(probe,'footman',1,a.x,a.y)
+ local function route(ax,ay,bx,by)
+  e.x=F.center(ax);e.y=F.center(ay);e.path={};e.goal=nil;probe.metrics.directChecks=0;assert(P.request(probe,e,bx,by),'blocked route endpoint')
+  for _=1,2000 do probe.metrics.pathExpansions=0;P.step(probe);if not probe.searches[e.id] then break end end
+  assert(not probe.searches[e.id] and not e.blockedReason,'unreachable route on '..id)
+  local ticks=0;local x,y=ax,ay
+  for _,p in ipairs(e.path) do local distance=F.isqrt((p.x-x)^2*65536+(p.y-y)^2*65536);ticks=ticks+math.ceil(distance/C.units.footman.speed);x,y=p.x,p.y end
+  return ticks/20
+ end
+ local natural=map.anchors.naturals[1]
+ local main,toNatural=route(a.x,a.y,b.x,b.y),route(a.x,a.y,natural.x,natural.y)
+ local firstContact;local built={{},{}}
+ for tick=1,7200 do
+  local commands={}
+  if w.tick%20==0 then for p=1,2 do local sequence=w.players[p].sequence;for _,c in ipairs(Bot.commands(Sim.view(w,p),C)) do sequence=sequence+1;c.tick=tick;c.player=p;c.sequence=sequence;commands[#commands+1]=c end end end
+  Sim.step(w,commands)
+  for _,ev in ipairs(w.events) do
+   if ev.kind=='constructed' then local entity=w.entities[ev.entity];built[entity.owner][entity.kind]=(built[entity.owner][entity.kind] or 0)+1
+   elseif ev.kind=='attack' and not firstContact then local s,t=w.entities[ev.source],w.entities[ev.target];if s and t and s.owner>0 and t.owner>0 and s.owner~=t.owner then firstContact=tick end end
+  end
+  if w.result then break end
+ end
+ local open=0;for k=1,map.width*map.height do if not map.blocked[k] then open=open+1 end end
+ write('balance-map-'..id..'.txt',string.format('%s (%dx%d, %d%% walkable): base to base %.1fs, to the natural %.1fs at Footman speed; after %ds of Orders vs Megacorp: Orders food %d with %d barracks and %d keeps, Megacorp food %d with %d rigs and %d relays; first contact %s; %s\n',
+  id,map.width,map.height,math.floor(open*100/(map.width*map.height)),main,toNatural,w.tick/20,Sim.population(w,1),built[1].barracks or 0,1+(built[1].keep or 0),Sim.population(w,2),(built[2].substrate_rig or 0)+(built[2].charge_rig or 0),built[2].orbital_relay or 0,
+  firstContact and string.format('%.0fs',firstContact/20) or 'none',w.result and ('won by player '..w.result.winner) or 'undecided'))
+ assert(built[1].barracks,'the Orders bot built no barracks on '..id);assert(built[2].mc_barracks,'the Megacorp bot landed no barracks on '..id)
+ assert((built[2].substrate_rig or 0)>=4,'the Megacorp bot rigged fewer than four patches on '..id)
+ assert(Sim.population(w,1)>=12 or w.result,'the Orders bot did not grow on '..id)
+end
 function M.routes()
  local w=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,Maps.create())
  local e=S.unit(w,'footman',1,28,18)

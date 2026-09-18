@@ -1,4 +1,4 @@
-param([ValidateSet('twin_marches','river_pass','open_fields','movement_lab')][string]$Map = 'twin_marches', [string]$Faction = 'bastion', [switch]$Smoke, [int]$AutoQuit = 0, [string]$HostAddress = '', [string]$JoinAddress = '', [switch]$WoodlandViewer, [switch]$AssetViewer)
+param([ValidateSet('twin_marches','the_narrows','open_reach','crossroads','river_pass','open_fields','movement_lab')][string]$Map = 'twin_marches', [string]$Faction = 'orders', [switch]$Smoke, [int]$AutoQuit = 0, [string]$HostAddress = '', [string]$JoinAddress = '', [switch]$WoodlandViewer, [switch]$AssetViewer)
 . "$PSScriptRoot/common.ps1"
 $runtime = Get-LoveRuntime
 Initialize-Artifacts

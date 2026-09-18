@@ -15,8 +15,12 @@
 -- route more than 3% shorter (a bay on the inside of a bend lets it cut the corner) or 6%
 -- longer is repaired by restoring the old terrain along it, and the check runs again.
 --
--- Usage: lovec tools/tiled/generate <project root> [--force]
+-- Usage: lovec tools/tiled/generate <project root> [--map <id>] [--force]
+-- The default map is twin_marches, from tools/tiled/twin_marches_legacy.lua; any other id is
+-- read from tools/tiled/layouts/<id>.lua, written with the helpers in tools/tiled/layout.lua.
+-- A preview of the result is written to artifacts/map-<id>.png.
 local W,H,N
+local MAP_ID='twin_marches'
 local GRASS,ROAD,ROCK,FOREST=1,2,3,4
 local MAX_BAY=12
 local function key(x,y) return y*W+x+1 end
@@ -171,7 +175,7 @@ local function luaExport(grid,objects,W,H,nextId)
     add('  orientation = "orthogonal",');add('  renderorder = "right-down",')
     add('  width = '..W..',');add('  height = '..H..',');add('  tilewidth = 32,');add('  tileheight = 32,')
     add('  nextlayerid = 3,');add('  nextobjectid = '..nextId..',')
-    add('  properties = {');add('    ["id"] = "twin_marches"');add('  },')
+    add('  properties = {');add('    ["id"] = "'..MAP_ID..'"');add('  },')
     add((TILESETS:gsub('\n$','')))
     add('  layers = {');add('    {');add('      type = "tilelayer",');add('      x = 0,');add('      y = 0,')
     add('      width = '..W..',');add('      height = '..H..',');add('      id = 1,');add('      name = "ground",');add('      class = "",')
@@ -210,11 +214,15 @@ local function luaExport(grid,objects,W,H,nextId)
 end
 function love.load(args)
     local root=(args[1] or '.'):gsub('\\','/'):gsub('/$','')..'/'
-    local force=false;for _,a in ipairs(args) do if a=='--force' then force=true end end
-    local out=root..'maps/twin_marches.tmx'
+    local force=false;for i,a in ipairs(args) do if a=='--force' then force=true elseif a=='--map' then MAP_ID=assert(args[i+1],'--map needs an id') end end
+    assert(MAP_ID:match('^[a-z_]+$'),'a map id is lower case letters and underscores')
+    local out=root..'maps/'..MAP_ID..'.tmx'
     local existing=io.open(out,'rb')
     if existing then existing:close();if not force then print('REFUSED '..out..' exists; it is the hand-edited source now. Pass --force to overwrite it.');love.event.quit(1);return end end
-    local L=dofile(root..'tools/tiled/twin_marches_legacy.lua')()
+    local L
+    if MAP_ID=='twin_marches' then L=dofile(root..'tools/tiled/twin_marches_legacy.lua')()
+    else L=dofile(root..'tools/tiled/layouts/'..MAP_ID..'.lua')(dofile(root..'tools/tiled/layout.lua')) end
+    assert(L.id==MAP_ID,'the layout names itself '..tostring(L.id))
     W,H=L.width,L.height;N=W*H
 
     local legacy={}
@@ -446,7 +454,7 @@ function love.load(args)
     add('<?xml version="1.0" encoding="UTF-8"?>')
     add(string.format('<map version="1.10" tiledversion="1.12.2" class="" orientation="orthogonal" renderorder="right-down" width="%d" height="%d" tilewidth="32" tileheight="32" infinite="0" nextlayerid="3" nextobjectid="%d">',W,H,nextId))
     add(' <properties>')
-    add('  <property name="id" value="twin_marches"/>')
+    add('  <property name="id" value="'..MAP_ID..'"/>')
     add(' </properties>')
     add(' <tileset firstgid="1" name="terrain" tilewidth="32" tileheight="32" tilecount="4" columns="4">')
     add('  <image source="tilesets/terrain.png" width="128" height="32"/>')
@@ -485,8 +493,16 @@ function love.load(args)
     add('</map>')
     write(out,table.concat(lines,'\n')..'\n')
     print('WROTE '..out)
-    local export=root..'src/maps/twin_marches_tiled.lua'
+    local export=root..'src/maps/'..MAP_ID..'_tiled.lua'
     write(export,luaExport(grid,objects,W,H,nextId))
     print('WROTE '..export)
+    -- A preview to look at: three pixels a cell, fields, bases and anchors marked.
+    local scale=3;local preview=love.image.newImageData(W*scale,H*scale)
+    local function paint(x,y,size,c) for py=y*scale,(y+size)*scale-1 do for px=x*scale,(x+size)*scale-1 do if px>=0 and py>=0 and px<W*scale and py<H*scale then preview:setPixel(px,py,c[1],c[2],c[3],1) end end end end
+    for k=1,N do local x,y=coords(k);paint(x,y,1,colours[grid[k]]) end
+    for _,n in ipairs(L.resources) do paint(n.x,n.y,n.size,n.resource=='charge' and {.45,1,.55} or {.35,.8,1}) end
+    for _,group in pairs(L.anchors) do for _,a in ipairs(group) do paint(a.x-1,a.y-1,3,{1,.85,.2}) end end
+    for p,s in ipairs(L.starts) do paint(s.x,s.y,4,p==1 and {.2,.4,1} or {1,.25,.25}) end
+    write(root..'artifacts/map-'..MAP_ID..'.png',preview:encode('png'):getString())
     love.event.quit(0)
 end

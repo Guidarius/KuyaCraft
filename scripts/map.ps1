@@ -3,12 +3,13 @@
 #
 #   -Mode Export    export every maps/*.tmx with Tiled (after editing a map)
 #   -Mode Check     fail if a committed export differs from what Tiled produces now
-#   -Mode Generate  rebuild maps/twin_marches.tmx from the old code-authored layout (-Force
-#                   to overwrite an existing, possibly hand-edited, .tmx)
+#   -Mode Generate  rebuild maps/<Map>.tmx and its export from the code-authored layout in
+#                   tools/tiled (-Map <id>, default twin_marches; -Force to overwrite an
+#                   existing, possibly hand-edited, .tmx); writes artifacts/map-<id>.png
 #
 # Tiled 1.12.2 is expected at .tools/tiled-1.12.2/PFiles/Tiled/tiled.exe. It is a GUI program
 # that exports without opening a window, but it can hang, so every call has a timeout.
-param([ValidateSet('Export','Check','Generate')][string]$Mode = 'Export', [switch]$Force)
+param([ValidateSet('Export','Check','Generate')][string]$Mode = 'Export', [string]$Map = 'twin_marches', [switch]$Force)
 . "$PSScriptRoot/common.ps1"
 $tiled = Join-Path $ProjectRoot '.tools/tiled-1.12.2/PFiles/Tiled/tiled.exe'
 
@@ -20,7 +21,8 @@ function Invoke-TiledExport([string]$Source, [string]$Target) {
 
 if ($Mode -eq 'Generate') {
     $runtime = Get-LoveRuntime
-    $arguments = @((Join-Path $ProjectRoot 'tools/tiled/generate'), $ProjectRoot)
+    Initialize-Artifacts
+    $arguments = @((Join-Path $ProjectRoot 'tools/tiled/generate'), $ProjectRoot, '--map', $Map)
     if ($Force) { $arguments += '--force' }
     & $runtime @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Map generation failed.' }

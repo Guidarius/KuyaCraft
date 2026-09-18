@@ -1913,3 +1913,49 @@ of over a hundred. The Megacorp reaches its supply cap of 62 at 8:00 and stays t
 because only the Command and Rigs grant supply; that, and the Orders bot losing to a
 single wave, are balance and bot questions for the user. The mirror is unchanged at 12:23.
 The fixture matches are unchanged (5353 and 2179).
+
+## Three new map designs, and a generator that takes any layout
+
+The user asked to iterate on distinct map designs before any faction balancing. Twin
+Marches was the only real map; now there are four, each a different answer to where the
+fight happens (docs/MAPS.md): **The Narrows** (160×224, a wide band of rock crossed by one
+wooded seven-cell bridge and a five-cell lane down each flank, the enemy's flank lane coming
+out at the edge of your natural), **Open Reach** (224×224, almost all grass, no chokepoint,
+a rock block in the very centre and four fields in reach of each base) and **Crossroads**
+(192×192, a walled centre with narrow gates and two small fields on the short road, two
+wide outer lanes, each natural on the lane that leaves its own base and the enemy's lane
+arriving at the back door). All are symmetric under a 180-degree rotation and give each
+player the same four fields as Twin Marches, so they differ in ground and not in income.
+
+The generator (`tools/tiled/generate`) took its layout, id and output paths from Twin
+Marches by name; it now takes `--map <id>` (`scripts/map.ps1 -Mode Generate -Map <id>`),
+reads `tools/tiled/layouts/<id>.lua`, and writes a preview to `artifacts/map-<id>.png`.
+`tools/tiled/layout.lua` holds the authoring helpers with the rotation built in, including
+field patterns that flip about their keep or anchor so a base may face any way. Twin Marches
+still comes from its own legacy layout file and regenerates byte for byte (checked: no
+diff). `src/maps.lua` is a registry with labels and one-line descriptions; the skirmish
+screen cycles it and shows the description and size, converting the map once per choice
+rather than once per frame. `scripts/run.ps1` takes the new ids, and its default faction
+was still `bastion`, which no longer exists; the shell now ignores an unknown faction.
+
+Tests: the footprint, symmetry and field test and the terrain-flag test run for every
+shipping map (walkable floor 50% for the open maps, 25% for the lane maps), and also check
+that both factions spawn cleanly and that the Command's coverage reaches every main patch.
+The balance suite gains one test per new map: the march between the bases and to the
+natural at Footman speed, then six minutes of Orders against Megacorp, asserting only that
+both bots get production and an economy up. No simulation or content change; the build
+fingerprint moves because `src/maps` changed, so older replays are refused, as intended.
+
+Verified on the desk machine at `-PerfBudget 40`: quick (122 passed), determinism (5),
+network (4), scenario (2), crowd (20), soak (1), performance (2), `test-ui.ps1` and
+`test-presentation.ps1` (PASS). Balance: 6 passed and 1 failed in the chained run, the
+failure being the active-performance gate at 47.7 ms p95, measured straight after the three
+new bot matches; rerun alone it passed at 29.5 ms p95 with the simulation untouched, which
+is this machine's known heat sensitivity and not a regression, but it is reported as it
+happened. Measured per map (Footman march base to base / to the natural; six minutes of
+Orders vs Megacorp): The Narrows 81.0 s / 14.2 s, first contact 4:49; Open Reach 79.8 s /
+13.2 s, first contact 4:42; Crossroads 47.0 s / 11.3 s, first contact 4:01. On all three
+both bots had production and 15 or 16 rigs against two barracks by 6:00. The Twin Marches
+matches are unchanged (12:23 and 10:23). Not done: no Tiled check, no human has played the
+new maps, and the skirmish screen's new description line was captured but layouts remain
+the user's to judge from the previews in `artifacts/map-<id>.png`.
