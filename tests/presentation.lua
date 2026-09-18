@@ -143,6 +143,18 @@ function T.run(app)
   capture('inspect',function() app:draw() end)
   foe.x,foe.y=homeX,homeY;app:update(.05);app.overlay=overlay
  end
+ -- Target stacks and a channel (simulation version 26), drawn from the view alone: pips
+ -- over the enemy hero and the ring where the own hero's channel is falling.
+ do
+  local overlay=app.overlay;app.overlay=nil
+  local own=app.world.entities[app.view.player.hero];local foe=app.world.entities[app.world.players[2].hero]
+  local homeX,homeY=foe.x,foe.y;foe.x=own.x+768;foe.y=own.y
+  foe.stackFixed=800;foe.stackHit=app.world.tick;own.channel={ability='bulwark',x=own.x,y=own.y,start=app.world.tick,finish=app.world.tick+60}
+  app.view=Sim.view(app.world,app.player);Camera.center(app,own.x,own.y)
+  assert(app.view.byId[foe.id] and app.view.byId[foe.id].stackFixed==800,'the stacks did not reach the view')
+  capture('weapons',function() app:draw() end)
+  foe.stackFixed=nil;foe.stackHit=nil;own.channel=nil;foe.x,foe.y=homeX,homeY;app:update(.05);app.overlay=overlay
+ end
  app.overlay=nil;app.selected={app.view.player.hero};Camera.center(app,hero.x,hero.y);capture('match',function() app:draw() end)
  require('tests.command_card').captures(app,capture)
  T.tooltips(app,capture)

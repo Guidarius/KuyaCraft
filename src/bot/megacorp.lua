@@ -137,6 +137,26 @@ function B.commands(view,C)
  local tx,ty
  if threat then tx,ty=threat.x,threat.y
  elseif #ships>=2 or troopFood>=12 or view.tick>=12000 then local start=view.map.starts and view.map.starts[owner==1 and 2 or 1];if start then tx,ty=start.x*256,start.y*256 end end
+ -- A Battleship with its barrage ready bombards enemy flyers in reach rather than
+ -- plinking at them with the gun. The view carries its own cooldowns, cast and channel.
+ for _,e in ipairs(ships) do
+  local d=C.units[e.kind]
+  if d.abilities and not e.cast and not e.channel and e.order.kind~='cast' then
+   for _,name in ipairs(d.abilities) do
+    local spec=C.abilities[name]
+    if spec and spec.filter and spec.filter.air and (not e.cooldowns or (e.cooldowns[name] or 0)<=view.tick) then
+     local target,best
+     for _,f in ipairs(view.entities) do
+      if f.alive and f.owner>0 and f.owner~=owner and C.units[f.kind] and C.units[f.kind].flying then
+       local distance=F.sq(f.x-e.x)+F.sq(f.y-e.y)
+       if distance<=F.sq(spec.range) and (not best or distance<best) then target=f;best=distance end
+      end
+     end
+     if target then add('cast',e,{ability=name,x=target.x,y=target.y}) end
+    end
+   end
+  end
+ end
  for _,e in ipairs(troops) do ships[#ships+1]=e end
  for _,e in ipairs(ships) do
   if e.hp*100<e.maxHp*30 then if e.order.kind~='move' and view.tick%100==0 then add('move',e,{x=hq.x,y=hq.y}) end

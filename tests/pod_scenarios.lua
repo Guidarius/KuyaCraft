@@ -60,7 +60,8 @@ function M.garrison()
  local w=world();w.players[1].resources={substrate=10000,charge=10000}
  local bunker=building(w,'bunker',1,14,20);local office=building(w,'requisition_office',1,14,26)
  local a=unit(w,'associate',1,12,20);local b=unit(w,'associate',1,12,21);local heavy=unit(w,'enforcer',1,12,22);local c=unit(w,'associate',1,12,23)
- local foe=unit(w,'footman',2,20,21);foe.order={kind='hold'};step(w,1)
+ -- The footman is given the health of a wall so the Associates' stacks (version 26) cannot burst it inside the test.
+ local foe=unit(w,'footman',2,20,21);foe.order={kind='hold'};foe.hp=4000;foe.maxHp=4000;step(w,1)
  -- A flyer may not garrison; a walker walks in; the enforcer takes two slots, so the fourth is refused.
  local blimp=units(w,1,'command_blimp')[1]
  eq(rejected(Sim.step(w,{command(w,1,'garrison',blimp.id,{target=bunker.id})})),'cannot garrison')

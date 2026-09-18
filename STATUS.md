@@ -1780,3 +1780,49 @@ the Megacorp barracks landing at 90 s. The Megacorp holds its base with troops i
 cycle but does not win; balance is the user's call and nothing was tuned. The fixture
 matches are unchanged (5353 and 2179). Not done: no PR opened (`gh` is absent), no human
 playtest, no Tiled check.
+
+## Pivot phase 7: target stacks and the barrage — simulation version 26
+
+The Megacorp's two signature weapons. **Target stacks:** a hit from an `applyStacks` unit
+(the Associate) adds one stack to its target, kept as `stackFixed` in units of 200 so the
+decay can be fractional without a float. At the target's threshold, `5 + 150% of armour +
+2 per 100 max hp` stacks (`Sim.stackThreshold`: Associate 6, Footman 8, Enforcer 13,
+Bunker 16, Keep 38), the stacks reset and a 45-damage armour-piercing hit is appended to
+the tick's own effect list, so it lands on the tick of the crossing hit and takes kill
+credit like any other; hits left on that tick start the next stack. Stacks fade by 30 plus
+6 per armour point a tick once 15 ticks pass without a hit. The Associate's own period is
+18 ticks, so a lone Associate loses a little between hits and focus fire is what bursts.
+`stackFixed` is public in views and drawn as pips over the bar for both sides.
+
+**Barrage:** the first ability in the shipping content, on the Battleship, and the first
+channelled one. An ability with `channel={ticks,period}` fires at its cast point and then
+every `period` until `ticks` are up; the cast order stands meanwhile, the caster neither
+swings nor acquires, and a new order, stun or silence breaks the channel with the
+cooldown already spent. `filter.air` / `filter.ground` restrict an ability by layer, so the
+barrage passes over the footmen under it. `e.channel` is authoritative state, public in
+views without the ability id, and drawn as a ring. Mana is now required only of a unit
+whose ability costs mana. The Megacorp bot casts the barrage at the nearest enemy flyer
+within reach when it is ready.
+
+Two scenarios in `tests/weapon_scenarios.lua`: the stacks (the three thresholds, two
+Associates on a Bunker followed tick by tick against an oracle of the rule, the burst on the
+crossing hit for exactly 45 through 2 armour, the second stack starting from the same
+tick's other hit, the grace, the decay step and the field vanishing at zero and never
+leaking into either view) and the barrage (six pulses of 14 on two enemy Blimps and none on
+the Footman below or the allied Blimp beside them, cooldown charged at the cast point, the
+enemy view of the channel without its ability, a snapshot mid-channel restored and run to
+the same state, and a second ship broken by a move after two pulses with its cooldown
+kept and its gun silent). The garrison scenario's footman now has 4000 hp so the
+Bunker's Associates cannot burst it inside the test. A presentation capture (`weapons`)
+draws the pips and the ring from the view alone. Simulation version 25 → 26, content
+13 → 14.
+
+Verified on the desk machine at `-PerfBudget 40`, one after another: quick (116 passed),
+balance (4), determinism (5), network (4), scenario (2), crowd (20), soak (1), performance
+(2), `test-ui.ps1` and `test-presentation.ps1` (PASS; the `weapons` capture was looked at
+and shows the ring and the pips). Match outcomes: the Orders mirror is unchanged at 12:23
+(player 1 by headquarters); the Orders vs Megacorp match, unfinished at the 25:00 cap after
+phase 6, now ends at 22:45 with the Orders winning by headquarters, peak food 74 against
+34. The Megacorp still does not win against the Orders bot; the numbers are reported, not
+tuned. The fixture matches are unchanged (5353 and 2179). Not done: no PR (`gh` absent), no
+human playtest.

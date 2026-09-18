@@ -88,7 +88,12 @@ local Coverage=require('src.sim.coverage')
 -- ring of free cells; pods in flight are limited by tier. A unit may `garrison` a building
 -- with `garrison` slots: it is untargetable and unseen by the enemy, takes half splash,
 -- fights from inside a `garrisonFights` building, and is `unload`ed or ejected on death.
-local Sim = { VERSION = 25 }
+-- Version 26: target stacks and channelled abilities. A hit from an `applyStacks` unit
+-- adds a stack to its target (`stackFixed`, 200 per stack); at the target's threshold the
+-- stacks burst for `rules.stacks.burst` armour-piercing damage, and they decay after a
+-- grace period. An ability with `channel` keeps firing from its cast point every `period`
+-- for `ticks`; the caster holds and any new order breaks it. `filter.air` / `filter.ground`.
+local Sim = { VERSION = 26 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Airborne: a unit whose definition flies. Buildings and nodes never do.
@@ -119,6 +124,13 @@ function Sim.primaryResource(content) return (content.rules.resources or {'gold'
 function Sim.podsUnlocked(w,p)
     local rules=w.content.rules
     return math.min(rules.podsMax or 3,(rules.podsBase or 1)+Sim.tier(w,p))
+end
+-- Stacks needed to burst a target: a base, more for armour, more for size. Fixed at 200
+-- per stack so the decay can be fractional without a float.
+function Sim.stackThreshold(w,target)
+    local rules=w.content.rules.stacks or {}
+    local armor=Stats.armor(w,target)
+    return math.max(1,(rules.base or 5)+math.floor((rules.armorPercent or 150)*armor/100)+math.floor((rules.perHundredHp or 2)*(target.maxHp or 0)/100))
 end
 function Sim.tier(w,p)
     local n=0
@@ -398,6 +410,8 @@ local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
     'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','mine','stalled',
     'mana','maxMana',
+    -- Stacks are public: the pips on a target are the tell that a burst is coming.
+    'stackFixed',
     -- A worker's load and its loading are public: an enemy sees a laden worker walking home.
     'carrying','carryResource','harvestUntil','garrisoned','occupants',
     -- A shot in flight carries its heading so the renderer can point it the right way.
@@ -441,6 +455,9 @@ local function viewEntity(w,e,own)
     local cast=e.cast
     if cast then copy.cast={start=cast.start,point=cast.point,finish=cast.finish,dx=cast.dx,dy=cast.dy,
         ability=own and cast.ability or nil,target=own and cast.target or nil,x=own and cast.x or nil,y=own and cast.y or nil} end
+    -- A channel is public like a cast: the barrage is falling where everyone can see it.
+    local channel=e.channel
+    if channel then copy.channel={start=channel.start,finish=channel.finish,x=channel.x,y=channel.y,ability=own and channel.ability or nil} end
     -- Statuses are public in both directions. A stunned enemy has to read as stunned, or
     -- the player cannot tell why their focus target stopped swinging.
     if e.statuses then
@@ -644,7 +661,8 @@ local function clearCombat(e)
     -- A new order cancels a cast. Before the cast point nothing has been spent, so the
     -- mana and the cooldown are still there; after it, only the backswing is thrown
     -- away, which is the same bargain the attack phase offers for a committed swing.
-    e.cast=nil
+    -- A channel is broken outright; its cooldown was charged at the cast point.
+    e.cast=nil;e.channel=nil
 end
 local claimBuild
 local function setOrder(w,e,order,append)
@@ -1374,7 +1392,8 @@ local function combatOrders(w)
     for _,id in ipairs(w.order) do local e=w.entities[id];local d=def(w,e)
         local inside=e.garrisoned and w.entities[e.garrisoned]
         local mayFight=not inside or (w.content.buildings[inside.kind] or {}).garrisonFights==true
-        if e.alive and d and d.damage and mayFight then
+        -- A channelling caster is busy: it neither acquires nor chases until the channel ends.
+        if e.alive and d and d.damage and mayFight and not e.channel then
             local kind=e.order.kind;local target
             if kind=='attack' then
                 target=w.entities[e.order.target]
@@ -1457,6 +1476,18 @@ local function applyEffects(w,list,killers,killerSource)
             if fx.kind=='damage' then
                 if not Stats.invulnerable(w,target) then
                     target.hp=target.hp-fx.damage
+                    -- Target stacks: one per hit from a stacking unit; at the threshold
+                    -- they burst as one armour-piercing blow, appended to this same list
+                    -- so it lands this tick and takes kill credit like any other hit.
+                    if fx.stacks and target.hp>0 then
+                        local rules=w.content.rules.stacks or {}
+                        target.stackFixed=(target.stackFixed or 0)+(rules.perHit or 200);target.stackHit=w.tick
+                        if target.stackFixed>=Sim.stackThreshold(w,target)*(rules.perHit or 200) then
+                            target.stackFixed=nil;target.stackHit=nil
+                            list[#list+1]={kind='damage',source=fx.source,target=target.id,damage=rules.burst or 45,pierce=true}
+                            emit(w,'stack_burst',{entity=target.id,source=fx.source,damage=rules.burst or 45})
+                        end
+                    end
                     if target.kind=='beastkeeper' and target.upgrades[1]==2 and w.tick-target.lastCombat>outOfCombat then target.sprintUntil=w.tick+40 end
                     target.lastCombat=w.tick
                     -- First attacker to land a blow this tick takes credit, matching the
@@ -1482,6 +1513,17 @@ local function combat(w,pending)
         local e=w.entities[id]; local d=def(w,e)
         if e.alive and d then
             e.cooldown=math.max(0,(e.nextCommitTick or 0)-w.tick)
+            -- Stacks fade once the hits stop: after the grace, a fixed amount a tick,
+            -- faster on armour. Zero is nil so an unstacked unit serializes as before.
+            if e.stackFixed then
+                local rules=w.content.rules.stacks or {}
+                if w.tick-(e.stackHit or 0)>(rules.grace or 15) then
+                    e.stackFixed=e.stackFixed-((rules.decay or 30)+(rules.decayPerArmor or 6)*Stats.armor(w,e))
+                    if e.stackFixed<=0 then e.stackFixed=nil;e.stackHit=nil end
+                end
+            end
+            -- A channelling caster neither swings nor acquires; its weapon is the channel.
+            if e.channel then e.attack=nil end
             if e.attack then
                 local phase=e.attack
                 if w.tick==phase.impact then
@@ -1489,7 +1531,7 @@ local function combat(w,pending)
                     if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                         phase.committed=true;e.nextCommitTick=w.tick+phase.period;e.cooldown=phase.period
                         if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end
-                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e,target)-Stats.armor(w,target,protectors))}
+                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e,target)-Stats.armor(w,target,protectors)),stacks=d.applyStacks or nil}
                         e.lastCombat=w.tick;e.attackTick=w.tick;emit(w,'attack',{source=e.id,target=target.id})
                         -- Splash: every enemy on the ground within the radius of the target is hit
                         -- too, each against its own armour, in world order. Never allies, never air.
@@ -1516,7 +1558,7 @@ local function combat(w,pending)
             if d.heal and not w.content.rules.profile and w.tick%20==0 then
                 for _,allyId in ipairs(ids(w)) do local ally=w.entities[allyId]; if ally.alive and ally.owner==e.owner and inRange(e,ally,768) then local old=ally.hp;ally.hp=math.min(ally.maxHp,ally.hp+d.heal);if ally.hp>old then emit(w,'healed',{entity=ally.id}) end end end
             end
-            if d.damage and (e.category~='building' or e.remaining==0) and Stats.canAttack(w,e) then
+            if d.damage and (e.category~='building' or e.remaining==0) and Stats.canAttack(w,e) and not e.channel then
                 local target=w.entities[e.combatTarget]
                 if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                     halt(w,e)

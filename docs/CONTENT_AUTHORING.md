@@ -57,13 +57,16 @@ units[kind]     += armor = n, requires = { building ids },
                    flying = true,          -- straight routes through anything, no ground, no blocking
                    canAttackAir = true, airDamage = n,   -- may target flyers; the weaker figure against them
                    splash = T.cells(1.5),  -- ground enemies within this radius of the target are hit too
-                   pod = true, garrisonSlots = 2   -- arrives by drop pod; seats taken in a garrison
+                   pod = true, garrisonSlots = 2,  -- arrives by drop pod; seats taken in a garrison
+                   applyStacks = true,     -- each hit adds a target stack (rules.stacks; see docs/FACTIONS.md)
+                   abilities = { 'barrage' }  -- card abilities; mana only when one costs mana
 rules           += resources = { 'gold' },      -- ledger keys in display order; every cost uses one
                    supplyFromBuildings = false, -- true: the cap is the sum of completed buildings' supply
                    cancelRefundPercent = 50,
                    harvestSearch = T.cells(6), -- how far a worker looks for a free patch of the same resource
                    descentTicks = T.ticks(10), callDownQueue = 5,  -- orbital logistics for coverage factions
-                   podCapacity = 4, podCooldown = T.ticks(15), podsBase = 1, podsMax = 3, garrisonDamagePercent = 50
+                   podCapacity = 4, podCooldown = T.ticks(15), podsBase = 1, podsMax = 3, garrisonDamagePercent = 50,
+                   stacks = { perHit = 200, base = 5, armorPercent = 150, perHundredHp = 2, burst = 45, grace = T.ticks(.75), decay = 30, decayPerArmor = 6 }
 ```
 
 Harvesting (simulation version 21): a worker with a `harvest` table takes a `harvest`

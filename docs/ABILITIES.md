@@ -40,10 +40,11 @@ that is not a whole number of ticks or subunits. Percentages are integers.
 |---|---|
 | `target` | One of five kinds. `none` fires where the caster stands and needs a `radius`; `unit` needs a visible entity passing `filter`; `point` and `area` take ground, and `area` needs a `radius`; `direction` is a line from the caster and needs a `width`. |
 | `range` | How far the caster may be and still cast. Not checked when the command is accepted: a caster out of range walks in first, like an attack order. `none` must have no range. |
-| `filter` | `enemy`, `ally`, `self`, `building`. Absent means enemy units only. Neutral counts as hostile, as it does for ordinary acquisition. |
+| `filter` | `enemy`, `ally`, `self`, `building`, and `air` or `ground` to restrict by layer. Absent means enemy units only. Neutral counts as hostile, as it does for ordinary acquisition. |
 | `castPoint` | Ticks from the start of the cast to the moment it takes effect. Moving before this cancels the cast and costs nothing. |
 | `backswing` | Recovery after the point. Moving during it throws the recovery away but not the effect. |
 | `slot` | Fixed position on the command card. Two abilities on one unit may not share a slot. |
+| `channel` | `{ticks, period}`: the ability fires again from its cast point every `period` ticks until `ticks` have passed. Points and areas only. The caster holds still, neither swings nor acquires, and any new order breaks the channel with the cooldown already spent. |
 | `effects` | Ordered list from a fixed vocabulary. |
 
 ### Effects
@@ -97,6 +98,11 @@ Order within a tick, from `Sim.step`:
 6. Combat runs, and every effect from steps 4 to 6 is applied together, so a spell and a
    sword landing on the same tick resolve as one event rather than in scan order.
 
+A channelled ability fires once at the cast point and then once every `period` until
+`ticks` are up; the cast order stands for the whole channel, so Shift-queued orders wait,
+and a move, stop, stun or silence ends it at once. `e.channel` is public in views (the
+ability itself only to the owner) so the ring can be drawn for both sides.
+
 Mana is spent and the cooldown starts at the cast point, not when the command is issued.
 A cast is revalidated there, exactly as an attack is revalidated at its impact: the
 target may have died or walked away while the arm came round.
@@ -143,3 +149,10 @@ shipping content. They want playtesting, not defending.
 | Warden | Challenge | unit, 5 cells | 45 | 12 s | 60 damage, 35% slow for 4 s |
 | Beastkeeper | Thornfall | area, 8 cells, 2.5 radius | 70 | 20 s | 30 damage, burns 15 a second for 5 s |
 | Beastkeeper | Snare | direction, 7 cells | 50 | 16 s | Thrown at 3 cells/s; first enemy takes 35 and is rooted 3 s |
+
+Those four live in `tests/fixture_content.lua` since the pivot. The shipping content has one
+ability, with no mana:
+
+| Unit | Ability | Kind | Cooldown | Effect |
+|---|---|---|---:|---|
+| Battleship | Barrage | area, 12 cells, 4.5 radius, air only | 18 s | Channelled 3 s: 14 damage every half second to enemy flyers in the circle |

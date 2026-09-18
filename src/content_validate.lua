@@ -32,6 +32,12 @@ return function(C)
         if d.target=='none' or d.target=='area' then assert(F.integer(d.radius,1,65536),'ability '..id..' needs a radius') end
         if d.target=='direction' then assert(F.integer(d.width,1,65536),'ability '..id..' needs a width') end
         assert(d.effects and #d.effects>0,'ability '..id..' does nothing')
+        if d.channel then
+            assert(F.integer(d.channel.ticks,1,100000),'ability '..id..' channels for an invalid time')
+            assert(F.integer(d.channel.period,1,d.channel.ticks),'ability '..id..' has an invalid channel period')
+            assert(d.target~='unit','ability '..id..' channels on a unit; only points and areas are supported')
+        end
+        if d.filter then assert(not (d.filter.air and d.filter.ground),'ability '..id..' is both air-only and ground-only') end
         for _,effect in ipairs(d.effects) do
             assert(effect.kind=='damage' or effect.kind=='heal' or effect.kind=='status' or effect.kind=='projectile','ability '..id..' has an unknown effect kind')
             if effect.kind=='projectile' then
@@ -54,6 +60,13 @@ return function(C)
         if d.period then assert(F.integer(d.period,1,10000),'status '..id..' has an invalid period') end
         if d.maxStacks then assert(F.integer(d.maxStacks,1,64),'status '..id..' has an invalid stack cap') end
     end
+    for id,d in pairs(C.units) do if d.applyStacks then assert(d.damage,'unit '..id..' applies stacks but has no attack') end end
+    if C.rules.stacks then
+        local s=C.rules.stacks
+        for _,key in ipairs({'perHit','base','armorPercent','perHundredHp','burst','grace','decay','decayPerArmor'}) do
+            assert(F.integer(s[key],key=='decayPerArmor' and 0 or 1,100000),'invalid stacks rule '..key)
+        end
+    end
     if C.rules.control then
         local control=C.rules.control
         assert(F.integer(control.radius,256,8192),'invalid control point radius')
@@ -71,7 +84,9 @@ return function(C)
                 local slot=ability.slot
                 if slot then assert(not slots[slot],'unit '..id..' has two abilities in card slot '..slot);slots[slot]=true end
             end
-            assert(F.integer(d.mana,1,100000),'unit '..id..' has abilities but no mana')
+            local costed=false
+            for _,name in ipairs(d.abilities) do local ability=C.abilities[name];if ability.cost and (ability.cost.mana or 0)>0 then costed=true end end
+            if costed or d.mana then assert(F.integer(d.mana,1,100000),'unit '..id..' has a mana-costed ability but no mana') end
             assert(F.integer(d.manaRegen or 0,0,10000),'unit '..id..' has an invalid mana regeneration')
         end
     end

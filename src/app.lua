@@ -495,6 +495,24 @@ function App:drawEntity(e)
             local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
             color(barColor(self,e));g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
         end
+        -- Target stacks: one pip per stack above the bar, shown to both sides, because
+        -- the pips are the tell that a burst is coming.
+        if e.stackFixed then
+            local perHit=self.content.rules.stacks and self.content.rules.stacks.perHit or 200
+            local pips=math.min(16,math.floor(e.stackFixed/perHit))
+            local pipY=y-(d.hero and 53 or 40)*z-5*z
+            g.setColor(1,.82,.3)
+            for i=1,pips do g.rectangle('fill',x-14*z+(i-1)*3*z,pipY,2*z,3*z) end
+        end
+        -- A channel: the circle it is falling on, drawn for both sides. The enemy is not
+        -- told which ability, so its ring is a fixed size.
+        if e.channel then
+            local spec=e.channel.ability and self.content.abilities and self.content.abilities[e.channel.ability]
+            local radius=spec and spec.radius or 1024
+            local ax,ay=self:screen(e.channel.x,e.channel.y)
+            g.setColor(1,.55,.4,.5);g.setLineWidth(2)
+            g.ellipse('line',ax,ay,radius/256*26*z,radius/256*CELL_Y*z);g.setLineWidth(1)
+        end
         -- Mana under the health bar, and a status strip above it. A stunned enemy has to
         -- read as stunned or the player cannot tell why their focus target stopped, and
         -- a caster with no mana left has to read that way before they press the key.

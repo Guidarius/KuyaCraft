@@ -74,7 +74,7 @@ lasts 12.5 s.
   Reliquary recall and ranged shield, Keep tiers and Houses, killable building upgrades, a
   Fletchery.
 
-## The Megacorp — LIVE (territory, rigs, orbital logistics, pods, garrisons); weapons PLANNED
+## The Megacorp — LIVE (territory, rigs, orbital logistics, pods, garrisons, weapons)
 
 No workers. Everything arrives from orbit inside relay coverage; the Orbital Command is
 unique and its loss is defeat. Start: one Orbital Command, one Command Blimp, 400 substrate.
@@ -118,8 +118,8 @@ credited, draining the node by the same amount.
 | Kind | Substrate | Charge | Supply | Train | HP | Armor | Damage | Period | Windup | Range | Speed | Sight |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | `command_blimp` Command Blimp | 100 | — | 0 | 600 t | 200 | 0 | — | — | — | coverage 12 | 38 | 11 |
-| `battleship` Battleship | 300 | 200 | 6 | 1400 t | 500 | 3 | 50 (8 vs air) | 60 t | 15 t | 12 cells, splash 1.5 | 22 | 13 |
-| `associate` Associate | 50 | — | 1 | 320 t | 55 | 0 | 6 | 18 t | 4 t | 5 cells, can hit air | 44 | 8 |
+| `battleship` Battleship | 300 | 200 | 6 | 1400 t | 500 | 3 | 50 (8 vs air) | 60 t | 15 t | 12 cells, splash 1.5; Barrage | 22 | 13 |
+| `associate` Associate | 50 | — | 1 | 320 t | 55 | 0 | 6, stacks | 18 t | 4 t | 5 cells, can hit air | 44 | 8 |
 | `medic` Medic | 50 | 25 | 1 | 400 t | 70 | 1 | — | — | — | heals 6/s within 3 cells | 44 | 8 |
 | `enforcer` Enforcer | 125 | 50 | 3 | 600 t | 250 | 2 | 25 | 28 t | 7 t | melee | 32 | 7 |
 
@@ -142,9 +142,24 @@ is room (an Enforcer takes two of the four). Inside it is unseen by the enemy, c
 targeted, takes half of any splash, and fights from a Bunker but not from an Office.
 `unload` puts everyone out beside the building; a building's death does the same.
 
-### PLANNED
+### Weapons — LIVE
 
-Phase 7: Associate target stacks and the Battleship's anti-air barrage.
+**Target stacks.** Every Associate hit adds a stack to its target (both sides see the pips).
+At the target's threshold, `5 + 150% of armour + 2 per 100 max hp` stacks (Associate 6,
+Footman 8, Enforcer 13, Bunker 16, Keep 38), the stacks burst for 45 damage that ignores
+armour, on the tick of the hit that crossed the line, and start again from any hits left on
+that tick. Stacks fade once 15 ticks pass without a hit, by 30 plus 6 per armour point a tick
+(200 per stack), so the Associate's own 18-tick period loses a little between hits and focus
+fire is what bursts a target.
+
+**Barrage.** The Battleship's ability (W): a 4.5-cell circle in the sky within 12 cells,
+14 damage to every enemy flyer in it every half second for 3 seconds, cooldown 18 s charged
+at the cast point. The ship holds and its gun is silent while it channels; any new order
+breaks the channel. The bot casts it at the nearest enemy flyer in reach.
+
+The reference's designed-but-not-live Megacorp features (Battleship repair at the Command,
+Enforcer area damage, office staffing research, franchises and livery) stay out of scope
+until the user asks; nothing else of the Megacorp is planned.
 
 ## The map
 

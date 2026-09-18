@@ -45,6 +45,11 @@ function A.matches(w,caster,target,filter)
     if target.category=='node' then return false end
     filter=filter or {enemy=true}
     if target.category=='building' and not filter.building then return false end
+    -- An air-only or ground-only ability: a barrage aimed at the sky passes over the
+    -- footmen standing under it.
+    local flying=(def(w,target) or {}).flying==true
+    if filter.air and not flying then return false end
+    if filter.ground and flying then return false end
     if target.id==caster.id then return filter.self==true end
     if target.owner==caster.owner then return filter.ally==true end
     return filter.enemy==true
@@ -260,10 +265,11 @@ function A.step(w,pending,api)
                 local ability=A.definition(w,order.ability)
                 if not ability or not A.has(w,e,order.ability) then api.nextOrder(w,e)
                 elseif not Stats.canCast(w,e) then
-                    -- Silenced or stunned mid-approach. The order stands; it resumes.
-                    e.cast=nil
-                elseif e.cast then
-                    -- committed below
+                    -- Silenced or stunned mid-approach. The order stands; it resumes. A
+                    -- channel in progress is broken, and its cooldown was already charged.
+                    e.cast=nil;e.channel=nil
+                elseif e.cast or e.channel then
+                    -- committed below, or still channelling
                 elseif ability.target=='unit' and not A.matches(w,e,w.entities[order.target],ability.filter) then
                     api.nextOrder(w,e)
                 elseif not A.ready(w,e,order.ability) or not A.affordable(w,e,ability) then
@@ -300,10 +306,33 @@ function A.step(w,pending,api)
                         e.cooldowns=e.cooldowns or {}
                         e.cooldowns[phase.ability]=w.tick+(ability.cooldown or 0)
                         fire(w,e,ability,order2,pending,api)
+                        -- A channelled ability keeps firing from the cast point: one pulse
+                        -- now and one every `period` until `ticks` have passed. The order
+                        -- stands for the whole channel so the caster holds still, and any
+                        -- new order breaks it with the cooldown already spent.
+                        local channel=ability.channel
+                        if channel then
+                            e.channel={ability=phase.ability,x=phase.x,y=phase.y,start=w.tick,finish=w.tick+channel.ticks,nextPulse=w.tick+channel.period}
+                            e.attack=nil;e.combatTarget=nil
+                            api.emit(w,'channel_started',{source=e.id,ability=phase.ability,castX=phase.x,castY=phase.y})
+                        end
                     end
-                    if e.order.kind=='cast' then api.nextOrder(w,e) end
+                    if e.order.kind=='cast' and not e.channel then api.nextOrder(w,e) end
                 end
                 if w.tick>=phase.finish then e.cast=nil end
+            end
+            local channel=e.channel
+            if channel and not (phase and w.tick==phase.point) then
+                local ability=A.definition(w,channel.ability)
+                if not ability or not ability.channel then e.channel=nil
+                elseif w.tick>=channel.finish then
+                    e.channel=nil
+                    api.emit(w,'channel_ended',{source=e.id,ability=channel.ability})
+                    if e.order.kind=='cast' and e.order.ability==channel.ability then api.nextOrder(w,e) end
+                elseif w.tick==channel.nextPulse then
+                    channel.nextPulse=w.tick+ability.channel.period
+                    fire(w,e,ability,{ability=channel.ability,x=channel.x,y=channel.y},pending,api)
+                end
             end
         end
     end
