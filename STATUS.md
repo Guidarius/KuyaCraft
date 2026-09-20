@@ -2090,3 +2090,70 @@ the very large `apply` function growing by a few lines, and the fix would be mov
 cancel into its own function. Worth re-measuring on a quiet machine. Match outcomes are
 unchanged (12:23 and 10:23; fixture 5353 and 2179). Not done: nobody has played a Megacorp
 match with the sidebar; glyphs are monograms until there is icon art.
+
+## 2026-09-20 — Responsive shipping control and measured performance (simulation 28)
+
+Implemented on `desk/control-response`, based on `b6339d9`. Content version 15.
+The target is Brood War style pace and individual control; coarse navigation remains a
+performance compromise. Shipping selections now retain individual speeds, optional
+formation pacing is scoped to player plus group, and safe subcell click destinations
+survive queues, patrols and snapshots. Nearby compatible group searches share terrain
+work while retaining independent destinations, body steering and congestion reroutes.
+Destination reservations are counted once per player during a command batch, and every
+smoothing probe now consumes the hard sample budget. See [CONTROL_RESPONSE.md](docs/CONTROL_RESPONSE.md).
+
+The shipping wall-detour tests for 1/12/24/48 workers all start actual movement by tick 14
+(0.70 simulated seconds). The audited 48-worker p95 was 30.55 seconds. The new enforced
+limit is 40 ticks on this deliberately difficult synthetic wall, not a promise about all
+terrain and congestion. A shipping mixed 50-versus-50 two-cell counterflow completes at
+tick 874 with clearance and destination checks. Regressions cover queued reservations,
+same-cell clicks, unsafe endpoints, patrol, leader cancellation/death and terrain changes.
+
+The host JIT cache was repeatedly flushing in a fresh shipping battle. Raising the
+capacity to 16,000 traces / 16 MiB machine code eliminated flushes in the diagnostic run;
+arithmetic settings and gameplay are unchanged. The real-update benchmark now drives
+App:update/App:draw, selects 24 units and includes juice, audio, view/observation, hover
+and recording. It exercises Orders and the Megacorp sidebar, with scripted commands
+replacing the bot. Network costs remain excluded. `scripts/test-performance.ps1` runs
+fresh-process simulation and both rendered gates; it returns failure when a gate fails.
+
+Verified on this Windows desktop, AMD Ryzen 5 5600G, pinned LOVE 11.5:
+
+- `scripts/test-all.ps1`: 179 headless passes; four fresh 100,000-tick workers and the
+  added 1,800-tick shipping shared-route checkpoints agree across 30/60/144 schedules and
+  default/tuned JIT caches; local ENet agrees through 600 ticks. Rendered UI/input passes
+  at 1280x720, 1920x1080 and 2560x1080; presentation and asset-viewer smoke passes.
+- A final reservation-scope review kept move claims out of unrelated spawn/unload
+  placement. `scripts/test.ps1` was rerun on the final source: 179 passes, all four workers
+  and local ENet pass again. The warmed shipping simulation p95 was 5.801 ms.
+- Final `scripts/test-performance.ps1`, default budgets: three separate shipping
+  240-unit/2,000-tick processes pass at 8.414, 7.634 and 6.043 ms p95. Each produces 9,260
+  attacks and 832 lead-unit moving ticks. Max steps remain about 39–40 ms.
+- **Rendered performance gate fails.** At 1080p, 240 units and 600 ticks, Orders simulation
+  p95 is 8.195 ms and frame cadence p95 17.788 ms; Megacorp simulation p95 is 7.424 ms and
+  frame cadence p95 17.833 ms. Both simulations pass 10 ms, both frame cadences miss
+  16.667 ms. Whole tick p95 is 11.313 / 9.809 ms; max whole ticks 54.630 / 55.509 ms. No
+  backlog ticks were discarded, but startup frame time was clamped by 0.088 / 0.071 s.
+  These are the updated benchmark workloads, not a controlled A/B against the old
+  benchmark that omitted live effects and selection. No budget was relaxed.
+
+Generated evidence is in this worktree's ignored `artifacts/response-test-all.log`,
+`response-headless-final.log`, `response-performance-final.log` and
+`performance-{fresh-1,fresh-2,fresh-3,live-orders,live-megacorp}.log`. Rendered tests used
+process-local APPDATA under ignored artifacts so sandboxed saves did not touch normal
+preferences. Heap figures in the live reports are sampled allocation, not retained-heap
+leak evidence. The existing 10,000-tick command-abuse soak also passes.
+
+The control changes intentionally change shipping bot matches: Orders mirror now ends
+at 21:32.2, player 1 wins; Orders vs Megacorp at 9:48.65, Megacorp wins. First contact is
+3:41 / 4:11. The audit measured roughly 12:23 / 10:23 endings. Recorded matches reproduce
+exactly; no golden was silently replaced. Combat/economy statistics were not retuned.
+Earlier simulation snapshots/replays require their original build.
+
+Still requiring separate evidence: human kiting/retreat and congestion feel, human
+match pacing/balance, real two-PC latency/jitter, other-machine performance and longer
+casualty/production sessions. Remaining measured work includes the frame-time target;
+coverage/vision union caching and historical-entity iteration remain future candidates.
+Source and tests are pushed on the task branch. Draft PR creation was blocked by the
+GitHub connector's 403 response; automatic approval review rejected extracting stored
+GitHub credentials as an alternative. No credential was read and no PR was created.
