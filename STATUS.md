@@ -2090,3 +2090,50 @@ the very large `apply` function growing by a few lines, and the fix would be mov
 cancel into its own function. Worth re-measuring on a quiet machine. Match outcomes are
 unchanged (12:23 and 10:23; fixture 5353 and 2179). Not done: nobody has played a Megacorp
 match with the sidebar; glyphs are monograms until there is icon art.
+
+## 2026-09-20 — Megacorp rounded aircraft models and production sprites
+
+The approved capsule Blimp and three-lobed Battleship now have original procedural
+Blender assemblies, editable rigid object actions and production sprite exports.
+`docs/art/MEGACORP_AIRCRAFT.md` records the source recipes and rebuild commands.
+The aircraft adapter shares the existing 60-degree camera, color/team-mask passes,
+packer, validation and catalog publication. Runtime asset IDs select these sprites;
+no simulation, content, collision, flight, damage or source-library changes were made.
+The ordinary five assets in this worktree were copied through the validated packaging
+command from the existing local catalog, not rebuilt or claimed as new exports.
+
+| Aircraft | Triangles | Directional frames | Cell | Paired RGBA atlas memory |
+| --- | ---: | ---: | ---: | ---: |
+| Command Blimp | 1,212 | 120 | 96 px | 9.155 MiB |
+| Battleship | 1,568 | 160 | 128 px | 21.934 MiB |
+
+Both use eight headings and idle/move/attack/death metadata; the unarmed Blimp has one
+inert attack sample. The Battleship has a separate cannon recoil object, contact sample
+3, closed engine noses and rear exhausts. A gentler Blimp death bank fits the 96-pixel
+canvas without rescaling and reduces its atlas memory from 15.952 to 9.155 MiB. The
+runtime's body-height field stays at the shared 32-pixel normalization reference so a
+short hull is not inadvertently enlarged to humanoid height. Flight offset remains in
+the existing game renderer.
+
+Verified on the Windows desk machine with Blender 5.1.0 and LOVE 11.5: Preview, final
+Build and Validate; 23 Python asset-tool tests; quick runtime suite (125 passed);
+`scripts/test-presentation.ps1`, including all aircraft clip samples in eight headings
+for two teams, 0.75/1/1.25 scales against light/dark ground, and a mixed army through the
+shipping App draw path. The rendered fixture asserts canonical simulation state is
+unchanged. Reopened both saved scenes and matched all 280 evaluated pose bounds; a
+fresh saved-scene SW idle render matched export pixels exactly for the Battleship and
+within 0.006/255 channel RMS for the Blimp. Alpha-weighted team coverage across every
+frame is 62.8–71.2% for the Blimp and 65.7–84.2% for the Battleship. Inspected native
+heading sheets, attack/death sequences, fractional scales and the gameplay capture.
+Generated scenes, paired atlases, captures and reports remain ignored under artifacts
+and assets/generated. The final two-aircraft export took 159 seconds on this machine.
+
+The first Battleship preview failed the bounds check on its final death pose; reducing
+its roll/descent fixed it. A new Python test initially assumed POSIX path separators;
+it now uses the platform path type and all 23 tests pass. The first rendered run was
+blocked by the sandbox's inability to write LOVE's save directory during an existing
+replay-fallback test; the authorized normal-access rerun passed. Blender prints harmless
+temporary-file cleanup warnings after successful renders. No full simulation, network,
+performance gate or other-PC render comparison was run for this presentation-only
+change. Human play/style and motion approval remain outstanding. The branch is pushed;
+GitHub's PR connector returned 403, so no PR was created.

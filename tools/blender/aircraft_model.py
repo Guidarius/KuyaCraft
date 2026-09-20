@@ -130,6 +130,6 @@ def pose(root, recoil, clip, sample, spec):
         recover=max(0,(t-contact)/max(.001,1-contact))
         recoil.location.y += .085*(1-recover) if t>=contact else 0
     elif clip=='death':
-        root.rotation_euler.y=math.radians(22)*t
-        root.rotation_euler.x=math.radians(-8)*t
-        root.location.z=-.045*t
+        root.rotation_euler.y=math.radians(spec.get('rollDegrees',22))*t
+        root.rotation_euler.x=math.radians(spec.get('pitchDegrees',-8))*t
+        root.location.z=spec.get('drop',-.045)*t

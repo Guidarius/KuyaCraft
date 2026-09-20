@@ -45,7 +45,7 @@ class Assets(unittest.TestCase):
         recipe=self.root/'art/recipes/command_blimp.json'
         recipe.parent.mkdir(parents=True); recipe.write_text('{"version":1}')
         key,deps=build.build_key(self.root,None,'command_blimp','Blender test')
-        self.assertEqual(list(deps),['art/recipes/command_blimp.json'])
+        self.assertEqual(list(deps),[str(Path('art/recipes/command_blimp.json'))])
         recipe.write_text('{"version":2}')
         changed,_=build.build_key(self.root,None,'command_blimp','Blender test')
         self.assertNotEqual(key,changed)

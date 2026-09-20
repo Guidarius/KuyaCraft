@@ -2,6 +2,11 @@
 
 The production pipeline adapts the saved 65-bone humanoid library into original low-poly Bastion units. It builds shieldguard, worker, worker_loaded, crossbow, and Warden assets. Visible hands are stumps; the original skeleton and animation library remain intact.
 
+The procedural Megacorp aircraft adapter builds `command_blimp` and `battleship`
+without an external source blend. Use `-Roster megacorp_aircraft` with Preview,
+Build or Validate; the same camera, masks, packing and catalog contracts apply.
+See [aircraft modeling and review](../../docs/art/MEGACORP_AIRCRAFT.md).
+
 ## Prerequisites and saved source
 
 Use Blender 5.1.0, Python 3.10+ with Pillow, and the project-pinned LÖVE 11.5 runtime. The PowerShell wrapper finds the bundled Python or accepts `-Python`; `-Blender` overrides the Blender executable. No MCP connection or open Blender window is needed for production.
