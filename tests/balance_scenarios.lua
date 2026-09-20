@@ -163,14 +163,14 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick,rails)
     assert(contact>=60 and contact<=900,'first contact at '..string.format('%.1f',contact)..'s, outside 60-900s')
     assert((peakFood[1] or 0)>=20 and (peakFood[2] or 0)>=20,'neither bot built a real army')
 end
-function M.stressWorld(perSide)
+function M.stressWorld(perSide,opponent)
  perSide=perSide or 120
- local w=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,Maps.create())
+ local w=Sim.create({seed=1,players={{faction='orders'},{faction=opponent or 'orders'}}},C,Maps.create())
  for _,id in ipairs(w.order) do local e=w.entities[id];if e.category=='unit' then e.alive=false end end
  -- Two adjacent blocks in the center clearing; keep casualties from reducing the workload.
  local units={};for p=1,2 do for i=1,perSide do local x=(p==1 and 84 or 99)+(i-1)%10;local y=90+math.floor((i-1)/10)
   for cy=y-1,y+1 do for cx=x-1,x+1 do w.blocked[P.key(w.map,cx,cy)]=nil;w.map.blocked[P.key(w.map,cx,cy)]=nil end end
-  local e=S.unit(w,i%3==0 and 'crossbow' or 'footman',p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
+  local kind=opponent=='megacorp' and p==2 and (i%12==0 and 'battleship' or i%6==0 and 'medic' or 'associate') or (i%3==0 and 'crossbow' or 'footman');local e=S.unit(w,kind,p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
  end end
  return w,units
 end
