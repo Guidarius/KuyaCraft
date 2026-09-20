@@ -438,6 +438,7 @@ function T.worker(options)
             if tick%100==0 then output:write(tick..' '..Hash.bytes(Sim.serializeCanonical(w))..'\n') end
         end
     end
+    require('tests.responsiveness').checkpoints(output,schedule)
     output:close();print('PASS worker: '..tick..' ticks at '..schedule..' FPS schedule');return 0
 end
 function T.run(options)

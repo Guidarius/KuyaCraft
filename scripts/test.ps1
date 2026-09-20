@@ -30,7 +30,7 @@ try {
         foreach ($path in $paths) {
             if ((Get-Content -LiteralPath $path -Raw) -cne $reference) { throw "Separate-process determinism mismatch: $path" }
         }
-        Write-Host 'PASS: 100,000 ticks agree at 100-tick checkpoints across fresh processes at 30/60/144 FPS schedules and default/tuned JIT caches.'
+        Write-Host 'PASS: 100,000 ticks agree at 100-tick checkpoints across fresh processes at 30/60/144 FPS schedules and default/tuned JIT caches; shipping shared-route checkpoints also agree.'
     }
     if (-not $DeterminismWorker -and -not $SelfTestFailure -and $Suite -in @('all','network')) {
         & "$PSScriptRoot/test-network.ps1"

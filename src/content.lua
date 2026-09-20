@@ -29,7 +29,7 @@ local C = {
         -- `decay` (+`decayPerArmor` per armour point) a tick once `grace` ticks pass
         -- without a hit. See Sim.stackThreshold.
         stacks={perHit=200, base=5, armorPercent=150, perHundredHp=2, burst=45, grace=T.ticks(.75), decay=30, decayPerArmor=6},
-        formationPacing=false, lineOfSight=true },
+        formationPacing=false, preciseMovement=true, sharedPaths=true, lineOfSight=true },
     units = {},
     buildings = {
         -- Every Keep is a life: the faction is defeated only when none stands and none is
