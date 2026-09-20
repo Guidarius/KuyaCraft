@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "unitId": "battleship",
+  "sourceId": "procedural_aircraft_v1",
+  "profileId": "bastion_overhead_v1",
+  "scale": 1.0,
+  "bodyHeightPixels": 32,
+  "model": {"type": "battleship"},
+  "clips": {
+    "idle": {"samples": 4, "durationMs": 2000, "loop": true},
+    "move": {"samples": 4, "durationMs": 1600, "loop": true},
+    "attack": {"samples": 6, "durationMs": 1000, "loop": false, "contactFrame": 3},
+    "death": {"samples": 6, "durationMs": 1000, "loop": false}
+  }
+}

@@ -41,6 +41,14 @@ class Assets(unittest.TestCase):
         with Image.open(self.out/'color-01.png') as page, Image.open(self.out/'mask-01.png') as mask:
             self.assertEqual(page.getpixel((0,0))[3],0)
             self.assertEqual(page.size,mask.size)
+    def test_procedural_aircraft_key_needs_no_external_blend(self):
+        recipe=self.root/'art/recipes/command_blimp.json'
+        recipe.parent.mkdir(parents=True); recipe.write_text('{"version":1}')
+        key,deps=build.build_key(self.root,None,'command_blimp','Blender test')
+        self.assertEqual(list(deps),['art/recipes/command_blimp.json'])
+        recipe.write_text('{"version":2}')
+        changed,_=build.build_key(self.root,None,'command_blimp','Blender test')
+        self.assertNotEqual(key,changed)
     def test_missing_frame_rejected(self):
         self.spec['frames'].pop(); self.save()
         with self.assertRaisesRegex(ValueError,'Missing raw'): self.packed()

@@ -200,7 +200,8 @@ def setup_scene(rig, meshes, recipe):
     # Known source is upright Z; scale uses rest head/feet rather than animated bounds.
     body_meshes = [o for o in meshes if any(n in o.name for n in ['Head','Boot','Helmet'])]
     rest_z = [v.co.z for o in body_meshes for v in o.data.vertices]
-    height = max(rest_z)-min(rest_z) if rest_z else rig.data.bones['Head'].tail_local.z
+    height = (1 if recipe.get('sourceId') == 'procedural_aircraft_v1' else
+              max(rest_z)-min(rest_z) if rest_z else rig.data.bones['Head'].tail_local.z)
     root.scale = (float(recipe.get('scale',1.0))/height,)*3
     for name, pos, energy, size in [('Key',(-3,-4,7),500,5),('Fill',(4,-1,4),200,4)]:
         data = bpy.data.lights.new(name, 'AREA'); data.energy=energy;data.shape='DISK';data.size=size
@@ -243,6 +244,10 @@ def mask_material(team):
 
 
 def run(options):
+    if options.unit in ('command_blimp', 'battleship'):
+        sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+        import aircraft_export
+        return aircraft_export.run(options)
     if options.unit == 'mouse_builder':
         sys.path.insert(0,str(Path(options.root)/'tools/blender'))
         import woodland_export

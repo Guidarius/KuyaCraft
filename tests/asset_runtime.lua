@@ -16,6 +16,8 @@ local function fixture(id)
     return m
 end
 function T.run()
+    eq(F.assetId({kind='command_blimp'}),'command_blimp')
+    eq(F.assetId({kind='battleship'}),'battleship')
     local m=fixture();C.validate(m,'shieldguard')
     eq(F.sample(m,'idle','N',599),2);eq(F.sample(m,'idle','N',600),1)
     eq(F.sample(m,'death','SE',60000),6);eq(F.sample(m,'attack','S',0,true),3)
