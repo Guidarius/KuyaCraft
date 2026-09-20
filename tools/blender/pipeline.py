@@ -286,7 +286,10 @@ def run(options):
     baked,animation_report=build_baked_actions(rig,recipe,unit_model)
     scene,root,camera=setup_scene(rig,meshes,recipe)
     pose_bounds=[]
-    for size in [64,96,128]:
+    max_cell=recipe.get('maxCellSize',128)
+    if max_cell not in (128,192,256):
+        raise ValueError('maxCellSize must be 128, 192 or 256')
+    for size in [s for s in (64,96,128,192,256) if s<=max_cell]:
         configure_camera(scene,camera,size);pose_bounds=[]
         for clip,spec in recipe['clips'].items():
             assign(rig,baked[clip])
@@ -300,7 +303,7 @@ def run(options):
     else:
         write_json(output/'bounds-failure.json',pose_bounds)
         bpy.ops.wm.save_as_mainfile(filepath=str(output/'bounds-failure.blend'))
-        raise ValueError('Animation exceeds maximum128pxcell; inspect bounds-failure.json')
+        raise ValueError(f'Animation exceeds maximum {max_cell}px cell; inspect bounds-failure.json')
     normal_materials={o.name:list(o.data.materials) for o in meshes}
     masks={True:mask_material(True),False:mask_material(False)}
     clips={k:{'durationMs':v['durationMs'],'loop':v['loop'],'samples':1 if options.preview else v['samples'],

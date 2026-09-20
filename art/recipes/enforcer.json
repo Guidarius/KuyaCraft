@@ -7,7 +7,8 @@
   "slot": "OBArmature",
   "profileId": "bastion_overhead_v1",
   "scale": 1.0,
-  "referenceHeight": 1.45,
+  "referenceHeight": 0.725,
+  "maxCellSize": 256,
   "model": {
     "type": "enforcer"
   },

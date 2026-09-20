@@ -9,6 +9,8 @@ function T.run(capture)
   if not (sprites and sprites.units[id]) then print('SKIP infantry render checks: build -Roster megacorp_infantry');app:close();return end
  end
  local g=love.graphics;local width,height=g.getDimensions()
+ local grounds={92,190,326,424,522,658}
+ local labels={8,106,212,340,438,544}
  for _,clip in ipairs({'idle','move','attack','death','work'}) do
   local count=0
   for _,id in ipairs(ids) do local c=sprites.units[id].metadata.clips[clip];if c then count=math.max(count,#c.frames.S) end end
@@ -17,10 +19,10 @@ function T.run(capture)
     g.clear(.14,.18,.16,1)
     for row=1,6 do
      local id=ids[(row-1)%3+1];local m=sprites.units[id].metadata;local c=m.clips[clip]
-     g.setColor(1,1,1);g.print(id..' / '..clip..' / '..sample,12,8+(row-1)*104)
+     g.setColor(1,1,1);g.print(id..' / '..clip..' / '..sample,12,labels[row])
      if c then for i,d in ipairs(Frames.directions) do
       local frames=c.frames[d]
-      assert(sprites:drawFrame(id,frames[math.min(sample,#frames)],80+(i-1)*(width-100)/8,92+(row-1)*104,1,
+      assert(sprites:drawFrame(id,frames[math.min(sample,#frames)],80+(i-1)*(width-100)/8,grounds[row],1,
                              row<=3 and {.20,.48,.95} or {.95,.22,.16}))
      end end
     end
@@ -28,13 +30,14 @@ function T.run(capture)
   end
  end
  capture('infantry-scales',function()
+  local positions={{.0625,.164},{.289,.391},{.609,.859}}
   for row,zoom in ipairs({.75,1,1.5}) do for col,bg in ipairs({{.12,.16,.12},{.70,.72,.65}}) do
    local x=(col-1)*width/2;local y=(row-1)*height/3
    g.setColor(bg);g.rectangle('fill',x,y,width/2,height/3)
    g.setColor(col==1 and 1 or .1,col==1 and 1 or .1,col==1 and 1 or .1);g.print('Scale '..zoom,x+15,y+15)
    for index,id in ipairs(ids) do for owner=1,2 do
     local m=sprites.units[id].metadata;local frame=Frames.sample(m,'idle',owner==1 and 'SE' or 'NW',0)
-    sprites:drawFrame(id,frame,x+(index-1)*width/6+owner*width/18,y+height/4,zoom,owner==1 and {.20,.48,.95} or {.95,.22,.16})
+    sprites:drawFrame(id,frame,x+positions[index][owner]*width/2,y+height/4,zoom,owner==1 and {.20,.48,.95} or {.95,.22,.16})
    end end
   end end
  end)

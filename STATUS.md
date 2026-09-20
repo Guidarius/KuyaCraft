@@ -2192,3 +2192,28 @@ simulation/network/performance suites were not performed for this art-only chang
 Blender reports temporary-file cleanup warnings after successful export. The task
 branch includes the preceding aircraft work; generated output is local to its isolated
 worktree. GitHub PR creation returned 403 (integration access), so no PR was created.
+
+## 2026-09-20 — Enforcer vehicle-scale revision
+
+The Enforcer assembly is now twice its first-pass scale; Associate and Medic retain
+their matched infantry size class. Measured standing heights from the reopened active
+scenes are 0.958, 0.907 and 1.800 Blender world units respectively: Enforcer is 1.88x
+Associate and 1.98x Medic. The saved-scene verifier now checks these size relationships
+and renders every model with identical camera framing. Its `--catalog` option includes
+unchanged active infantry builds in that comparison.
+
+The Enforcer recipe permits a 256-pixel cell to fit all 208 directional poses at the
+existing pixel density. Default recipes still stop at 128 pixels. Paired Enforcer
+atlases now occupy 108.307 MiB uncompressed across five pages, replacing the previous
+27.916 MiB allocation; the three-infantry total is approximately 166.13 MiB. Geometry
+and sample counts are unchanged. This preserves sharp full-resolution sprites at the
+larger size, with the documented texture-memory tradeoff. Simulation collision, balance,
+movement and damage are unchanged; derived stride metadata scales with the model.
+
+Verified on the Windows desk machine: Preview and full Enforcer Build (115 seconds),
+all-infantry Validate, 23 Python asset-tool tests, all 632 reopened directional bounds
+and the existing floor/grip/intersection checks, and the rendered presentation suite
+and asset viewer. Reviewed equal-camera model lineup, gameplay comparison, both teams
+and fractional zoom. No gameplay regression suite, performance gate, normal-speed
+human approval or other-PC render comparison was run for this scale-only revision.
+Outputs remain local and ignored; source changes continue on codex/megacorp-infantry.

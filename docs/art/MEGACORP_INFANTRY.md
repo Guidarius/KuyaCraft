@@ -11,6 +11,11 @@ The geometric shells and neutral glass remain readable with either team color.
 These squat rounded silhouettes contrast with the Orders' taller shields and armor.
 The medical mark is secondary; recognition should survive its disappearance at zoom.
 
+Associate and Medic occupy the same infantry size class. The Enforcer is a small
+walking vehicle: its full assembly is twice the original infantry-sized Enforcer,
+roughly twice their standing height, while retaining the broad barrel and gauntlet.
+This is visual model scale; simulation collision and balance are unchanged.
+
 ## Editable source and export
 
 `tools/blender/megacorp_model.py` builds named low-poly modules and rigid bone weights
@@ -39,6 +44,11 @@ render/downsample, shared ground anchor and occlusion-aware team mask are reused
 `referenceHeight` supplies a fixed authored normalization for the shorter suits;
 camera scale never changes between poses. Canvas expansion only prevents clipping.
 Runtime sizing retains the shared 32-pixel body reference used by other units.
+The Enforcer's `referenceHeight=0.725` doubles its assembly relative to the first
+pass (`1.45`). Its recipe permits cells up to 256 pixels through `maxCellSize`;
+other recipes retain the 128-pixel limit. Larger cells preserve pixel density and
+all directional death poses rather than shrinking the unit to fit. The packer
+continues to split paired pages at the existing 2048-pixel limit.
 
 All three export idle, walk, attack and death. Associate fires a compact recoil
 gesture; Enforcer punches with its oversized gauntlet. The unarmed Medic's required
@@ -53,6 +63,9 @@ Run `tests/verify_megacorp_blends.py` in background Blender, passing the reposit
 root after `--`, to reopen the latest batch. It checks source/action retention, floor
 clearance, carbine grip, selected weapon/body surface intersections and all stored
 directional bounds. It also renders enlarged gameplay and three-quarter views.
+Add `--catalog` after the root to reopen all three active infantry assets, including
+unchanged builds. This also verifies their standing-height ratios and uses identical
+camera framing for the visual size comparison.
 These targeted intersection checks are not a general collision proof.
 
 With all three assets published, the presentation suite captures every clip sample
