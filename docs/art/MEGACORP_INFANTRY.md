@@ -12,9 +12,17 @@ These squat rounded silhouettes contrast with the Orders' taller shields and arm
 The medical mark is secondary; recognition should survive its disappearance at zoom.
 
 Associate and Medic occupy the same infantry size class. The Enforcer is a small
-walking vehicle: its full assembly is twice the original infantry-sized Enforcer,
-roughly twice their standing height, while retaining the broad barrel and gauntlet.
-This is visual model scale; simulation collision and balance are unchanged.
+walking vehicle: its assembly is 1.7 times the first-pass Enforcer, reduced 15% from
+the doubled revision. It stands about 1.60 times Associate height and 1.69 times
+Medic height, retaining the broad barrel and gauntlet. Its authoritative collision
+radius is 160 simulation subunits (Associate/Medic: 80). Selection, acknowledgement,
+hover and low-health rings, ground shadow and picking follow the larger footprint.
+At normal zoom the selection ellipse has 30/14-pixel radii.
+
+Large bodies use radius-aware, integer off-centre waypoints to clear two-cell
+passages and reject one-cell gaps. Neighbor queries include a second ring of spatial
+bins when needed. Collision also governs spawn/unload spacing and weapon-edge reach;
+damage, weapon reach measured from the body edge, movement speed and costs are unchanged.
 
 ## Editable source and export
 
@@ -44,8 +52,8 @@ render/downsample, shared ground anchor and occlusion-aware team mask are reused
 `referenceHeight` supplies a fixed authored normalization for the shorter suits;
 camera scale never changes between poses. Canvas expansion only prevents clipping.
 Runtime sizing retains the shared 32-pixel body reference used by other units.
-The Enforcer's `referenceHeight=0.725` doubles its assembly relative to the first
-pass (`1.45`). Its recipe permits cells up to 256 pixels through `maxCellSize`;
+The Enforcer's `referenceHeight=0.8529411764705883` supplies the reduced assembly
+scale (`0.725 / 0.85`). Its recipe permits cells up to 256 pixels through `maxCellSize`;
 other recipes retain the 128-pixel limit. Larger cells preserve pixel density and
 all directional death poses rather than shrinking the unit to fit. The packer
 continues to split paired pages at the existing 2048-pixel limit.
@@ -54,7 +62,7 @@ All three export idle, walk, attack and death. Associate fires a compact recoil
 gesture; Enforcer punches with its oversized gauntlet. The unarmed Medic's required
 attack clip is inert. Its extra looping `work` clip demonstrates treatment reach in
 the viewer; gameplay currently has no healer-source presentation event to trigger
-that clip accurately. This task does not change healing, damage, targeting or movement.
+that clip accurately. Animation never determines healing, damage or movement.
 Sparse baked keys are sprite samples; recipe durations control runtime playback.
 
 ## Review and limits

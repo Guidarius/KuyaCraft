@@ -2217,3 +2217,49 @@ and asset viewer. Reviewed equal-camera model lineup, gameplay comparison, both 
 and fractional zoom. No gameplay regression suite, performance gate, normal-speed
 human approval or other-PC render comparison was run for this scale-only revision.
 Outputs remain local and ignored; source changes continue on codex/megacorp-infantry.
+
+## 2026-09-20 — Reduced Enforcer with matching ground footprint
+
+Reduced the vehicle-scale Enforcer assembly by exactly 15% and rebuilt all 208
+directional frames. Its reopened standing height is 1.530 Blender world units,
+1.60x Associate and 1.69x Medic. The 256-pixel maximum canvas is still required by
+the death poses; atlas allocation remains 108.307 MiB. Associate/Medic exports and
+the source rig are unchanged. The selection/hover/acknowledgement/low-health rings,
+ground shadow and click target now follow the larger body; the resting selection
+ellipse has 30/14-pixel radii at 1x zoom.
+
+Shipping content version 15 increases Enforcer collision radius from 96 to 160
+subunits (ordinary infantry: 80). Content validation now supports radii through 192.
+Because the previous navigation assumed a body fit in one cell, large bodies now use
+deterministic off-centre clearance points within each cell and check full body clearance
+on direct and A* edges, smoothing and path revalidation. They can traverse two-cell
+passages and cannot traverse one-cell gaps. Small-body lane rules remain intact;
+large bodies do not attempt to occupy a half-width lane. Radius-aware occupancy and
+movement queries include a second bin ring as needed. Spawn, revival, unloading and
+combat approach preserve the clearance point rather than snapping back into a wall.
+Unloading invalidates the spatial index after each released occupant so subsequent
+units see its new position. Existing snapshot waypoint fields carry the offsets.
+
+The larger radius intentionally changes spacing and centre-to-centre combat reach;
+weapon reach from the body edge, damage, costs, speed and garrison slots are unchanged.
+No golden replay was replaced. Content/build fingerprints distinguish this balance
+revision from earlier shipping matches. `docs/CONTROL_MOVEMENT.md` and the infantry
+art guide document the bounds and presentation behavior.
+
+Local Windows verification: full `scripts/test-all.ps1` passed (170 headless cases,
+100,000-tick fresh-process checkpoints at 30/60/144 FPS and default/tuned JIT, real
+local ENet host/client, UI at 1280x720/1920x1080/2560x1080, and asset presentation).
+The final unloading refinement was additionally verified by all 130 quick cases,
+including its new wall-clearance/separation regression; the rendered runs loaded
+that final revision. New scenarios cover two-cell transit, one-cell rejection,
+snapshot continuation, newly blocked terrain, map-edge clearance, indexed collision
+two bins away, movement separation and unloading. The 240-unit 10,000-tick benchmark
+measured 5.627 ms p95; the shipping-profile benchmark measured 5.802 ms p95, both below
+the existing 10 ms gate. Neither budget was weakened.
+
+All-infantry asset Validate, 23 Python asset-tool tests and all 632 reopened pose
+bounds/floor/grip/intersection checks passed. The renderer checks the actual enlarged
+selection ellipse and an off-centre click that would miss the old infantry hit area.
+Inspected the game-camera lineup and team-color captures. Human play/feel approval
+and networking/render comparison on a second physical PC remain unperformed.
+Generated blends, atlases, captures and logs remain local and ignored.

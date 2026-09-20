@@ -92,7 +92,7 @@ for record in batch['results']:
 heights={r['unit']:r['standingHeight'] for r in results}
 if len(heights)==3:
     assert .85<=heights['medic']/heights['associate']<=1.15,heights
-    assert 1.8<=heights['enforcer']/heights['associate']<=2.2,heights
+    assert 1.5<=heights['enforcer']/heights['associate']<=1.7,heights
     print('INFANTRY_STANDING_HEIGHTS',heights)
 (out/'verification.json').write_text(json.dumps(results,indent=2))
 print('INFANTRY_REOPEN_REVIEW',[(r['unit'],r['posesVerified'],max(c['weaponBodySurfaceCrossings'] for c in r['checks'])) for r in results])

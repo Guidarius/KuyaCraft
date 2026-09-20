@@ -56,7 +56,19 @@ function T.run(capture)
   app.view.entities[#app.view.entities+1]=e;app.view.byId[e.id]=e
  end
  app.selected={810001,810002,810003}
+ local heavy=app.view.byId[810003];local hx,hy=app:screen(heavy.x,heavy.y)
+ local hit=app:pick(hx+28*app.camera.zoom,hy-24*app.camera.zoom,true,true)
+ assert(hit and hit.id==heavy.id,'vehicle picking still uses the infantry-sized target')
+ app.selectedSince=app.selectedSince or {};app.selectedSince[heavy.id]=app.clock-1
+ local ellipse=g.ellipse;local heavyRing=false
+ g.ellipse=function(mode,x,y,rx,ry,...)
+  if mode=='line' and math.abs(x-hx)<.01 and math.abs(y-hy)<.01 then
+   heavyRing=heavyRing or (math.abs(rx-30*app.camera.zoom)<.01 and math.abs(ry-14*app.camera.zoom)<.01)
+  end
+  return ellipse(mode,x,y,rx,ry,...)
+ end
  capture('infantry-gameplay',function() app:draw() end)
+ g.ellipse=ellipse;assert(heavyRing,'vehicle selection ring did not scale to its footprint')
  for i=1,8 do assert(sprites.states[810000+i],'Infantry did not use sprite renderer') end
  assert(Sim.serializeCanonical(app.world)==before,'Infantry render changed simulation')
  assert(#sprites.diagnostics==0,'Infantry asset diagnostics')

@@ -243,7 +243,9 @@ local function nearest(w,x,y,except,claimed,radius)
             table.sort(candOrder,lessCandidate)
             for i=1,count do
                 local c=candOrder[i]
-                if aloft or G.free(w,F.center(candX[c]),F.center(candY[c]),radius,except) then return candX[c],candY[c] end
+                local px,py=F.center(candX[c]),F.center(candY[c])
+                if not aloft and radius>127 then px,py=Path.point(w,candX[c],candY[c],radius) end
+                if aloft or px and G.free(w,px,py,radius,except) then return candX[c],candY[c] end
             end
         end
     end
@@ -252,6 +254,13 @@ end
 -- Single definition of how w.blocked derives from the map and standing buildings,
 -- shared with the regression test that proves the derivation (see Sim.recomputeBlocked).
 local function rebuild(w) w.blocked=Sim.recomputeBlocked(w) end
+local function standAt(w,e,x,y)
+    e.x,e.y=F.center(x),F.center(y)
+    local d=w.content.units[e.kind]
+    if not d.flying and d.radius>127 then
+        local px,py=Path.point(w,x,y,d.radius);assert(px,'spawn lacks body clearance');e.x,e.y=px,py
+    end
+end
 local function spawn(w,kind,owner,x,y,category)
     G.invalidate(w)
     local d=w.content.units[kind] or w.content.buildings[kind]
@@ -259,6 +268,7 @@ local function spawn(w,kind,owner,x,y,category)
     local e={id=id,kind=kind,owner=owner,x=F.center(x),y=F.center(y),category=category or 'unit',
         alive=true,hp=d and d.hp or 1,maxHp=d and d.hp or 1,size=d and d.size or 1,cooldown=0,
         path={},pathIndex=1,order={kind='stop'},orders={},lastCombat=-1000}
+    if e.category=='unit' then standAt(w,e,x,y) end
     if d and d.hero then e.xp=0; e.upgrades={}; e.stance=1 end
     -- A caster starts full. Mana is authoritative like every other integer here.
     if d and d.mana then e.mana=d.mana;e.maxMana=d.mana end
@@ -291,8 +301,11 @@ local function approachTarget(w,e,t,range)
             local score;local r=math.ceil(range/256)
             for cy=math.max(0,F.cell(t.y)-r),math.min(w.map.height-1,F.cell(t.y)+t.size+r-1) do
                 for cx=math.max(0,F.cell(t.x)-r),math.min(w.map.width-1,F.cell(t.x)+t.size+r-1) do
-                    local px,py=F.center(cx),F.center(cy);local dist=F.distance2Bounded(e.x,e.y,px,py)
-                    if (not score or dist<score) and inRange({x=px,y=py},t,range) and G.free(w,px,py,G.radius(w,e),e.id) then x,y,score=cx,cy,dist end
+                    local px,py=Path.point(w,cx,cy,G.radius(w,e))
+                    if px then
+                        local dist=F.distance2Bounded(e.x,e.y,px,py)
+                        if (not score or dist<score) and inRange({x=px,y=py},t,range) and G.free(w,px,py,G.radius(w,e),e.id) then x,y,score=cx,cy,dist end
+                    end
                 end
             end
         else x,y=nearest(w,F.cell(t.x),F.cell(t.y),e.id) end
@@ -947,8 +960,8 @@ local function apply(w,c)
         local claimed={}
         for _,id in ipairs(e.occupants) do local o=w.entities[id]
             local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,claimed,G.radius(w,o))
-            if x then claimed[Path.key(w.map,x,y)]=true;o.x=F.center(x);o.y=F.center(y) end
-            o.garrisoned=nil;emit(w,'unloaded',{entity=o.id})
+            if x then claimed[Path.key(w.map,x,y)]=true;standAt(w,o,x,y) end
+            o.garrisoned=nil;G.invalidate(w);emit(w,'unloaded',{entity=o.id})
         end
         e.occupants=nil;G.invalidate(w);return
     end
@@ -1161,7 +1174,7 @@ local function economy(w)
             e.reviveRemaining=math.max(0,e.reviveRemaining-1)
             if e.reviveRemaining==0 and hq(w,e.owner).alive then
                 local home=hq(w,e.owner); local x,y=nearest(w,F.cell(home.x)+3,F.cell(home.y)+3,e.id)
-                if x then e.alive=true;e.hp=e.maxHp;e.x=F.center(x);e.y=F.center(y);e.reviveRemaining=nil;G.invalidate(w);e.order={kind='stop'};e.cooldown=0;e.nextCommitTick=nil;clearCombat(e); emit(w,'revived',{entity=e.id}) end
+                if x then e.alive=true;e.hp=e.maxHp;standAt(w,e,x,y);e.reviveRemaining=nil;G.invalidate(w);e.order={kind='stop'};e.cooldown=0;e.nextCommitTick=nil;clearCombat(e); emit(w,'revived',{entity=e.id}) end
             end
         end
         if e.alive then
@@ -1371,8 +1384,11 @@ local function approachWeapon(w,e,t)
     for y=math.max(0,F.cell(t.y)-radius),math.min(w.map.height-1,F.cell(t.y)+radius+(t.size or 1)) do
         for x=math.max(0,F.cell(t.x)-radius),math.min(w.map.width-1,F.cell(t.x)+radius+(t.size or 1)) do
             if Path.walkable(w,x,y) then
-                local px,py=F.center(x),F.center(y);local distance=F.distance2Bounded(e.x,e.y,px,py)
-                if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                local px,py=Path.point(w,x,y,G.radius(w,e))
+                if px then
+                    local distance=F.distance2Bounded(e.x,e.y,px,py)
+                    if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                end
             end
         end
     end
@@ -1600,8 +1616,8 @@ local function combat(w,pending)
                 local claimed={}
                 for _,oid in ipairs(e.occupants) do local o=w.entities[oid]
                     local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,claimed,G.radius(w,o))
-                    if x then claimed[Path.key(w.map,x,y)]=true;o.x=F.center(x);o.y=F.center(y) end
-                    o.garrisoned=nil;emit(w,'unloaded',{entity=o.id})
+                    if x then claimed[Path.key(w.map,x,y)]=true;standAt(w,o,x,y) end
+                    o.garrisoned=nil;G.invalidate(w);emit(w,'unloaded',{entity=o.id})
                 end
                 e.occupants=nil;G.invalidate(w)
             end

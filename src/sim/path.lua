@@ -28,6 +28,26 @@ function P.key(map,x,y) return y * map.width + x + 1 end
 function P.walkable(w,x,y)
     return x >= 0 and y >= 0 and x < w.map.width and y < w.map.height and not w.blocked[P.key(w.map,x,y)]
 end
+-- Larger bodies may stand off-centre, up to 64 subunits, to clear a wall in a
+-- two-cell passage. The cell identity stays unchanged; px/py carry the actual
+-- integer waypoint through the existing snapshot and movement contracts.
+local offsets={{0,0},{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}}
+function P.point(w,x,y,r)
+    if not P.walkable(w,x,y) then return end
+    local px,py=F.center(x),F.center(y)
+    if r<=127 then return px,py end
+    local shift=r-128
+    for _,o in ipairs(offsets) do
+        local ax,ay=px+o[1]*shift,py+o[2]*shift
+        if G.terrain(w,ax,ay,r) then return ax,ay end
+    end
+end
+local function node(w,e,x,y)
+    if not P.walkable(w,x,y) then return end
+    if G.radius(w,e)<=127 then return {x=x,y=y} end
+    local px,py=P.point(w,x,y,G.radius(w,e))
+    if px then return {x=x,y=y,px=px,py=py} end
+end
 -- Keep right through two-cell passages, including their short approach apron.
 -- This static rule gives counterflow separate lanes before bodies meet.
 local function laneAllowed(w,x,y,lx,ly)
@@ -110,6 +130,7 @@ local function smooth(w,e,path)
     if e.detour and e.detour.untilTick>w.tick then return path end
     if w.metrics.smoothChecks>=(w.content.rules.smoothBudget or 4096) then return path end
     local lx,ly=e.laneX or 0,e.laneY or 0
+    if r>127 then lx,ly=0,0 end
     local out={}
     local ax,ay=e.x,e.y
     local i=1
@@ -124,10 +145,10 @@ local function smooth(w,e,path)
         -- body through anything, and the final node survives because the scan stops at it.
         local best=i
         for k=limit,i+1,-1 do
-            if lineClear(w,ax,ay,F.center(path[k].x),F.center(path[k].y),r,lx,ly) then best=k;break end
+            if lineClear(w,ax,ay,path[k].px or F.center(path[k].x),path[k].py or F.center(path[k].y),r,lx,ly) then best=k;break end
         end
         out[#out+1]=path[best]
-        ax,ay=F.center(path[best].x),F.center(path[best].y)
+        ax,ay=path[best].px or F.center(path[best].x),path[best].py or F.center(path[best].y)
         i=best+1
     end
     return out
@@ -150,6 +171,7 @@ function P.pathClear(w,e)
         if not node then return true end
         if not P.walkable(w,node.x,node.y) then return false end
         local x1,y1=node.px or F.center(node.x),node.py or F.center(node.y)
+        if G.radius(w,e)>127 and not lineClear(w,x0,y0,x1,y1,G.radius(w,e),0,0) then return false end
         local dx,dy=x1-x0,y1-y0
         local span=math.abs(dx)>math.abs(dy) and math.abs(dx) or math.abs(dy)
         if span>0 then
@@ -168,21 +190,29 @@ local function heuristic(x,y,gx,gy)
 end
 local function directPath(w,e,sx,sy,gx,gy)
     local path={};local x,y=sx,sy
+    local r=G.radius(w,e);local ax,ay=e.x,e.y
     while x~=gx or y~=gy do
         if w.metrics.directChecks>=w.content.rules.directPathBudget then return nil end
         w.metrics.directChecks=w.metrics.directChecks+1
         local dx=x==gx and 0 or x<gx and 1 or -1
         local dy=y==gy and 0 or y<gy and 1 or -1
         local nx,ny=x+dx,y+dy
-        if not P.walkable(w,nx,ny) or not P.laneAllowed(w,nx,ny,e.laneX,e.laneY) or
+        if not P.walkable(w,nx,ny) or (r<=127 and not P.laneAllowed(w,nx,ny,e.laneX,e.laneY)) or
             (dx~=0 and dy~=0 and (not P.walkable(w,x+dx,y) or not P.walkable(w,x,y+dy))) then return nil end
-        path[#path+1]={x=nx,y=ny};x,y=nx,ny
+        local nextNode=node(w,e,nx,ny)
+        if not nextNode or r>127 and not lineClear(w,ax,ay,nextNode.px,nextNode.py,r,0,0) then return nil end
+        path[#path+1]=nextNode;x,y=nx,ny
+        ax,ay=nextNode.px or F.center(nx),nextNode.py or F.center(ny)
     end
-    if #path==0 and (e.x~=F.center(gx) or e.y~=F.center(gy)) then path[1]={x=gx,y=gy} end
+    if #path==0 then
+        local last=node(w,e,gx,gy)
+        if not last then return nil end
+        if e.x~=(last.px or F.center(gx)) or e.y~=(last.py or F.center(gy)) then path[1]=last end
+    end
     return path
 end
 function P.request(w,e,gx,gy)
-    if not P.walkable(w,gx,gy) then e.blockedReason='destination blocked';e.goal=nil;w.searches[e.id]=nil;return false end
+    if not P.point(w,gx,gy,G.radius(w,e)) then e.blockedReason='destination blocked';e.goal=nil;w.searches[e.id]=nil;return false end
     e.blockedReason=nil
     local sx,sy = F.cell(e.x),F.cell(e.y)
     local start = P.key(w.map,sx,sy)
@@ -210,7 +240,7 @@ local function expand(w,id,s)
     if n.x==s.gx and n.y==s.gy then
         local reverse,key={},n.key
         while s.parents[key] do
-            reverse[#reverse+1]={x=(key-1)%w.map.width,y=math.floor((key-1)/w.map.width)}
+            reverse[#reverse+1]=node(w,e,(key-1)%w.map.width,math.floor((key-1)/w.map.width))
             key=s.parents[key]
         end
         e.path={}
@@ -218,13 +248,21 @@ local function expand(w,id,s)
         e.path=smooth(w,e,e.path);e.pathVersion=w.navVersion
         e.pathIndex=1; w.searches[id]=nil
         if #e.path==0 then
-            if e.x~=F.center(s.gx) or e.y~=F.center(s.gy) then e.path={{x=s.gx,y=s.gy}} else e.goal=nil end
+            local last=node(w,e,s.gx,s.gy)
+            if e.x~=(last.px or F.center(s.gx)) or e.y~=(last.py or F.center(s.gy)) then e.path={last} else e.goal=nil end
         end
         return
     end
     for i=1,#dirs do
         local d=dirs[i]; local x,y=n.x+d[1],n.y+d[2]
-        if P.walkable(w,x,y) and ((x==s.gx and y==s.gy) or P.laneAllowed(w,x,y,s.laneX,s.laneY)) and (i<=4 or (P.walkable(w,n.x+d[1],n.y) and P.walkable(w,n.x,n.y+d[2]))) then
+        local r=G.radius(w,e)
+        local nextNode=r>127 and node(w,e,x,y) or nil
+        local ax,ay
+        if r>127 then
+            if n.key==P.key(w.map,F.cell(e.x),F.cell(e.y)) then ax,ay=e.x,e.y else ax,ay=P.point(w,n.x,n.y,r) end
+        end
+        if (r<=127 and P.walkable(w,x,y) or nextNode) and (r>127 or (x==s.gx and y==s.gy) or P.laneAllowed(w,x,y,s.laneX,s.laneY)) and (i<=4 or (P.walkable(w,n.x+d[1],n.y) and P.walkable(w,n.x,n.y+d[2]))) and
+            (r<=127 or ax and lineClear(w,ax,ay,nextNode.px,nextNode.py,r,0,0)) then
             local key=P.key(w.map,x,y); local penalty=e.detour and e.detour.untilTick>w.tick and e.detour.cells[key] and 80 or 0;local lane=not P.walkable(w,x+s.laneY,y-s.laneX) and 60 or 0;local cost=n.g+d[3]+penalty+lane
             if not s.closed[key] and (not s.costs[key] or cost<s.costs[key]) then
                 s.costs[key]=cost; s.parents[key]=n.key

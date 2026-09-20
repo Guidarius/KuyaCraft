@@ -137,7 +137,7 @@ regressed into a staircase and every crowd test would still have passed.
 | 20 mixed units | 868 ticks | 705 |
 | 50 versus 50 counterflow | 4,079 ticks | 849 |
 
-Body radii are worker 72, ordinary 80, Enforcer and Blimp 96, Battleship 112 (fixture: hero 96, heavy/ram/camp leader 112).
+Body radii are worker 72, ordinary 80, Blimp 96, Battleship 112 and Enforcer 160 (fixture: hero 96, heavy/ram/camp leader 112).
 The earlier text here said 80 and 112 only. Patrol and follow shipped in simulation
 version 6 and are no longer deferred; projectile travel shipped in version 10 for
 abilities, and is deliberately still off for auto-attacks.
@@ -145,3 +145,28 @@ abilities, and is deliberately still off for auto-attacks.
 `rules.smoothBudget` bounds the terrain samples the smoother may spend per tick across
 every route completed that tick. A route that cannot be smoothed inside it is walked as
 A* produced it, which is correct, just less straight.
+
+## Large ground bodies — Enforcer footprint
+
+Content version 15 raises the Enforcer radius from 96 to 160 subunits while reducing
+its doubled visual model by 15%. Content permits radii up to 192. Units at or below
+127 retain the existing cell-centre navigation and keep-right behavior. Larger ground
+units test a fixed order of integer clearance points within each cell, offset by at
+most `radius - 128` (64 at the supported maximum). Waypoints retain cell coordinates
+and store their actual positions in the existing `px`/`py` fields, covered by snapshots.
+
+Direct routes, A* edges, smoothing and changed-terrain revalidation all check the
+larger circle. Two-cell passages remain usable; one-cell gaps do not. Large bodies
+do not reserve a half-width traffic lane that cannot contain them. Spawn/unload,
+destination selection and combat approach use the same clearance points. Allied
+compression percentages and enemy separation rules remain unchanged.
+
+Spatial occupancy includes every bin reached by the queried radii. Movement uses
+a second bin ring only when a large ground unit is present, including reservations
+and the push pass. Derived bin limits are rebuilt and never retained as snapshot state.
+Selection/hover/acknowledgement rings, shadows and picking scale to large ground
+bodies; the Enforcer's ordinary ring is 30 by 14 pixels in radius at 1x zoom.
+
+`tests/enforcer_footprint.lua` covers narrow/wide passages, snapshot continuation,
+new-obstacle rerouting, map edges and collision across two bins. Content fingerprinting
+separates the changed shipping balance from earlier matches; no golden was re-blessed.

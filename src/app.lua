@@ -396,10 +396,11 @@ function App:drawEntity(e)
     x,y=self:screen(x,y)
     local z=self.camera.zoom
     local team=colors[e.owner] or {0.76,0.61,0.39}
+    local groundZ=z*self:unitGroundScale(e)
     if not e.alive and not (self.sprites and self.sprites.units[Frames.assetId(e)]) then
-        color(team,0.5);g.ellipse('fill',x,y,15*z,5*z);return
+        color(team,0.5);g.ellipse('fill',x,y,15*groundZ,5*groundZ);return
     end
-    g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*z,5*z)
+    g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*groundZ,5*groundZ)
     -- Ring colour states what the unit is to the viewer, which is the fastest read in
     -- a fight: own selection, hovered, ally, or enemy.
     local isSelected=selected(self,e.id)
@@ -411,18 +412,18 @@ function App:drawEntity(e)
         if ack then
             local swell=1+(1-(self.clock-self.ackFlashAt)/ACK_FLASH)*0.35
             g.setColor(0.85,1,0.9);g.setLineWidth(2.5)
-            g.ellipse('line',x,y,15*z*swell,7*z*swell)
+            g.ellipse('line',x,y,15*groundZ*swell,7*groundZ*swell)
         else
             -- A selected enemy or neutral, being inspected, keeps its relation colour.
             if e.owner==self.player then g.setColor(0.55,0.93,0.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
             local pop=selectPop(self,e.id)
-            g.setLineWidth(2);g.ellipse('line',x,y,15*z*pop,7*z*pop)
+            g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ*pop,7*groundZ*pop)
         end
     elseif self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
         elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
         else g.setColor(1,.4,.32,.8) end
-        g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+        g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ,7*groundZ)
     end
     if e.category=='building' then
         local w,h=e.size*26*z,e.size*CELL_Y*z
@@ -470,7 +471,8 @@ function App:drawEntity(e)
         -- reading every bar. Drawn rather than spawned, so the effect budget is untouched.
         if e.owner==self.player and e.alive and e.hp*100<e.maxHp*LOW_HEALTH then
             g.setColor(1,.3,.25,.25+.2*math.sin(self.clock*8));g.setLineWidth(2)
-            g.ellipse('line',x,y,13*z,6*z);g.setLineWidth(1)
+            local pulseZ=z*self:unitGroundScale(e)
+            g.ellipse('line',x,y,13*pulseZ,6*pulseZ);g.setLineWidth(1)
             self.lowHealthDrawn=(self.lowHealthDrawn or 0)+1
         end
         -- Anticipation: the body swells a little as a swing gathers and settles as it lands, so a
@@ -778,6 +780,12 @@ function App:controlGroupBadges()
     return badges
 end
 
+function App:unitGroundScale(e)
+    local d=e.category=='unit' and self.content.units[e.kind]
+    -- Preserve compact-unit rings; larger ground bodies get proportionate rings
+    -- and picking even when their sprite atlas uses a different canvas size.
+    return d and not d.flying and d.radius>127 and d.radius/80 or 1
+end
 function App:unitVisualScale(e)
     local d=self.content.units[e.kind];if not d then return 1 end
     local u=self.sprites and self.sprites.units[Frames.assetId(e)]
@@ -796,7 +804,7 @@ function App:pick(x,y,ownOnly,selectable)
                 hit=x>=left and x<=left+width and y>=top-38*z and y<=top+height
                 distance=(x-(left+width/2))^2+(y-(top+height/2))^2
             else
-                z=z*self:unitVisualScale(e);distance=(x-sx)^2+(y-(sy-12*z))^2;hit=distance<(20*z)^2
+                z=z*self:unitVisualScale(e)*self:unitGroundScale(e);distance=(x-sx)^2+(y-(sy-12*z))^2;hit=distance<(20*z)^2
             end
             if hit and (not best or distance<dist) then best=e;dist=distance end
         end
