@@ -28,6 +28,7 @@ test('unit','command costs and prerequisites',function() require('tests.command_
 require('tests.balance').register(test)
 require('tests.controls').register(test)
 require('tests.control_scenarios').register(test)
+require('tests.responsiveness').register(test)
 require('tests.maps').register(test)
 test('balance','new-profile route report',function() require('tests.balance_scenarios').routes() end)
 for _,mapId in ipairs(require('src.maps').tiled) do if mapId~='twin_marches' then

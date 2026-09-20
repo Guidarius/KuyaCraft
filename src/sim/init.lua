@@ -97,7 +97,9 @@ local Coverage=require('src.sim.coverage')
 -- gap; without `seat` it still refunds the whole pod. The owner's view gains `player.orbit`,
 -- a derived summary (orbit slots, queue size, pods unlocked) the interface used to work out
 -- from the world. No state is added.
-local Sim = { VERSION = 27 }
+-- Version 28: player-isolated groups, individual shipping movement speeds and
+-- responsive navigation. Earlier replays/snapshots require their original build.
+local Sim = { VERSION = 28 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Airborne: a unit whose definition flies. Buildings and nodes never do.
@@ -1256,8 +1258,9 @@ local function formation(w)
             local group=order.group
             if group and destinationKinds[order.kind] then
                 local pace=Stats.baseSpeed(w,e)
-                local slowest=groupPace[group]
-                if not slowest or pace<slowest then groupPace[group]=pace end
+                local key=e.owner..':'..group
+                local slowest=groupPace[key]
+                if not slowest or pace<slowest then groupPace[key]=pace end
             end
         end
     end
@@ -1265,7 +1268,7 @@ local function formation(w)
         if e.alive and e.category=='unit' then
             local order=e.order
             local group=order.group
-            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[group] or nil
+            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[e.owner..':'..group] or nil
         end
     end
 end
