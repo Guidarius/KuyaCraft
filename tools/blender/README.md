@@ -7,6 +7,11 @@ without an external source blend. Use `-Roster megacorp_aircraft` with Preview,
 Build or Validate; the same camera, masks, packing and catalog contracts apply.
 See [aircraft modeling and review](../../docs/art/MEGACORP_AIRCRAFT.md).
 
+The rounded Megacorp infantry adapter builds `associate`, `medic` and `enforcer`
+on the pinned source rig. Use `-Roster megacorp_infantry`; see
+[infantry modeling and review](../../docs/art/MEGACORP_INFANTRY.md) for the preserved
+rig, fitted poses, team masks and saved-scene verification.
+
 ## Prerequisites and saved source
 
 Use Blender 5.1.0, Python 3.10+ with Pillow, and the project-pinned LÖVE 11.5 runtime. The PowerShell wrapper finds the bundled Python or accepts `-Python`; `-Blender` overrides the Blender executable. No MCP connection or open Blender window is needed for production.

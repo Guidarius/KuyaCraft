@@ -2137,3 +2137,58 @@ temporary-file cleanup warnings after successful renders. No full simulation, ne
 performance gate or other-PC render comparison was run for this presentation-only
 change. Human play/style and motion approval remain outstanding. The branch is pushed;
 GitHub's PR connector returned 403, so no PR was created.
+
+## 2026-09-20 — Rounded Megacorp infantry models and sprites
+
+Associate, Medic and Enforcer now have editable pressure-suit Blender assemblies,
+derived animations and paired directional sprite exports. Large bubble visor,
+horizontal medical capsule and wide porthole barrel/impact gauntlet distinguish
+the three roles. Broad neutral team shells support the existing player-color shader.
+The pinned source library, 65-bone rest rig and original actions remain intact;
+shorter legs and wider fitted poses live only in the derived actions. Rebuild and
+review instructions are in `docs/art/MEGACORP_INFANTRY.md`.
+
+| Infantry | Triangles | Directional frames | Cell | Paired RGBA atlas memory |
+| --- | ---: | ---: | ---: | ---: |
+| Associate | 3,544 | 208 | 128 px | 27.916 MiB |
+| Medic | 3,584 | 216 | 128 px | 29.910 MiB |
+| Enforcer | 3,152 | 208 | 128 px | 27.916 MiB |
+
+These triangles are offline model complexity, not gameplay geometry. The existing
+sprite renderer handles each unit with its paired color/mask draw. Full directional
+death poses require the 128-pixel cell at the fixed shared camera scale; this first
+infantry set adds approximately 85.74 MiB of uncompressed paired atlas data before
+driver overhead. No FPS improvement or performance-budget result is claimed.
+
+The three share idle, walk, attack and death metadata. The Medic's required attack
+is inert; its extra treatment `work` clip is viewer-ready but not triggered by live
+healing, because the current presentation events do not identify the healer. No
+simulation, content, healing or damage behavior changed. Original five Bastion and
+two aircraft assets were carried into this isolated worktree through the validated
+packaging command; they were not rebuilt as part of this infantry batch.
+
+On the Windows desk machine with Blender 5.1.0 and LOVE 11.5, the final full Build
+completed in 352 seconds, Validate passed, all 23 Python asset-tool tests passed,
+and the quick suite passed 125 checks. Initial visual review led to shorter legs,
+a capsule-shaped Medic pack, a cleaner visor rim and an Enforcer grip adjustment
+that clears its torso. One intermediate Associate preview failed late death-frame
+bounds by less than half a pixel; authored fall alignment fixed it without changing
+camera scale or weakening the bounds gate. Generated scenes, atlases, reports and
+review images remain ignored.
+
+Reopened all three final scenes and matched all 632 stored directional pose bounds;
+floor clearance, Associate support grip and the selected weapon/body intersection
+checks passed. All original source actions remain present. The rendered presentation
+suite and asset viewer passed, including every infantry clip sample/heading, blue
+and red masks, 0.75/1/1.5 scales, and a shipping-terrain comparison against Orders
+Crossbow sprites with unchanged canonical simulation state. Inspected native heading
+sheets, dense walk/death sequences, enlarged model views and light/dark-ground zoom
+captures. Live Associate poses show approximately 26–52% alpha-weighted team coverage.
+The first mixed-army test used an obsolete `shield` content ID; replacing it with
+the shipping `crossbow` comparison fixed the fixture and the rerun passed.
+
+Human normal-speed motion/style approval, other-PC rendering comparison and full
+simulation/network/performance suites were not performed for this art-only change.
+Blender reports temporary-file cleanup warnings after successful export. The task
+branch includes the preceding aircraft work; generated output is local to its isolated
+worktree. GitHub PR creation returned 403 (integration access), so no PR was created.

@@ -1,6 +1,6 @@
 -- Pure presentation frame selection; simulation state is never modified.
 local F={directions={'N','NE','E','SE','S','SW','W','NW'}}
-local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden',command_blimp='command_blimp',battleship='battleship'}
+local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden',command_blimp='command_blimp',battleship='battleship',associate='associate',medic='medic',enforcer='enforcer'}
 function F.assetId(e)
     -- A worker with a load on its back is the loaded recipe: same body, same clips, a
     -- bundle on its back. Empty, it is the plain one.

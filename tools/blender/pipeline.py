@@ -203,6 +203,8 @@ def setup_scene(rig, meshes, recipe):
     height = (1 if recipe.get('sourceId') == 'procedural_aircraft_v1' else
               max(rest_z)-min(rest_z) if rest_z else rig.data.bones['Head'].tail_local.z)
     root.scale = (float(recipe.get('scale',1.0))/height,)*3
+    if 'referenceHeight' in recipe:
+        root.scale = (float(recipe.get('scale',1.0))/recipe['referenceHeight'],)*3
     for name, pos, energy, size in [('Key',(-3,-4,7),500,5),('Fill',(4,-1,4),200,4)]:
         data = bpy.data.lights.new(name, 'AREA'); data.energy=energy;data.shape='DISK';data.size=size
         obj = bpy.data.objects.new(name,data);scene.collection.objects.link(obj);obj.location=pos
@@ -262,6 +264,8 @@ def run(options):
     rootpath=Path(options.root).resolve()
     sys.path.insert(0,str(rootpath/'tools'/'blender'))
     import unit_model
+    if options.unit in ('associate','medic','enforcer'):
+        import megacorp_model as unit_model
     recipe=json.loads((rootpath/'art'/'recipes'/(options.unit+'.json')).read_text(encoding='utf-8-sig'))
     if recipe['unitId'] != options.unit:
         raise ValueError('Recipe identity mismatch')
@@ -323,8 +327,8 @@ def run(options):
             set_frame(sample+1)
             grip=unit_model.grip_report(rig)
             report['grips'].append({'clip':clip,'sample':sample+1,**grip})
-            if options.unit == 'crossbow' and clip != 'death' and grip.get('supportGripError',0) > .015:
-                raise ValueError('Baked crossbow grip separates from stock')
+            if options.unit in ('crossbow','associate') and clip != 'death' and grip.get('supportGripError',0) > .015:
+                raise ValueError('Baked support hand separates from weapon')
     total=sum(c['samples'] for c in clips.values())*8
     for clip,spec in clips.items():
         assign(rig,baked[clip])

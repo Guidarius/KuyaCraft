@@ -18,6 +18,7 @@ end
 function T.run()
     eq(F.assetId({kind='command_blimp'}),'command_blimp')
     eq(F.assetId({kind='battleship'}),'battleship')
+    for _,kind in ipairs({'associate','medic','enforcer'}) do eq(F.assetId({kind=kind}),kind) end
     local m=fixture();C.validate(m,'shieldguard')
     eq(F.sample(m,'idle','N',599),2);eq(F.sample(m,'idle','N',600),1)
     eq(F.sample(m,'death','SE',60000),6);eq(F.sample(m,'attack','S',0,true),3)
