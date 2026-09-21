@@ -100,7 +100,8 @@ local Coverage=require('src.sim.coverage')
 -- Version 28: player-isolated groups, individual shipping movement speeds and
 -- responsive navigation. Earlier replays/snapshots require their original build.
 -- Version 29 integrates shared precise routes with vehicle clearance offsets.
-local Sim = { VERSION = 29 }
+-- Version 30: explicit garrison orders do not acquire or chase enemies en route.
+local Sim = { VERSION = 30 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Airborne: a unit whose definition flies. Buildings and nodes never do.
@@ -1466,7 +1467,7 @@ local function combatOrders(w)
             if kind=='attack' then
                 target=w.entities[e.order.target]
                 if not validTarget(w,e,target) then nextOrder(w,e);target=nil end
-            elseif kind~='move' and kind~='build' and kind~='follow' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
+            elseif kind~='move' and kind~='build' and kind~='follow' and kind~='garrison' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
                 target=w.entities[e.combatTarget]
                 if not validTarget(w,e,target) or (kind=='hold' and not G.weaponRange(w,e,target)) or (e.engagement and not G.weaponRange(w,e,target) and (F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768) or F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768))) then target=nil end
                 if not target then target=enemyTarget(w,e,candidates[e.owner]) end

@@ -1,7 +1,7 @@
 # Combined controls and Megacorp build
 
 Branch: `codex/overnight-controls-performance`. Integration starts at the art/drop-pod
-commit `fd851d4` and merges controls `541498d`. Simulation 29 / content 16 rejects older
+commit `fd851d4` and merges controls `541498d`. Simulation 30 / content 16 rejects older
 recordings explicitly. Economy, roster, combat numbers, 20 Hz simulation and network
 lookahead are unchanged. Generated assets and evidence remain outside tracked source.
 
@@ -11,6 +11,12 @@ Shared searches match owner, group, radius, direction and navigation version. Ve
 followers retain clearance offsets and validate their suffix from the actual end of the
 shared route. Required clearance cannot fail because optional smoothing exhausted its
 budget. New regressions reproduced both defects before the fixes and pass afterwards.
+
+A reproduced garrison defect is fixed: an explicit garrison order suppresses new
+enemy acquisition on the way into the building. It no longer alternates a route to
+the bunker with a route toward a nearby enemy. Existing attack commitment is unchanged.
+The mixed-pod regression now crosses a two-cell gap, returns to a bunker, garrisons
+all three infantry types, unloads them with clearance and verifies restoration.
 
 The radius-160 Enforcer keeps its current scale, selection ring and collision body.
 Two-cell passage traversal, terrain updates and unloading retain hard clearance.

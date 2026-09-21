@@ -2461,3 +2461,20 @@ vehicle traffic remains a known jam, including a three-cell gap; this is not cla
 fixed. See docs/OVERNIGHT_HANDOFF.md for the distinction and the five-minute practice
 scene (`--micro-lab`). Final measured performance and package verification follow in
 later entries. Earlier recordings require their original build; no golden was replaced.
+
+
+## 2026-09-21 mixed pod/garrison checkpoint (simulation 30 / content 16)
+
+The expanded morning micro regression reproduced an Enforcer repeatedly pursuing a
+nearby enemy while its explicit order was to enter a bunker. Garrison now joins Move,
+Build and Follow in suppressing new automatic enemy acquisition en route. Attack
+commitment and combat statistics are unchanged. The regression passes mixed Associate,
+Medic and Enforcer pod deployment, two-cell traversal, garrison, unload clearance and
+snapshot restoration. All 140 quick checks pass after the fix.
+
+The simulation revision is now 30; older recordings require their original build.
+Two vision optimization candidates were measured in three standalone and six live
+runs each. Neither improved consistently, so both were removed. Original visibility
+and coverage behavior is retained. The remaining optimization target is entity-view
+projection; measurements will use this new functional checkpoint. No performance
+threshold was relaxed, and diagnostic VSync-off runs are excluded from acceptance.

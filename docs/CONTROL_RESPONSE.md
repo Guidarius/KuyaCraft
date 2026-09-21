@@ -1,6 +1,6 @@
 # Responsive control
 
-The original controls checkpoint used simulation 28 / content 15. The combined Megacorp build uses simulation 29 / content 16; see OVERNIGHT_HANDOFF.md for integration evidence and current limitations.
+The original controls checkpoint used simulation 28 / content 15. The combined Megacorp build uses simulation 30 / content 16; see OVERNIGHT_HANDOFF.md for integration evidence and current limitations.
 
 The target is Brood War style pace and individual unit control. Coarse navigation is a performance compromise, not a desired interaction. This change retains 20 Hz simulation, integer subpositions, the cell navigation grid, existing attack commitment and network lookahead. Earlier replays and snapshots require their original build; no golden result was overwritten.
 

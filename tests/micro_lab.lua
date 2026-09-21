@@ -53,11 +53,52 @@ function M.check()
   local ev=Sim.step(w,{{tick=w.tick+1,player=1,sequence=w.players[1].sequence+1,kind='pod_load',args={entity=hq,unit=kind}}})
   for _,v in ipairs(ev) do assert(v.kind~='rejected',v.reason) end
  end
+ local firstNew=w.nextId
  local ev=Sim.step(w,{{tick=w.tick+1,player=1,sequence=w.players[1].sequence+1,kind='pod_launch',args={entity=hq,x=25,y=21}}})
  for _,v in ipairs(ev) do assert(v.kind~='rejected',v.reason) end
  local landed=false
  for _=1,Content.rules.descentTicks do for _,v in ipairs(Sim.step(w,{})) do if v.kind=='pod_landed' then landed=true end end end
  assert(landed,'practice pod did not land')
  S.clearance(w)
+ local troops,commands={},{}
+ for _,id in ipairs(w.order) do local e=w.entities[id]
+  if id>=firstNew and e.category=='unit' and e.owner==1 then
+   troops[#troops+1]=e
+   commands[#commands+1]=S.command(w,e,'move',{x=F.center(36),y=F.center(22),group=900},w.players[1].sequence+#commands+1)
+  end
+ end
+ assert(#troops==3,'mixed pod payload changed')
+ Sim.step(w,commands)
+ local goals,arrived={},{}
+ for _,e in ipairs(troops) do goals[e.id]={x=e.order.px or F.center(e.order.x),y=e.order.py or F.center(e.order.y)} end
+ local done=false
+ for tick=1,1600 do
+  Sim.step(w,{});if tick%20==0 then S.clearance(w) end
+  done=true
+  for _,e in ipairs(troops) do
+   assert(e.alive and not e.lastOrderFailure,'landed unit lost its movement order')
+   local g=goals[e.id]
+   if e.order.kind=='stop' and F.distance2(e.x,e.y,g.x,g.y)<=256^2 then arrived[e.id]=true end
+   if not arrived[e.id] then done=false end
+  end
+  if done then break end
+ end
+ assert(done,'mixed landed troops failed to cross the two-cell gap')
+ commands={}
+ for _,e in ipairs(troops) do commands[#commands+1]=S.command(w,e,'garrison',{target=b.id},w.players[1].sequence+#commands+1) end
+ Sim.step(w,commands)
+ for tick=1,1600 do
+  Sim.step(w,{});done=true
+  for _,e in ipairs(troops) do if e.garrisoned~=b.id then done=false end end
+  if done then break end
+ end
+ if not done then for _,e in ipairs(troops) do print('GARRISON '..e.kind..' alive '..tostring(e.alive)..' at '..(e.x/256)..','..(e.y/256)..' order '..e.order.kind..' target '..tostring(e.order.target)..' inside '..tostring(e.garrisoned)..' failure '..tostring(e.lastOrderFailure)..' nav '..tostring(e.navigation)) end end
+ assert(done,'mixed troops did not enter the bunker')
+ Sim.step(w,{S.command(w,b,'unload')})
+ for _,e in ipairs(troops) do assert(not e.garrisoned,'mixed unload left a unit inside') end
+ S.clearance(w)
+ local clone=Sim.restore(Sim.snapshot(w))
+ for _=1,80 do Sim.step(w,{});Sim.step(clone,{}) end
+ assert(Sim.serializeCanonical(w)==Sim.serializeCanonical(clone),'mixed unload restore diverged')
 end
 return M
