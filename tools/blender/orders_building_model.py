@@ -24,12 +24,12 @@ class Builder(Base):
 
     def roof(self,name,x,y,w,d,z,h):
         for side in (-1,1):
-            # Separate halves: one roof plane is present in stage three.
+            # Separate halves: one roof plane is present in stage two.
             vertices=[]
             for y0 in (y-d/2,y+d/2):vertices += [(x,y0,z),(x+side*w/2,y0,z),(x,y0,z+h)]
             ob=self.mesh(name+('Left' if side<0 else 'Right'),vertices,
                          [(0,2,1),(3,4,5),(0,1,4,3),(1,2,5,4),(2,0,3,5)],[self.team])
-            self.stage(ob,3 if side<0 else 4)
+            self.stage(ob,2 if side<0 else 3)
         self.block(name+'Ridge',(x,y,z+h),(.022,d,.024),self.brass,4)
 
     def arch(self,name,x,y,z,w,h,mat=None):

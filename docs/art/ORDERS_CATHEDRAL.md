@@ -66,6 +66,12 @@ Model/rig adapters: `tools/blender/orders_model.py`, `orders_special_model.py`,
 `orders_special_export.py`, `orders_building_model.py`, `orders_building_export.py`.
 Editable scenes and all actions: `artifacts/asset-build/<buildId>/<asset>/<asset>.blend`.
 Build identities and source/tool checksums are recorded alongside each scene.
+The derived actions contain one key per exported sample. In Blender, use the console
+helper `scripts/select-orders-clip.py` to select synchronized mount/rider/object actions
+and set the scene FPS to the clip duration. For example, execute
+`runpy.run_path('/absolute/repo/scripts/select-orders-clip.py')['select']('gryphon','move')`
+after importing `runpy`. The original library actions keep their original source timing;
+the native sprite viewer is the final authority for gameplay-speed playback.
 
 ## Review and five-minute playtest
 

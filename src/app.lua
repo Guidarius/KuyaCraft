@@ -591,6 +591,9 @@ function App:draw()
     end
     Terrain.draw(self.terrainRenderer,self.camera.x,self.camera.y,26*z,CELL_Y*z,viewport)
     g.setColor(1,1,1);g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    -- Rebind after offscreen terrain bakes. LOVE 11.5 can restore the logical
+    -- scissor with the canvas Y orientation, clipping roofs during cache warmup.
+    g.setScissor();g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
     -- Control points lie on the ground, under everything standing on them. The ring is the
     -- owner's colour; the fill grows with a capture in progress, in the capturer's colour.
     local control=self.view.control

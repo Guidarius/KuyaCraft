@@ -35,4 +35,16 @@ function P.run(app)
  assert(Sim.serializeCanonical(app.world)==before,'Presentation checks mutated canonical state')
  print('ORDERS_PRESENTATION_PASS: 20 building stages, cargo continuity, mounted/shrine playback, canonical read-only')
 end
+function P.captureRoof(app)
+ local keep;for _,e in ipairs(app.view.entities) do if e.kind=='keep' and e.remaining==0 and e.owner==app.player then keep=e;break end end
+ assert(keep,'Roof regression requires the complete fixture Keep')
+ local z=app.camera.zoom;local x,y=app:screen(keep.x,keep.y)
+ x=x+(keep.size-1)*13*z+18*z
+ y=y+(keep.size-1)*require('src.ui.camera').cellY/2*z-62*z
+ love.graphics.captureScreenshot(function(data)
+  local r,g,b=data:getPixel(math.floor(x),math.floor(y))
+  assert(b>g+.05 and g>r+.05,'Terrain canvas restore clipped the Keep roof')
+  print('ORDERS_ROOF_PIXEL_PASS: visible team roof after terrain-cache warmup')
+ end)
+end
 return P

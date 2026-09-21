@@ -451,6 +451,7 @@ function T.worker(options)
     output:close();print('PASS worker: '..tick..' ticks at '..schedule..' FPS schedule');return 0
 end
 function T.run(options)
+    if options['verify-replay'] then return require('tests.replay_compat').run(options['verify-replay']) end
     if options['compare-left'] then return require('src.diagnostics').compareFiles(options['compare-left'],options['compare-right'],options.output) end
     if options['determinism-worker'] then return T.worker(options) end
     require('tests.control_scenarios').benchmarkTicks=tonumber(options['benchmark-ticks'])
