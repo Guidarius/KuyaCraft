@@ -430,33 +430,31 @@ end
 -- -- schedulers, searches, detours, lane state, reservation bookkeeping -- is not
 -- observable by anyone, so a new private field cannot leak by default. Immutable
 -- world data is shared by reference; callers must treat views as read-only.
-local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
-    'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
-    'nextCommitTick','attackTick','remaining','produced','researchRemaining',
-    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','mine','stalled',
-    'mana','maxMana',
-    -- Stacks are public: the pips on a target are the tell that a burst is coming.
-    'stackFixed',
-    -- A worker's load and its loading are public: an enemy sees a laden worker walking home.
-    'carrying','carryResource','harvestUntil','garrisoned','occupants',
-    -- A shot in flight carries its heading so the renderer can point it the right way.
-    'dx','dy','ability'}
--- Fields an observer may only see on entities it owns.
-local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','mine','stalled','garrisoned','occupants'}
-local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
+-- Keep the whitelist explicit, but emit it directly: a dynamic key loop plus
+-- an ownership lookup per field dominated the per-tick view copy in profiling.
 local function shallow(t) local out={};for key,value in pairs(t) do out[key]=value end;return out end
 local function shallowArray(t) local out={};for i=1,#t do out[i]=shallow(t[i]) end;return out end
 local function viewEntity(w,e,own)
-    local copy={}
-    for i=1,#VIEW_FIELDS do
-        local name=VIEW_FIELDS[i]
-        if own or not ownerOnly[name] then copy[name]=e[name] end
-    end
+    local copy={
+        id=e.id,kind=e.kind,owner=e.owner,x=e.x,
+        y=e.y,category=e.category,alive=e.alive,hp=e.hp,
+        maxHp=e.maxHp,size=e.size,cooldown=e.cooldown,deathTick=e.deathTick,
+        navigation=e.navigation,blockedReason=e.blockedReason,lastOrderFailure=e.lastOrderFailure,waitTicks=e.waitTicks,
+        pathIndex=e.pathIndex,combatTarget=e.combatTarget,nextCommitTick=e.nextCommitTick,attackTick=e.attackTick,
+        remaining=e.remaining,produced=e.produced,resource=e.resource,amount=e.amount,
+        campTier=e.campTier,stance=e.stance,healthCapacity=e.healthCapacity,kills=e.kills,
+        mana=e.mana,maxMana=e.maxMana,stackFixed=e.stackFixed,carrying=e.carrying,
+        carryResource=e.carryResource,harvestUntil=e.harvestUntil,dx=e.dx,dy=e.dy,
+        ability=e.ability,
+    }
     -- Order/queue shapes are tables; an enemy sees a unit standing still with nothing queued.
     -- Orders, queue entries and upgrades are flat records of scalars, so a shallow
     -- copy is equivalent to the canonical one and skips building and sorting a key
     -- array per record -- which, at two per own unit per tick, dominated view cost.
     if own then
+        copy.researchRemaining=e.researchRemaining;copy.reviveRemaining=e.reviveRemaining;copy.xp=e.xp
+        copy.mine=e.mine;copy.stalled=e.stalled;copy.garrisoned=e.garrisoned
+        copy.occupants=e.occupants
         copy.order=shallow(e.order);copy.orders=shallowArray(e.orders)
         if e.queue then copy.queue=shallowArray(e.queue) end
         if e.upgrades then copy.upgrades=shallow(e.upgrades) end

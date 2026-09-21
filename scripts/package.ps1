@@ -108,7 +108,7 @@ $practice = @'
 cd /d "%~dp0"
 "%~dp0LoveRTS.exe" --micro-lab --width 1920 --height 1080
 '@
-[IO.File]::WriteAllText((Join-Path $destination 'PlayMicro.cmd'),$practice.Replace("`n","`r`n"))
+[IO.File]::WriteAllText((Join-Path $destination 'PlayMicro.cmd'),$practice.Replace("`r`n","`n").Replace("`n","`r`n"))
 $gitSafe='safe.directory='+($ProjectRoot -replace '\\','/')
 $buildInfo=[ordered]@{built=$stamp;sourceRevision=(& git -c $gitSafe -C $ProjectRoot rev-parse HEAD);
     dirty=@(& git -c $gitSafe -C $ProjectRoot status --porcelain);runtime=$Toolchain.loveVersion;
