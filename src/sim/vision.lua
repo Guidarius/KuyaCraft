@@ -10,6 +10,8 @@
 -- the same set that stops movement. A blocking cell is itself visible -- you can see the
 -- wall, just not past it.
 local F=require('src.sim.fixed')
+local Bit=require('bit')
+local BITS={};for i=0,31 do BITS[i+1]=Bit.lshift(1,i) end
 local V={}
 -- xx, xy, yx, yy per octant.
 local OCTANTS={
@@ -18,9 +20,13 @@ local OCTANTS={
 }
 -- Recording state for the field currently being built. Single-threaded and used only
 -- within one V.field call, including its recursion.
-local outKeys,outCount
+local outKeys,outCount,outWords,outMasks,outWordCount
 local function emit(key)
     outCount=outCount+1;outKeys[outCount]=key
+    local word=math.floor((key-1)/32)+1;local mask=BITS[(key-1)%32+1]
+    local previous=outMasks[word]
+    if previous then outMasks[word]=Bit.bor(previous,mask)
+    else outWordCount=outWordCount+1;outWords[outWordCount]=word;outMasks[word]=mask end
 end
 -- ox0..oy1 is a rectangle the observer may see through regardless of w.blocked: its own
 -- footprint. Without it a building would be blinded by its own body, because its sight
@@ -97,10 +103,10 @@ local function field(w,e,sight)
     local recorded=fields[e.id]
     if recorded and recorded.origin==origin and recorded.sight==sight and recorded.size==size and
         recorded.x==F.cell(e.x) and recorded.y==F.cell(e.y) then return recorded end
-    -- Records are immutable once published: an owner transfer may make two player
-    -- unions refer to different generations of this observer within the same tick.
-    recorded={keys={},origin=origin,sight=sight,size=size,x=F.cell(e.x),y=F.cell(e.y)};fields[e.id]=recorded
-    outKeys,outCount=recorded.keys,0
+    if not recorded then recorded={keys={},words={},masks={},wordCount=0};fields[e.id]=recorded end
+    for i=1,recorded.wordCount do recorded.masks[recorded.words[i]]=nil end
+    recorded.origin,recorded.sight,recorded.size,recorded.x,recorded.y=origin,sight,size,F.cell(e.x),F.cell(e.y)
+    outKeys,outCount,outWords,outMasks,outWordCount=recorded.keys,0,recorded.words,recorded.masks,0
     emit(origin)
     local ox0,oy0=F.cell(e.x),F.cell(e.y)
     local ox1,oy1=ox0+size-1,oy0+size-1
@@ -108,8 +114,8 @@ local function field(w,e,sight)
         local o=OCTANTS[i]
         cast(w,cx,cy,sight,1,1,1,0,1,o[1],o[2],o[3],o[4],ox0,oy0,ox1,oy1)
     end
-    recorded.count=outCount
-    outKeys=nil
+    recorded.count=outCount;recorded.wordCount=outWordCount
+    outKeys,outWords,outMasks=nil,nil,nil
     return recorded
 end
 -- Full field union retained as a simple reference path for tests/tools.
@@ -117,46 +123,30 @@ function V.field(w,e,sight,visible,explored)
     local record=field(w,e,sight)
     if record then for i=1,record.count do local key=record.keys[i];visible[key]=true;explored[key]=true end end
 end
--- Derived, world-local bookkeeping only. Nothing here changes a future tick:
--- it is rebuilt from live observers after restore or a navigation change.
-local unions=setmetatable({},{__mode='k'})
-local function remove(record,counts,visible)
-    if not record then return end
-    for i=1,record.count do local key=record.keys[i];local count=counts[key]-1
-        if count==0 then counts[key]=nil;visible[key]=nil else counts[key]=count end
-    end
-end
+-- Combine overlapping fields one 32-cell word at a time, then materialize the
+-- same boolean grid as the full field loop. Scratch is cleared on every call;
+-- ownership, death and construction need no persistent union invalidation state.
+-- The existing field cache depends only on geometry/sight and is cold after restore.
+local unionWords,touched={},{}
 function V.union(w,p,visible,explored,sightOf)
-    local cache=unions[w]
-    if not cache or cache.version~=w.navVersion or cache.width~=w.map.width or cache.height~=w.map.height then
-        cache={version=w.navVersion,width=w.map.width,height=w.map.height,players={}};unions[w]=cache
-    end
-    local slot=cache.players[p]
-    if not slot or slot.visible~=visible or slot.explored~=explored then
-        for key in pairs(visible) do visible[key]=nil end
-        slot={counts={},records={},ids={},visible=visible,explored=explored};cache.players[p]=slot
-    end
-    local counts,records,ids=slot.counts,slot.records,slot.ids
-    -- Remove vanished/foreign observers in the previous stable entity order.
-    for i=1,#ids do local id=ids[i];local e=w.entities[id]
-        if not e or not e.alive or e.owner~=p or e.category=='projectile' then
-            remove(records[id],counts,visible);records[id]=nil
-            if not e or not e.alive then cacheFor(w)[id]=nil end
-        end
-    end
+    for key in pairs(visible) do visible[key]=nil end
     local count=0
     for _,id in ipairs(w.order) do local e=w.entities[id]
         if e.alive and e.owner==p and e.category~='projectile' then
-            count=count+1;ids[count]=id
             local record=field(w,e,sightOf(w,e))
-            if record~=records[id] then
-                remove(records[id],counts,visible);records[id]=record
-                if record then for i=1,record.count do local key=record.keys[i]
-                    counts[key]=(counts[key] or 0)+1;visible[key]=true;explored[key]=true
-                end end
-            end
+            if record then for i=1,record.wordCount do
+                local word=record.words[i];local mask=record.masks[word]
+                local previous=unionWords[word]
+                if previous then unionWords[word]=Bit.bor(previous,mask)
+                else count=count+1;touched[count]=word;unionWords[word]=mask end
+            end end
         end
     end
-    for i=#ids,count+1,-1 do ids[i]=nil end
+    -- Both loops have explicit order. Signed 32-bit masks are derived scratch,
+    -- never coordinates, serialized values or floating-point gameplay arithmetic.
+    for i=1,count do local word=touched[i];local mask=unionWords[word];local base=(word-1)*32
+        for b=1,32 do if Bit.band(mask,BITS[b])~=0 then local key=base+b;visible[key]=true;explored[key]=true end end
+        unionWords[word]=nil;touched[i]=nil
+    end
 end
 return V

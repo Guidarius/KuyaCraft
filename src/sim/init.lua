@@ -341,8 +341,8 @@ local function visibility(w)
         elseif not w.content.rules.lineOfSight then for key in pairs(visible) do visible[key]=nil end end
         local explored=player.explored
         player.knownResources=player.knownResources or {}
-        -- Line-of-sight union counts change only when an observer's field changes.
-        -- The radial path remains available for content without occluding terrain.
+        -- Merge cached line-of-sight fields as 32-cell words before writing the
+        -- boolean grid. Radial content keeps its existing span path.
         if w.content.rules.lineOfSight then
             Vision.union(w,p,visible,explored,Stats.sight)
             Sim.knownResources(w,p,player)

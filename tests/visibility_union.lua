@@ -36,7 +36,7 @@ function T.run()
    for _,id in ipairs(cold.order) do local e=cold.entities[id]
     if e.alive and e.owner==p and e.category~='projectile' then Vision.field(cold,e,Stats.sight(cold,e),visible,explored[p]) end
    end
-   assert(Codec.encode(visible)==Codec.encode(w.players[p].visible),'incremental visible grid differs from full rebuild at '..tick..' P'..p)
+   assert(Codec.encode(visible)==Codec.encode(w.players[p].visible),'packed visible grid differs from full rebuild at '..tick..' P'..p)
    assert(Codec.encode(explored[p])==Codec.encode(w.players[p].explored),'exploration differs from full rebuild at '..tick..' P'..p)
    local before=Codec.encode(w.players[p])
    Vision.union(w,p,w.players[p].visible,w.players[p].explored,Stats.sight)
