@@ -74,3 +74,45 @@ View-copy p95 fell from 2.003–2.363 to 1.072–1.947 ms for Orders, and 2.206�
 Run `scripts/test-performance.ps1 -Runs 3 -LiveRuns 3 -RequireAssets -OutputDirectory artifacts/overnight/final` with the pinned runtime and active catalog. Each run writes distributions, canonical checkpoints, renderer details, clamp totals and discarded-backlog counts. `performance-environment.json` ties it to the exact revision and settings; `asset-files.json` lists all active asset hashes. Hardware was captured separately in `hardware.json` because the sandbox denied the benchmark script CIM queries.
 
 Generated logs, screenshots and packages are intentionally ignored by Git. The delivered evidence archive includes the clean baseline, rejected projection, final runs, soak comparison and verification logs.
+
+## Final retained build: acceptance results
+
+Clean benchmark commit: `df6de37053e6789bc5649ebddeb0e23bb05ee445`. Git-normalized simulation and presentation sources match the clean integration baseline `9415109`. Later commits only record the handoff. This final pass nevertheless measured slower; the cause of this timing variation has not been isolated. No performance improvement is claimed. Defaults are copied fresh for every benchmark: 24 selected units, gameSpeed index 2, edge scrolling and day/night disabled by the existing benchmark, VSync 1.
+
+**Acceptance failed:** all six live frame-p95 gates and five of six live Sim.step-p95 gates failed. All three headless simulation runs passed. The all-green functional suite is separate from these failed performance gates.
+
+| Faction | Run | Sim p95 ms | Whole tick p95 ms | Frame p95 ms | Frame max ms | Clamped seconds |
+|---|---:|---:|---:|---:|---:|---:|
+| orders | 1 | 10.360 | 14.102 | 18.023 | 200.178 | 0.000 |
+| orders | 2 | 10.518 | 15.302 | 19.039 | 255.459 | 0.005 |
+| orders | 3 | 10.671 | 14.304 | 18.155 | 272.961 | 0.023 |
+| megacorp | 1 | 10.438 | 14.245 | 19.017 | 214.389 | 0.000 |
+| megacorp | 2 | 14.258 | 18.883 | 21.268 | 377.568 | 0.128 |
+| megacorp | 3 | 6.708 | 10.549 | 18.046 | 201.022 | 0.000 |
+
+Final headless Sim.step p95: 6.750 / 9.496 / 5.910 ms. All final canonical checkpoint lists and active asset-file hashes match the baseline. No discarded backlog ticks were reported; accumulated clamped time was 0.028 s for Orders and 0.128 s for Megacorp. Texture memory remains 260,707,712 bytes.
+
+Final distribution summary uses the same median-of-three percentile / observed-maximum convention as above.
+
+| Faction | Metric | p50 | p95 | p99 | Observed max |
+|---|---|---:|---:|---:|---:|
+| orders | step_ms | 5.958 | 10.518 | 15.553 | 84.189 |
+| orders | whole_tick_ms | 7.818 | 14.304 | 21.978 | 92.159 |
+| orders | frame_ms | 16.633 | 18.155 | 24.023 | 272.961 |
+| orders | draw_ms | 13.944 | 15.469 | 15.992 | 183.859 |
+| orders | view_ms | 1.925 | 3.094 | 8.754 | 14.635 |
+| orders | events_ms | 0.010 | 0.069 | 0.249 | 2.552 |
+| orders | feedback_ms | 0.129 | 0.347 | 0.615 | 4.820 |
+| orders | replay_ms | 0.006 | 0.013 | 0.086 | 13.506 |
+| orders | draw_calls | 150.000 | 166.000 | 168.000 | 168.000 |
+| orders | sampled_heap_kib | 36782.304 | 52295.261 | 55474.983 | 62727.514 |
+| megacorp | step_ms | 5.999 | 10.438 | 14.143 | 66.493 |
+| megacorp | whole_tick_ms | 7.697 | 14.245 | 22.789 | 78.792 |
+| megacorp | frame_ms | 16.634 | 19.017 | 25.595 | 377.568 |
+| megacorp | draw_ms | 13.670 | 15.566 | 16.052 | 126.918 |
+| megacorp | view_ms | 1.430 | 3.061 | 8.610 | 12.234 |
+| megacorp | events_ms | 0.013 | 0.062 | 0.256 | 0.448 |
+| megacorp | feedback_ms | 0.134 | 0.379 | 0.701 | 4.078 |
+| megacorp | replay_ms | 0.004 | 0.009 | 0.047 | 18.785 |
+| megacorp | draw_calls | 374.000 | 378.000 | 378.000 | 378.000 |
+| megacorp | sampled_heap_kib | 35604.576 | 58445.154 | 61981.408 | 68793.900 |

@@ -80,5 +80,60 @@ Heap samples are not retained-memory evidence. The separate production soak expl
 collects garbage and reports retained versus reclaimed memory.
 
 Default gates remain simulation p95 below 10 ms and rendered frame p95 at most
-16.667 ms. Profiled runs are diagnostic only. The final evidence and package identity
-will be recorded below after verification.
+16.667 ms. Profiled runs are diagnostic only. Detailed results are in
+[OVERNIGHT_PERFORMANCE.md](OVERNIGHT_PERFORMANCE.md).
+
+
+## Final verification and limits
+
+- `scripts/test-all.ps1`: PASS. 190 headless checks; four fresh 100,000-tick
+  determinism processes (30/60/144 FPS schedules and default/tuned JIT); shipping
+  shared-route checkpoints; real local ENet host/client agreement; rendered suites
+  at 1280x720, 1920x1080 and 2560x1080; actual asset presentation tests.
+- Active catalog validation: PASS, all 20 active assets. Python asset tests:
+  32 passed. No Blender rebuild was necessary; existing validated assets were preserved.
+- Seed-725 production/combat soak: 12,000 ticks, exact restores at 4,000 and 8,000,
+  24 fresh-replay checkpoints, 1,632 attacks. Orders produced 49 units with 42 deaths
+  and 28 later production events; Megacorp produced 54 with 14 deaths and 12 later
+  production events. Both built new buildings. All 12,000 command frames and 24
+  authoritative hashes match the clean baseline soak.
+- Retained heap was measured after GC separately from reclaimed temporary memory.
+  In the final full-suite process, retained heap was 25,744.8 KiB before this soak,
+  24,003.0 KiB with world and recording at tick 12,000, and 20,581.5 KiB after
+  releasing them. Prior suite/module/JIT caches make these values unsuitable for
+  claiming zero leaks or comparing fresh-process allocation rates.
+- Worker wall detour: all 1/12/24/48-unit groups began actual movement by tick 14.
+  Commitment, cooldown preservation, fog/target loss, same-cell destinations,
+  queued continuation and mixed pod/choke/garrison/unload regressions passed.
+
+Final performance remains a failed acceptance gate. Below are medians of three
+per-run p95 values, in milliseconds; the final source retains the baseline
+implementation, so timing differences are not an optimization benefit.
+
+| Metric | Integration baseline | Final retained build | Gate |
+|---|---:|---:|---:|
+| Orders live Sim.step | 7.95 | 10.52 | <10 |
+| Orders frame | 17.76 | 18.15 | <=16.667 |
+| Megacorp live Sim.step | 7.81 | 10.44 | <10 |
+| Megacorp frame | 18.01 | 19.02 | <=16.667 |
+
+All six final live frame gates and five live simulation gates failed. All three
+headless gates passed. Both attempted optimization targets were reverted after
+inconsistent or adverse results. No game speed, network lookahead, attack stats,
+vision rules, effects or collision bodies were weakened to improve scores.
+
+Dense heavy counterflow, human mouse-and-keyboard feel, balance and real two-PC
+latency/jitter remain outstanding. The functional checks above do not certify them.
+
+## Windows package
+
+Extract the complete delivered ZIP and double-click `LoveRTS.exe` for the normal
+menu, or `PlayMicro.cmd` for the five-minute practice scene above. Keep the DLLs
+beside the executable. `BUILD-INFO.json` records the exact clean source commit,
+LOVE version, executable/archive hashes and active catalog identity. The package
+contains only validated active asset builds. The accompanying evidence archive
+contains raw performance and verification logs.
+
+Work is pushed to `codex/overnight-controls-performance`; master was not merged.
+Draft PR creation was attempted but GitHub returned HTTP 403, “Resource not
+accessible by integration.” The branch remains available for review.

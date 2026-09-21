@@ -2478,3 +2478,26 @@ runs each. Neither improved consistently, so both were removed. Original visibil
 and coverage behavior is retained. The remaining optimization target is entity-view
 projection; measurements will use this new functional checkpoint. No performance
 threshold was relaxed, and diagnostic VSync-off runs are excluded from acceptance.
+
+
+## 2026-09-21 — overnight verification and performance limits
+
+The controls/art integration on `codex/overnight-controls-performance` passes
+`scripts/test-all.ps1`: 190 headless checks, four fresh 100,000-tick determinism
+runs, local ENet agreement and rendered/presentation suites. Active asset validation
+and all 32 Python asset tests pass. The 12,000-tick production/replacement soak
+passes two exact snapshot restores and 24 fresh replay checkpoints; its complete
+command stream and checkpoint hashes match the integrated baseline.
+
+Performance acceptance remains **failed**. On the Ryzen 5 5600G / RTX 3060 Windows
+machine, the final three 1080p/240-unit runs per faction failed all six frame gates
+and five live Sim.step gates. Median per-run p95 is Orders 10.52 ms simulation /
+18.15 ms frame; Megacorp 10.44 / 19.02 ms. The three headless gates passed. Both
+optimization targets were reverted after inconsistent or adverse measurements;
+no performance improvement is claimed. See `docs/OVERNIGHT_PERFORMANCE.md` for
+baseline/candidate/final distributions, exact revisions, settings and caveats.
+
+`docs/OVERNIGHT_HANDOFF.md` contains the five-minute micro/pod playtest, automated
+evidence and limits. Dense heavy counterflow can still jam; human feel, balance
+and real two-PC latency/jitter are unverified. The package workflow now includes a
+practice launcher and a source/asset identity manifest. No merge into master.
