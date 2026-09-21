@@ -16,6 +16,16 @@ local function fixture(id)
     return m
 end
 function T.run()
+    local building=fixture('orbital_command')
+    building.profileId='building_overhead_v1';building.fixedFacing='S';building.footprintCells=4
+    building.clips={idle=building.clips.idle};C.validate(building,'orbital_command')
+    eq(F.assetId({kind='orbital_command',category='building'}),'orbital_command')
+    eq(F.assetId({kind='keep',category='building'}),nil)
+    local _,_,bc,bd=F.select(building,{x=100,y=200,alive=true,attackTick=2}, {x=0,y=0},3,{})
+    eq(bc,'idle');eq(bd,'S')
+    building.clips.idle.frames.N={2,1};bad(function() C.validate(building,'orbital_command') end)
+    building.clips.idle.frames.N={1,2};building.footprintCells=0
+    bad(function() C.validate(building,'orbital_command') end)
     eq(F.assetId({kind='command_blimp'}),'command_blimp')
     eq(F.assetId({kind='battleship'}),'battleship')
     for _,kind in ipairs({'associate','medic','enforcer'}) do eq(F.assetId({kind=kind}),kind) end

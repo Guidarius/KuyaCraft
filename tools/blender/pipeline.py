@@ -200,7 +200,7 @@ def setup_scene(rig, meshes, recipe):
     # Known source is upright Z; scale uses rest head/feet rather than animated bounds.
     body_meshes = [o for o in meshes if any(n in o.name for n in ['Head','Boot','Helmet'])]
     rest_z = [v.co.z for o in body_meshes for v in o.data.vertices]
-    height = (1 if recipe.get('sourceId') == 'procedural_aircraft_v1' else
+    height = (1 if recipe.get('sourceId') in ('procedural_aircraft_v1','procedural_buildings_v1') else
               max(rest_z)-min(rest_z) if rest_z else rig.data.bones['Head'].tail_local.z)
     root.scale = (float(recipe.get('scale',1.0))/height,)*3
     if 'referenceHeight' in recipe:
@@ -246,6 +246,11 @@ def mask_material(team):
 
 
 def run(options):
+    sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+    import building_model
+    if options.unit in building_model.IDS:
+        import building_export
+        return building_export.run(options)
     if options.unit in ('command_blimp', 'battleship'):
         sys.path.insert(0,str(Path(options.root)/'tools/blender'))
         import aircraft_export

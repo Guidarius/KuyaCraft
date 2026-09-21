@@ -2263,3 +2263,49 @@ selection ellipse and an off-centre click that would miss the old infantry hit a
 Inspected the game-camera lineup and team-color captures. Human play/feel approval
 and networking/render comparison on a second physical PC remain unperformed.
 Generated blends, atlases, captures and logs remain local and ignored.
+
+## 2026-09-20 — Megacorp building models and production sprites
+
+Built all nine approved rounded building concepts as original procedural Blender
+assemblies: Orbital Command, Barracks, Requisition Office, Med Bay, Armory, Orbital
+Relay, Substrate Rig, Charge Rig and Bunker. Named rigid shell, roof, door, tank,
+landing-foot and equipment parts remain editable. Relay azimuth and pump stroke
+have keyed idle motion. Broad roof panels use the existing team shader; ivory
+trim, glass and graphite remain neutral. The bunker uses a simple eight-sided
+shell. No external model library or humanoid rig is required.
+
+Added the `megacorp_buildings` build roster and `building_overhead_v1` profile.
+Buildings export one fixed gameplay view, with canonical direction lists aliasing
+the same frame IDs. Seven static buildings plus the relay's eight and pump's four
+idle samples total 19 unique paired frames and 891,264 bytes (0.85 MiB) of RGBA
+atlas allocation, before driver overhead. Assemblies range from 868 to 2,160
+triangles offline. The final full build completed in 256 seconds on this Windows
+machine. Existing infantry and aircraft catalog entries were retained.
+
+The App places each origin at the center of its existing occupied-cell rectangle.
+Selection, hover and acknowledgement use that footprint; incompatible or missing
+art retains the drawn fallback. Costs, simulation collision, placement, coverage,
+production and orbital timing are unchanged. Labels on placeholder art are omitted
+when the real sprite is drawn; existing tooltips and selection details retain names.
+No descent/death sprite clips or new simulation events are introduced.
+
+Verified the final roster through Validate, 25 Python asset-tool tests, and reopening
+all nine saved blends. All 19 stored pose bounds, footprint/floor containment, finite
+geometry, team materials and moving pivots passed. Rendered checks cover all nine
+anchors and click targets, all idle samples, neutral trim versus team panels, both
+teams, 0.75/1/1.5 scales, fallback and unchanged canonical simulation. Inspected the
+native gameplay lineup with Associate/Enforcer size references and the enlarged
+assembly sheet. Generated review sheets, scene links and a verified nine-blend ZIP
+are in `artifacts/building-review/`; source instructions are in
+`docs/art/MEGACORP_BUILDINGS.md`.
+
+Local headless checks passed 171 cases, the existing performance budgets, all
+100,000-tick fresh-process checkpoints at 30/60/144 FPS and default/tuned JIT, and
+real local ENet host/client agreement. UI checks passed at 1280x720, 1920x1080 and
+2560x1080. No golden replay was changed. Human style/play approval and networking
+or render comparisons on another physical PC remain unperformed. Blender emitted
+temporary-file cleanup warnings after successful builds and scene checks.
+
+Work is on `codex/megacorp-buildings`, based on the completed infantry branch.
+Draft PR creation returned GitHub integration 403; no PR was created. Generated
+models, atlases, concept references, screenshots and archives remain ignored.

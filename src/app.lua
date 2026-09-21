@@ -400,7 +400,7 @@ function App:drawEntity(e)
     if not e.alive and not (self.sprites and self.sprites.units[Frames.assetId(e)]) then
         color(team,0.5);g.ellipse('fill',x,y,15*groundZ,5*groundZ);return
     end
-    g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*groundZ,5*groundZ)
+    if e.category~='building' then g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*groundZ,5*groundZ) end
     -- Ring colour states what the unit is to the viewer, which is the fastest read in
     -- a fight: own selection, hovered, ally, or enemy.
     local isSelected=selected(self,e.id)
@@ -408,7 +408,7 @@ function App:drawEntity(e)
     -- units' circles brighten and swell. Warcraft 3 answers a click before the
     -- simulation has run, and this is the half of that answer you can see.
     local ack=self.ackFlash and self.ackFlash[e.id] and self.ackFlashAt and (self.clock-self.ackFlashAt)<ACK_FLASH
-    if isSelected or ack then
+    if e.category~='building' and (isSelected or ack) then
         if ack then
             local swell=1+(1-(self.clock-self.ackFlashAt)/ACK_FLASH)*0.35
             g.setColor(0.85,1,0.9);g.setLineWidth(2.5)
@@ -419,7 +419,7 @@ function App:drawEntity(e)
             local pop=selectPop(self,e.id)
             g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ*pop,7*groundZ*pop)
         end
-    elseif self.hoverId==e.id then
+    elseif e.category~='building' and self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
         elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
         else g.setColor(1,.4,.32,.8) end
@@ -428,19 +428,29 @@ function App:drawEntity(e)
     if e.category=='building' then
         local w,h=e.size*26*z,e.size*CELL_Y*z
         x=x-13*z;y=y-(CELL_Y/2)*z
-        if isSelected then
-            if e.owner==self.player then g.setColor(.55,.93,.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+        if isSelected or self.hoverId==e.id or ack then
+            if ack then g.setColor(.85,1,.9) elseif e.owner==self.player then g.setColor(.55,.93,.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+            g.setLineWidth(2)
             g.rectangle('line',x,y,w,h)
         end
-        color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
-        color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
-        g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
+        local asset=self.sprites and self.sprites.units[Frames.assetId(e)]
+        local sprite=asset and asset.metadata.profileId=='building_overhead_v1' and asset.metadata.footprintCells==e.size
+        if sprite then
+            -- Buildings store their first occupied cell; exported origin is footprint centre.
+            self.sprites:draw(e,x+w/2,y+h/2,z,team,nil,self.world.tick,self.view)
+        else
+            color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
+            color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
+            g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
+        end
         if e.remaining>0 then
             g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
             g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
         end
-        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or ((self.content.buildings[e.kind] or {}).label or e.kind):upper(),x+4,y+h-18*z)
+        if not sprite then
+            g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or ((self.content.buildings[e.kind] or {}).label or e.kind):upper(),x+4,y+h-18*z)
+        end
     elseif e.category=='node' then
         -- A crystal for what workers pick (gold, substrate), a vent for a charge geyser, a tree
         -- for anything else. Drawn, not sprited: the art hooks these kinds by resource.

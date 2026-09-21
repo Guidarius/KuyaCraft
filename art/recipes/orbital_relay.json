@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "unitId": "orbital_relay",
+  "sourceId": "procedural_buildings_v1",
+  "profileId": "building_overhead_v1",
+  "footprintCells": 2,
+  "clips": {
+    "idle": {
+      "samples": 8,
+      "durationMs": 4000,
+      "loop": true
+    }
+  }
+}

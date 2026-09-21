@@ -1,7 +1,10 @@
 -- Pure presentation frame selection; simulation state is never modified.
 local F={directions={'N','NE','E','SE','S','SW','W','NW'}}
 local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden',command_blimp='command_blimp',battleship='battleship',associate='associate',medic='medic',enforcer='enforcer'}
+local buildingIds={orbital_command=true,mc_barracks=true,requisition_office=true,med_bay=true,armory=true,
+                  orbital_relay=true,substrate_rig=true,charge_rig=true,bunker=true}
 function F.assetId(e)
+    if e.category=='building' then return buildingIds[e.kind] and e.kind or nil end
     -- A worker with a load on its back is the loaded recipe: same body, same clips, a
     -- bundle on its back. Empty, it is the plain one.
     if e.kind=='worker' then return (e.carrying or 0)>0 and 'worker_loaded' or 'worker' end
@@ -37,6 +40,11 @@ function F.sample(m,name,direction,elapsedMs,contactFirst)
 end
 function F.select(m,e,previous,tick,state,view)
     state=state or {};local ms=tick*50
+    if m.profileId=='building_overhead_v1' then
+        state.direction='S';state.tick=tick
+        local id,index=F.sample(m,'idle','S',ms)
+        return id,state,'idle','S',index
+    end
     local dx,dy=0,0;if previous then dx=e.x-previous.x;dy=e.y-previous.y end
     local moving=dx~=0 or dy~=0
     local direction=F.direction(dx,dy,state.direction)

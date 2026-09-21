@@ -12,6 +12,11 @@ on the pinned source rig. Use `-Roster megacorp_infantry`; see
 [infantry modeling and review](../../docs/art/MEGACORP_INFANTRY.md) for the preserved
 rig, fitted poses, team masks and saved-scene verification.
 
+The procedural Megacorp building adapter supplies all nine landed modules with
+`-Roster megacorp_buildings`. Fixed-facing frames reuse the same mask shader and
+catalog, with origins aligned to existing placement footprints. It needs no source
+blend. See [building models and review](../../docs/art/MEGACORP_BUILDINGS.md).
+
 ## Prerequisites and saved source
 
 Use Blender 5.1.0, Python 3.10+ with Pillow, and the project-pinned LÖVE 11.5 runtime. The PowerShell wrapper finds the bundled Python or accepts `-Python`; `-Blender` overrides the Blender executable. No MCP connection or open Blender window is needed for production.
