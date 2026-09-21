@@ -4,7 +4,7 @@ return function(C)
     assert(C.rules.tickRate==20,'unsupported balance tick rate')
     for _,d in pairs(C.units) do
         if C.rules.profile then assert(F.integer(d.food,0,10),'invalid food');assert(F.integer(d.buildTicks,0,10000),'invalid production duration');assert(F.integer(d.hp,1,100000),'invalid hp') end
-        assert(F.integer(d.radius,1,127),'invalid unit radius')
+        assert(F.integer(d.radius,1,192),'invalid unit radius')
         assert(F.integer(d.speed,1,64),'invalid unit speed')
         assert(F.integer(d.range,0,65536),'invalid weapon range')
         -- A projectile never attacks: no damage key, so nothing ever reads a windup or a

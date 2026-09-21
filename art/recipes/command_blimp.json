@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "unitId": "command_blimp",
+  "sourceId": "procedural_aircraft_v1",
+  "profileId": "bastion_overhead_v1",
+  "scale": 1.0,
+  "bodyHeightPixels": 32,
+  "model": {"type": "command_blimp"},
+  "clips": {
+    "idle": {"samples": 4, "durationMs": 1600, "loop": true},
+    "move": {"samples": 4, "durationMs": 1200, "loop": true},
+    "attack": {"samples": 1, "durationMs": 1000, "loop": false, "contactFrame": 1},
+    "death": {"samples": 6, "durationMs": 1000, "loop": false, "rollDegrees": 16, "pitchDegrees": -6, "drop": 0}
+  }
+}

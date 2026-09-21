@@ -1,5 +1,17 @@
 # Implementation status
 
+## 2026-09-21 — Orders cathedral art
+
+The art branch delivers six unit variants, four buildings and three construction stages
+per building. Existing Megacorp assets, gameplay contracts and simulation 30/content 16
+remain unchanged. All 194 headless checks, full rendered/network/determinism suites,
+33 Python asset tests and 1,304 reopened Blender pose checks pass. The previous combined
+build's 12,000-tick replay matches all 24 checkpoints. Catalog atlas memory decreases
+13.6028 MiB. Three fresh final runs per faction pass simulation p95 below 10 ms but all
+six rendered frame gates still fail (median p95 Orders 17.915 ms; Megacorp 18.043 ms).
+Human recognition, gameplay feel and two-PC testing remain outstanding. See
+docs/art/ORDERS_ART_HANDOFF.md for evidence, comparison ranges and delivery instructions.
+
 
 
 This repository contains the accepted roadmap and a playable **prototype**, not a completed release. Milestones have explicit validation limits below.
@@ -2090,3 +2102,414 @@ the very large `apply` function growing by a few lines, and the fix would be mov
 cancel into its own function. Worth re-measuring on a quiet machine. Match outcomes are
 unchanged (12:23 and 10:23; fixture 5353 and 2179). Not done: nobody has played a Megacorp
 match with the sidebar; glyphs are monograms until there is icon art.
+
+## 2026-09-20 — Megacorp rounded aircraft models and production sprites
+
+The approved capsule Blimp and three-lobed Battleship now have original procedural
+Blender assemblies, editable rigid object actions and production sprite exports.
+`docs/art/MEGACORP_AIRCRAFT.md` records the source recipes and rebuild commands.
+The aircraft adapter shares the existing 60-degree camera, color/team-mask passes,
+packer, validation and catalog publication. Runtime asset IDs select these sprites;
+no simulation, content, collision, flight, damage or source-library changes were made.
+The ordinary five assets in this worktree were copied through the validated packaging
+command from the existing local catalog, not rebuilt or claimed as new exports.
+
+| Aircraft | Triangles | Directional frames | Cell | Paired RGBA atlas memory |
+| --- | ---: | ---: | ---: | ---: |
+| Command Blimp | 1,212 | 120 | 96 px | 9.155 MiB |
+| Battleship | 1,568 | 160 | 128 px | 21.934 MiB |
+
+Both use eight headings and idle/move/attack/death metadata; the unarmed Blimp has one
+inert attack sample. The Battleship has a separate cannon recoil object, contact sample
+3, closed engine noses and rear exhausts. A gentler Blimp death bank fits the 96-pixel
+canvas without rescaling and reduces its atlas memory from 15.952 to 9.155 MiB. The
+runtime's body-height field stays at the shared 32-pixel normalization reference so a
+short hull is not inadvertently enlarged to humanoid height. Flight offset remains in
+the existing game renderer.
+
+Verified on the Windows desk machine with Blender 5.1.0 and LOVE 11.5: Preview, final
+Build and Validate; 23 Python asset-tool tests; quick runtime suite (125 passed);
+`scripts/test-presentation.ps1`, including all aircraft clip samples in eight headings
+for two teams, 0.75/1/1.25 scales against light/dark ground, and a mixed army through the
+shipping App draw path. The rendered fixture asserts canonical simulation state is
+unchanged. Reopened both saved scenes and matched all 280 evaluated pose bounds; a
+fresh saved-scene SW idle render matched export pixels exactly for the Battleship and
+within 0.006/255 channel RMS for the Blimp. Alpha-weighted team coverage across every
+frame is 62.8–71.2% for the Blimp and 65.7–84.2% for the Battleship. Inspected native
+heading sheets, attack/death sequences, fractional scales and the gameplay capture.
+Generated scenes, paired atlases, captures and reports remain ignored under artifacts
+and assets/generated. The final two-aircraft export took 159 seconds on this machine.
+
+The first Battleship preview failed the bounds check on its final death pose; reducing
+its roll/descent fixed it. A new Python test initially assumed POSIX path separators;
+it now uses the platform path type and all 23 tests pass. The first rendered run was
+blocked by the sandbox's inability to write LOVE's save directory during an existing
+replay-fallback test; the authorized normal-access rerun passed. Blender prints harmless
+temporary-file cleanup warnings after successful renders. No full simulation, network,
+performance gate or other-PC render comparison was run for this presentation-only
+change. Human play/style and motion approval remain outstanding. The branch is pushed;
+GitHub's PR connector returned 403, so no PR was created.
+
+## 2026-09-20 — Rounded Megacorp infantry models and sprites
+
+Associate, Medic and Enforcer now have editable pressure-suit Blender assemblies,
+derived animations and paired directional sprite exports. Large bubble visor,
+horizontal medical capsule and wide porthole barrel/impact gauntlet distinguish
+the three roles. Broad neutral team shells support the existing player-color shader.
+The pinned source library, 65-bone rest rig and original actions remain intact;
+shorter legs and wider fitted poses live only in the derived actions. Rebuild and
+review instructions are in `docs/art/MEGACORP_INFANTRY.md`.
+
+| Infantry | Triangles | Directional frames | Cell | Paired RGBA atlas memory |
+| --- | ---: | ---: | ---: | ---: |
+| Associate | 3,544 | 208 | 128 px | 27.916 MiB |
+| Medic | 3,584 | 216 | 128 px | 29.910 MiB |
+| Enforcer | 3,152 | 208 | 128 px | 27.916 MiB |
+
+These triangles are offline model complexity, not gameplay geometry. The existing
+sprite renderer handles each unit with its paired color/mask draw. Full directional
+death poses require the 128-pixel cell at the fixed shared camera scale; this first
+infantry set adds approximately 85.74 MiB of uncompressed paired atlas data before
+driver overhead. No FPS improvement or performance-budget result is claimed.
+
+The three share idle, walk, attack and death metadata. The Medic's required attack
+is inert; its extra treatment `work` clip is viewer-ready but not triggered by live
+healing, because the current presentation events do not identify the healer. No
+simulation, content, healing or damage behavior changed. Original five Bastion and
+two aircraft assets were carried into this isolated worktree through the validated
+packaging command; they were not rebuilt as part of this infantry batch.
+
+On the Windows desk machine with Blender 5.1.0 and LOVE 11.5, the final full Build
+completed in 352 seconds, Validate passed, all 23 Python asset-tool tests passed,
+and the quick suite passed 125 checks. Initial visual review led to shorter legs,
+a capsule-shaped Medic pack, a cleaner visor rim and an Enforcer grip adjustment
+that clears its torso. One intermediate Associate preview failed late death-frame
+bounds by less than half a pixel; authored fall alignment fixed it without changing
+camera scale or weakening the bounds gate. Generated scenes, atlases, reports and
+review images remain ignored.
+
+Reopened all three final scenes and matched all 632 stored directional pose bounds;
+floor clearance, Associate support grip and the selected weapon/body intersection
+checks passed. All original source actions remain present. The rendered presentation
+suite and asset viewer passed, including every infantry clip sample/heading, blue
+and red masks, 0.75/1/1.5 scales, and a shipping-terrain comparison against Orders
+Crossbow sprites with unchanged canonical simulation state. Inspected native heading
+sheets, dense walk/death sequences, enlarged model views and light/dark-ground zoom
+captures. Live Associate poses show approximately 26–52% alpha-weighted team coverage.
+The first mixed-army test used an obsolete `shield` content ID; replacing it with
+the shipping `crossbow` comparison fixed the fixture and the rerun passed.
+
+Human normal-speed motion/style approval, other-PC rendering comparison and full
+simulation/network/performance suites were not performed for this art-only change.
+Blender reports temporary-file cleanup warnings after successful export. The task
+branch includes the preceding aircraft work; generated output is local to its isolated
+worktree. GitHub PR creation returned 403 (integration access), so no PR was created.
+
+## 2026-09-20 — Enforcer vehicle-scale revision
+
+The Enforcer assembly is now twice its first-pass scale; Associate and Medic retain
+their matched infantry size class. Measured standing heights from the reopened active
+scenes are 0.958, 0.907 and 1.800 Blender world units respectively: Enforcer is 1.88x
+Associate and 1.98x Medic. The saved-scene verifier now checks these size relationships
+and renders every model with identical camera framing. Its `--catalog` option includes
+unchanged active infantry builds in that comparison.
+
+The Enforcer recipe permits a 256-pixel cell to fit all 208 directional poses at the
+existing pixel density. Default recipes still stop at 128 pixels. Paired Enforcer
+atlases now occupy 108.307 MiB uncompressed across five pages, replacing the previous
+27.916 MiB allocation; the three-infantry total is approximately 166.13 MiB. Geometry
+and sample counts are unchanged. This preserves sharp full-resolution sprites at the
+larger size, with the documented texture-memory tradeoff. Simulation collision, balance,
+movement and damage are unchanged; derived stride metadata scales with the model.
+
+Verified on the Windows desk machine: Preview and full Enforcer Build (115 seconds),
+all-infantry Validate, 23 Python asset-tool tests, all 632 reopened directional bounds
+and the existing floor/grip/intersection checks, and the rendered presentation suite
+and asset viewer. Reviewed equal-camera model lineup, gameplay comparison, both teams
+and fractional zoom. No gameplay regression suite, performance gate, normal-speed
+human approval or other-PC render comparison was run for this scale-only revision.
+Outputs remain local and ignored; source changes continue on codex/megacorp-infantry.
+
+## 2026-09-20 — Reduced Enforcer with matching ground footprint
+
+Reduced the vehicle-scale Enforcer assembly by exactly 15% and rebuilt all 208
+directional frames. Its reopened standing height is 1.530 Blender world units,
+1.60x Associate and 1.69x Medic. The 256-pixel maximum canvas is still required by
+the death poses; atlas allocation remains 108.307 MiB. Associate/Medic exports and
+the source rig are unchanged. The selection/hover/acknowledgement/low-health rings,
+ground shadow and click target now follow the larger body; the resting selection
+ellipse has 30/14-pixel radii at 1x zoom.
+
+Shipping content version 15 increases Enforcer collision radius from 96 to 160
+subunits (ordinary infantry: 80). Content validation now supports radii through 192.
+Because the previous navigation assumed a body fit in one cell, large bodies now use
+deterministic off-centre clearance points within each cell and check full body clearance
+on direct and A* edges, smoothing and path revalidation. They can traverse two-cell
+passages and cannot traverse one-cell gaps. Small-body lane rules remain intact;
+large bodies do not attempt to occupy a half-width lane. Radius-aware occupancy and
+movement queries include a second bin ring as needed. Spawn, revival, unloading and
+combat approach preserve the clearance point rather than snapping back into a wall.
+Unloading invalidates the spatial index after each released occupant so subsequent
+units see its new position. Existing snapshot waypoint fields carry the offsets.
+
+The larger radius intentionally changes spacing and centre-to-centre combat reach;
+weapon reach from the body edge, damage, costs, speed and garrison slots are unchanged.
+No golden replay was replaced. Content/build fingerprints distinguish this balance
+revision from earlier shipping matches. `docs/CONTROL_MOVEMENT.md` and the infantry
+art guide document the bounds and presentation behavior.
+
+Local Windows verification: full `scripts/test-all.ps1` passed (170 headless cases,
+100,000-tick fresh-process checkpoints at 30/60/144 FPS and default/tuned JIT, real
+local ENet host/client, UI at 1280x720/1920x1080/2560x1080, and asset presentation).
+The final unloading refinement was additionally verified by all 130 quick cases,
+including its new wall-clearance/separation regression; the rendered runs loaded
+that final revision. New scenarios cover two-cell transit, one-cell rejection,
+snapshot continuation, newly blocked terrain, map-edge clearance, indexed collision
+two bins away, movement separation and unloading. The 240-unit 10,000-tick benchmark
+measured 5.627 ms p95; the shipping-profile benchmark measured 5.802 ms p95, both below
+the existing 10 ms gate. Neither budget was weakened.
+
+All-infantry asset Validate, 23 Python asset-tool tests and all 632 reopened pose
+bounds/floor/grip/intersection checks passed. The renderer checks the actual enlarged
+selection ellipse and an off-centre click that would miss the old infantry hit area.
+Inspected the game-camera lineup and team-color captures. Human play/feel approval
+and networking/render comparison on a second physical PC remain unperformed.
+Generated blends, atlases, captures and logs remain local and ignored.
+
+## 2026-09-20 — Megacorp building models and production sprites
+
+Built all nine approved rounded building concepts as original procedural Blender
+assemblies: Orbital Command, Barracks, Requisition Office, Med Bay, Armory, Orbital
+Relay, Substrate Rig, Charge Rig and Bunker. Named rigid shell, roof, door, tank,
+landing-foot and equipment parts remain editable. Relay azimuth and pump stroke
+have keyed idle motion. Broad roof panels use the existing team shader; ivory
+trim, glass and graphite remain neutral. The bunker uses a simple eight-sided
+shell. No external model library or humanoid rig is required.
+
+Added the `megacorp_buildings` build roster and `building_overhead_v1` profile.
+Buildings export one fixed gameplay view, with canonical direction lists aliasing
+the same frame IDs. Seven static buildings plus the relay's eight and pump's four
+idle samples total 19 unique paired frames and 891,264 bytes (0.85 MiB) of RGBA
+atlas allocation, before driver overhead. Assemblies range from 868 to 2,160
+triangles offline. The final full build completed in 256 seconds on this Windows
+machine. Existing infantry and aircraft catalog entries were retained.
+
+The App places each origin at the center of its existing occupied-cell rectangle.
+Selection, hover and acknowledgement use that footprint; incompatible or missing
+art retains the drawn fallback. Costs, simulation collision, placement, coverage,
+production and orbital timing are unchanged. Labels on placeholder art are omitted
+when the real sprite is drawn; existing tooltips and selection details retain names.
+No descent/death sprite clips or new simulation events are introduced.
+
+Verified the final roster through Validate, 25 Python asset-tool tests, and reopening
+all nine saved blends. All 19 stored pose bounds, footprint/floor containment, finite
+geometry, team materials and moving pivots passed. Rendered checks cover all nine
+anchors and click targets, all idle samples, neutral trim versus team panels, both
+teams, 0.75/1/1.5 scales, fallback and unchanged canonical simulation. Inspected the
+native gameplay lineup with Associate/Enforcer size references and the enlarged
+assembly sheet. Generated review sheets, scene links and a verified nine-blend ZIP
+are in `artifacts/building-review/`; source instructions are in
+`docs/art/MEGACORP_BUILDINGS.md`.
+
+Local headless checks passed 171 cases, the existing performance budgets, all
+100,000-tick fresh-process checkpoints at 30/60/144 FPS and default/tuned JIT, and
+real local ENet host/client agreement. UI checks passed at 1280x720, 1920x1080 and
+2560x1080. No golden replay was changed. Human style/play approval and networking
+or render comparisons on another physical PC remain unperformed. Blender emitted
+temporary-file cleanup warnings after successful builds and scene checks.
+
+Work is on `codex/megacorp-buildings`, based on the completed infantry branch.
+Draft PR creation returned GitHub integration 403; no PR was created. Generated
+models, atlases, concept references, screenshots and archives remain ignored.
+
+
+## 2026-09-20 — Megacorp drop pod and unit/building scale
+
+Added an original rounded drop-pod model: 23 named meshes, 2,144 triangles, a heat
+shield, three landing fins, broad team panels and two rigid doors with editable
+object keys. One closed idle and six opening samples pack into seven fixed-view
+frames (0.534 MiB paired RGBA). The new optional `prop_overhead_v1` asset uses the
+existing paired team-mask shader, viewer and transactional publication path.
+
+The owner sees the closed pod descend during the final 45% of its existing flight.
+The landing event opens its doors, holds the shell briefly, then fades it by 2.5
+seconds. Landed effects are capped at 12 and cleared on replay rewind. Missing art
+retains the earlier marker. This reads the filtered view/events only: no simulation
+entity, collision, arrival timing, capacity or troop-spawn behavior changed.
+
+Normalized Megacorp infantry against the existing buildings. Associate/Medic are
+50% of their preceding assembly scales; Enforcer is 40%. Reopened standing heights
+are 0.478958, 0.453625 and 0.611982 Blender units: the heavy is 1.28x Associate height
+and gains its distinction from width. Idle sprite widths across headings are
+16–20, 18–22 and 29–41 pixels respectively, versus barracks 76 and headquarters 98.
+This follows the compact Marine/Medic versus broad Goliath relationship; it does
+not copy StarCraft artwork or equate collision bounds with sprite bounds.
+
+All three now fit 96-pixel atlas cells, reducing paired uncompressed allocation
+from about 166.13 to 50.35 MiB. This is memory evidence, not an FPS measurement.
+Presentation rings, shadows, picking and bar offsets follow the smaller bodies.
+The authoritative 80/160 collision radii and existing building footprints remain.
+Source instructions and the BWAPI reference are in `docs/art/MEGACORP_SCALE.md`.
+
+Verified locally:
+
+- Final four-asset Build (333.89 seconds), active Validate, and 26 Python asset-tool
+  tests passed. The catalog retains the other active units and buildings.
+- Reopened the saved pod and all three infantry scenes. Both pod joints retain six
+  keyed poses; all 632 infantry directional bounds, 65-bone/source-action retention,
+  ground clearance, support grip and targeted weapon/body intersection checks pass.
+- `scripts/test-all.ps1` passed all 171 headless cases, fresh-process 100,000-tick
+  agreement at 30/60/144 FPS schedules and two JIT configurations, plus real ENet
+  host/client agreement through 600 ticks. Its rendered phase initially failed on
+  the new test fixture's incomplete pod queue, then on missing lazy initialization.
+  The fixture was corrected to retain/provide the HUD's `open` and cooldown fields.
+- The affected `scripts/test-ui.ps1` rerun passed at 1280x720, 1920x1080 and 2560x1080:
+  real shader scale boards, all door poses, descent/landing anchors, opening, fading,
+  owner isolation, expiry, optional-art fallback and unchanged canonical state.
+- Final `scripts/test-presentation.ps1` and asset-viewer smoke test passed with the
+  final published catalog after those fixture fixes. No golden replays changed.
+
+The pod preview and a convenient editable blend copy are in
+`artifacts/drop-pod-review/`; actual-renderer comparison sheets are
+`artifacts/ui-megacorp-scale-board-{1,2}-1280.png`. These generated assets stay
+ignored; modeling/export recipes, integration, checks and documentation are tracked.
+Human crowd recognition and mouse-feel playtests, and cross-PC/GPU appearance, are
+still outstanding. Work is on `codex/megacorp-drop-pod-scale`, based on the building
+branch. GitHub's integration refused draft-PR creation with HTTP 403; this does not
+prevent the required task-branch push.
+
+## 2026-09-20 — Responsive shipping control and measured performance (simulation 28)
+
+Implemented on `desk/control-response`, based on `b6339d9`. Content version 15.
+The target is Brood War style pace and individual control; coarse navigation remains a
+performance compromise. Shipping selections now retain individual speeds, optional
+formation pacing is scoped to player plus group, and safe subcell click destinations
+survive queues, patrols and snapshots. Nearby compatible group searches share terrain
+work while retaining independent destinations, body steering and congestion reroutes.
+Destination reservations are counted once per player during a command batch, and every
+smoothing probe now consumes the hard sample budget. See [CONTROL_RESPONSE.md](docs/CONTROL_RESPONSE.md).
+
+The shipping wall-detour tests for 1/12/24/48 workers all start actual movement by tick 14
+(0.70 simulated seconds). The audited 48-worker p95 was 30.55 seconds. The new enforced
+limit is 40 ticks on this deliberately difficult synthetic wall, not a promise about all
+terrain and congestion. A shipping mixed 50-versus-50 two-cell counterflow completes at
+tick 874 with clearance and destination checks. Regressions cover queued reservations,
+same-cell clicks, unsafe endpoints, patrol, leader cancellation/death and terrain changes.
+
+The host JIT cache was repeatedly flushing in a fresh shipping battle. Raising the
+capacity to 16,000 traces / 16 MiB machine code eliminated flushes in the diagnostic run;
+arithmetic settings and gameplay are unchanged. The real-update benchmark now drives
+App:update/App:draw, selects 24 units and includes juice, audio, view/observation, hover
+and recording. It exercises Orders and the Megacorp sidebar, with scripted commands
+replacing the bot. Network costs remain excluded. `scripts/test-performance.ps1` runs
+fresh-process simulation and both rendered gates; it returns failure when a gate fails.
+
+Verified on this Windows desktop, AMD Ryzen 5 5600G, pinned LOVE 11.5:
+
+- `scripts/test-all.ps1`: 179 headless passes; four fresh 100,000-tick workers and the
+  added 1,800-tick shipping shared-route checkpoints agree across 30/60/144 schedules and
+  default/tuned JIT caches; local ENet agrees through 600 ticks. Rendered UI/input passes
+  at 1280x720, 1920x1080 and 2560x1080; presentation and asset-viewer smoke passes.
+- A final reservation-scope review kept move claims out of unrelated spawn/unload
+  placement. `scripts/test.ps1` was rerun on the final source: 179 passes, all four workers
+  and local ENet pass again. The warmed shipping simulation p95 was 5.801 ms.
+- Final `scripts/test-performance.ps1`, default budgets: three separate shipping
+  240-unit/2,000-tick processes pass at 8.414, 7.634 and 6.043 ms p95. Each produces 9,260
+  attacks and 832 lead-unit moving ticks. Max steps remain about 39–40 ms.
+- **Rendered performance gate fails.** At 1080p, 240 units and 600 ticks, Orders simulation
+  p95 is 8.195 ms and frame cadence p95 17.788 ms; Megacorp simulation p95 is 7.424 ms and
+  frame cadence p95 17.833 ms. Both simulations pass 10 ms, both frame cadences miss
+  16.667 ms. Whole tick p95 is 11.313 / 9.809 ms; max whole ticks 54.630 / 55.509 ms. No
+  backlog ticks were discarded, but startup frame time was clamped by 0.088 / 0.071 s.
+  These are the updated benchmark workloads, not a controlled A/B against the old
+  benchmark that omitted live effects and selection. No budget was relaxed.
+
+Generated evidence is in this worktree's ignored `artifacts/response-test-all.log`,
+`response-headless-final.log`, `response-performance-final.log` and
+`performance-{fresh-1,fresh-2,fresh-3,live-orders,live-megacorp}.log`. Rendered tests used
+process-local APPDATA under ignored artifacts so sandboxed saves did not touch normal
+preferences. Heap figures in the live reports are sampled allocation, not retained-heap
+leak evidence. The existing 10,000-tick command-abuse soak also passes.
+
+The control changes intentionally change shipping bot matches: Orders mirror now ends
+at 21:32.2, player 1 wins; Orders vs Megacorp at 9:48.65, Megacorp wins. First contact is
+3:41 / 4:11. The audit measured roughly 12:23 / 10:23 endings. Recorded matches reproduce
+exactly; no golden was silently replaced. Combat/economy statistics were not retuned.
+Earlier simulation snapshots/replays require their original build.
+
+Still requiring separate evidence: human kiting/retreat and congestion feel, human
+match pacing/balance, real two-PC latency/jitter, other-machine performance and longer
+casualty/production sessions. Remaining measured work includes the frame-time target;
+coverage/vision union caching and historical-entity iteration remain future candidates.
+Source and tests are pushed on the task branch. Draft PR creation was blocked by the
+GitHub connector's 403 response; automatic approval review rejected extracting stored
+GitHub credentials as an alternative. No credential was read and no PR was created.
+
+
+## 2026-09-20 overnight integration checkpoint (simulation 29 / content 16)
+
+The isolated `codex/overnight-controls-performance` worktree combines drop-pod/art
+`fd851d4` with controls `541498d`. Shared vehicle routes preserve radius-specific
+waypoints and validate suffixes from the shared route endpoint. Mandatory clearance
+checks no longer consume the optional smoothing budget; three new vehicle regressions
+pass, including restore/cancellation and terrain invalidation. Current models, scales,
+selection rings and collision radii remain intact. No balance numbers were changed.
+
+Integration verification so far: the full test-all run passes 188 existing/new checks
+but identified one error in the new soak's production counter (it counted barracks
+recruitment events, missing Megacorp pod spawns). After correcting that test, its fresh
+12,000-tick run passes: 24 canonical replay checkpoints, exact restores at 4000/8000,
+1,632 attacks; Orders produced 49 units / lost 42, Megacorp produced 54 / lost 14.
+Both factions produced replacements after casualties. Retained Lua heap in the fresh
+process is 16,132 KiB at tick 12,000 including world/history/recording; temporary
+reclamation is reported separately in artifacts/overnight-soak-fresh.log. The full
+rendered/input/presentation checks pass at all three sizes, with the active 20-asset
+catalog. A separate practice-fixture regression and 1080p smoke pass.
+
+The original two-cell 50v50 fixture assumed a smaller Enforcer. Infantry counterflow
+still has a two-cell arrival gate (615 ticks); large-body congestion preserves orders
+and recovers after one army is redirected (1954 ticks). Dense unassisted opposing
+vehicle traffic remains a known jam, including a three-cell gap; this is not claimed
+fixed. See docs/OVERNIGHT_HANDOFF.md for the distinction and the five-minute practice
+scene (`--micro-lab`). Final measured performance and package verification follow in
+later entries. Earlier recordings require their original build; no golden was replaced.
+
+
+## 2026-09-21 mixed pod/garrison checkpoint (simulation 30 / content 16)
+
+The expanded morning micro regression reproduced an Enforcer repeatedly pursuing a
+nearby enemy while its explicit order was to enter a bunker. Garrison now joins Move,
+Build and Follow in suppressing new automatic enemy acquisition en route. Attack
+commitment and combat statistics are unchanged. The regression passes mixed Associate,
+Medic and Enforcer pod deployment, two-cell traversal, garrison, unload clearance and
+snapshot restoration. All 140 quick checks pass after the fix.
+
+The simulation revision is now 30; older recordings require their original build.
+Two vision optimization candidates were measured in three standalone and six live
+runs each. Neither improved consistently, so both were removed. Original visibility
+and coverage behavior is retained. The remaining optimization target is entity-view
+projection; measurements will use this new functional checkpoint. No performance
+threshold was relaxed, and diagnostic VSync-off runs are excluded from acceptance.
+
+
+## 2026-09-21 — overnight verification and performance limits
+
+The controls/art integration on `codex/overnight-controls-performance` passes
+`scripts/test-all.ps1`: 190 headless checks, four fresh 100,000-tick determinism
+runs, local ENet agreement and rendered/presentation suites. Active asset validation
+and all 32 Python asset tests pass. The 12,000-tick production/replacement soak
+passes two exact snapshot restores and 24 fresh replay checkpoints; its complete
+command stream and checkpoint hashes match the integrated baseline.
+
+Performance acceptance remains **failed**. On the Ryzen 5 5600G / RTX 3060 Windows
+machine, the final three 1080p/240-unit runs per faction failed all six frame gates
+and five live Sim.step gates. Median per-run p95 is Orders 10.52 ms simulation /
+18.15 ms frame; Megacorp 10.44 / 19.02 ms. The three headless gates passed. Both
+optimization targets were reverted after inconsistent or adverse measurements;
+no performance improvement is claimed. See `docs/OVERNIGHT_PERFORMANCE.md` for
+baseline/candidate/final distributions, exact revisions, settings and caveats.
+
+`docs/OVERNIGHT_HANDOFF.md` contains the five-minute micro/pod playtest, automated
+evidence and limits. Dense heavy counterflow can still jam; human feel, balance
+and real two-PC latency/jitter are unverified. The package workflow now includes a
+practice launcher and a source/asset identity manifest. No merge into master.

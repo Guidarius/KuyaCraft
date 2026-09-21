@@ -16,6 +16,25 @@ local function fixture(id)
     return m
 end
 function T.run()
+    local pod=fixture('drop_pod');pod.profileId='prop_overhead_v1';pod.fixedFacing='S'
+    pod.clips={idle=pod.clips.idle,deploy=pod.clips.death};C.validate(pod,'drop_pod')
+    eq(F.sample(pod,'deploy','S',9999),6)
+    pod.clips.deploy.frames.N={1};bad(function() C.validate(pod,'drop_pod') end)
+    pod.clips.deploy.frames.N={1,2,3,4,5,6};pod.fixedFacing='N';bad(function() C.validate(pod,'drop_pod') end)
+    pod.fixedFacing='S';pod.clips.deploy=nil;bad(function() C.validate(pod,'drop_pod') end)
+    local building=fixture('orbital_command')
+    building.profileId='building_overhead_v1';building.fixedFacing='S';building.footprintCells=4
+    building.clips={idle=building.clips.idle};C.validate(building,'orbital_command')
+    eq(F.assetId({kind='orbital_command',category='building'}),'orbital_command')
+    eq(F.assetId({kind='keep',category='building'}),'keep')
+    local _,_,bc,bd=F.select(building,{x=100,y=200,alive=true,attackTick=2}, {x=0,y=0},3,{})
+    eq(bc,'idle');eq(bd,'S')
+    building.clips.idle.frames.N={2,1};bad(function() C.validate(building,'orbital_command') end)
+    building.clips.idle.frames.N={1,2};building.footprintCells=0
+    bad(function() C.validate(building,'orbital_command') end)
+    eq(F.assetId({kind='command_blimp'}),'command_blimp')
+    eq(F.assetId({kind='battleship'}),'battleship')
+    for _,kind in ipairs({'associate','medic','enforcer'}) do eq(F.assetId({kind=kind}),kind) end
     local m=fixture();C.validate(m,'shieldguard')
     eq(F.sample(m,'idle','N',599),2);eq(F.sample(m,'idle','N',600),1)
     eq(F.sample(m,'death','SE',60000),6);eq(F.sample(m,'attack','S',0,true),3)

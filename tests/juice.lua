@@ -5,7 +5,7 @@ local T={}
 local function eq(a,b,message) assert(a==b,(message or 'values differ')..': '..tostring(a)..' != '..tostring(b)) end
 local function app(tick)
     local heard={}
-    local self={world={tick=tick or 1},content=require('src.content'),camera={zoom=1},accumulator=0,heard=heard,
+    local self={player=1,world={tick=tick or 1},content=require('src.content'),camera={zoom=1},accumulator=0,heard=heard,
         view={byId={[9]={id=9,x=5120,y=5120,category='building'},[2]={id=2,x=2560,y=2560,kind='battleship'}},player={hq=9}},
         feedback=require('src.feedback').create(),audio={play=function(_,name) heard[#heard+1]=name end}}
     function self:screen(x,y) return x/16,y/16 end
@@ -35,6 +35,13 @@ function T.run()
     for _=1,500 do j:update(.05) end;eq(#j.decals,0)
     -- A rewind (replay seek) forgets everything.
     a.world.tick=6;j:observe(burst,a);a.world.tick=2;j:observe({},a);eq(#j.particles,0,'a rewind kept effects')
+    -- Cosmetic landed shells are owner-only, bounded, deduplicated and expire.
+    a.world.tick=7;j:observe({{kind='pod_landed',player=2,podX=3,podY=4}},a);eq(#j.landedPods,0)
+    local pods={};for i=1,20 do pods[i]={kind='pod_landed',player=1,podX=i,podY=4} end
+    a.world.tick=8;j:observe(pods,a);eq(#j.landedPods,12);eq(j.landedPods[1].x,9*256+128)
+    j:observe(pods,a);eq(#j.landedPods,12);j:update(2.4);eq(#j.landedPods,12)
+    j:update(.11);eq(#j.landedPods,0)
+    a.world.tick=9;j:observe(pods,a);a.world.tick=1;j:observe({},a);eq(#j.landedPods,0)
     -- Every cue a reaction names exists in the manifest, so a recording can be dropped in by name.
     for kind,reaction in pairs(Juice.REACTIONS) do if reaction.cue then assert(Audio.manifest[reaction.cue],'the reaction to '..kind..' names the unknown cue '..reaction.cue) end end
     for _,name in ipairs({'splash','cast'}) do assert(Audio.manifest[name],'missing cue '..name) end

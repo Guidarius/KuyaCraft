@@ -79,7 +79,7 @@ function S:observe(events,view,tick)
         end
     end
 end
-function S:drawFrame(unitId,frameId,x,y,zoom,team)
+function S:drawFrame(unitId,frameId,x,y,zoom,team,opacity)
     local u=self.units[unitId]
     if not u then return false end
     local f=u.metadata.frames[frameId];if not f then return false end
@@ -95,7 +95,7 @@ function S:drawFrame(unitId,frameId,x,y,zoom,team)
     else
         self.shader:send('teamMask',page.mask);self.shader:send('teamColor',team or {0.38,0.75,0.96});g.setShader(self.shader)
     end
-    g.setColor(1,1,1,1)
+    g.setColor(1,1,1,opacity or 1)
     g.draw(page.color,u.quads[frameId],x,y,0,scale,scale,f.anchorX,f.anchorY)
     g.pop();return true
 end

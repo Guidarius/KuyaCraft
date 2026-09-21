@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "unitId": "requisition_office",
+  "sourceId": "procedural_buildings_v1",
+  "profileId": "building_overhead_v1",
+  "footprintCells": 3,
+  "clips": {
+    "idle": {
+      "samples": 1,
+      "durationMs": 1600,
+      "loop": true
+    }
+  }
+}

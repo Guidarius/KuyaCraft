@@ -9,9 +9,10 @@ function G.endStep(w) w._geometryActive=nil;w._geometry=nil end
 function G.invalidate(w) w._geometry=nil end
 local function index(w)
     if not w._geometry then
-        local bins={}
+        local bins={maxRadius=0}
         for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' then
             local key=F.cell(e.y)*256+F.cell(e.x);bins[key]=bins[key] or {};bins[key][#bins[key]+1]=e
+            bins.maxRadius=math.max(bins.maxRadius,w.content.units[e.kind].radius)
         end end
         w._geometry=bins
     end
@@ -55,7 +56,8 @@ function G.free(w,x,y,r,except)
     if not G.terrain(w,x,y,r) then return false end
     if w._geometryActive then
         local bins=index(w)
-        for cy=F.cell(y)-1,F.cell(y)+1 do for cx=F.cell(x)-1,F.cell(x)+1 do
+        local reach=math.ceil((r+bins.maxRadius)/256)
+        for cy=F.cell(y)-reach,F.cell(y)+reach do for cx=F.cell(x)-reach,F.cell(x)+reach do
             for _,e in ipairs(bins[cy*256+cx] or {}) do if blocks(w,e,x,y,r,except) then return false end end
         end end
     else

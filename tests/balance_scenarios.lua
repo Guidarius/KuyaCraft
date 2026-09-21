@@ -163,14 +163,14 @@ function M.pacing(label,w,milestones,firstContact,peakFood,peakFoodTick,rails)
     assert(contact>=60 and contact<=900,'first contact at '..string.format('%.1f',contact)..'s, outside 60-900s')
     assert((peakFood[1] or 0)>=20 and (peakFood[2] or 0)>=20,'neither bot built a real army')
 end
-function M.stressWorld(perSide)
+function M.stressWorld(perSide,opponent)
  perSide=perSide or 120
- local w=Sim.create({seed=1,players={{faction='orders'},{faction='orders'}}},C,Maps.create())
+ local w=Sim.create({seed=1,players={{faction='orders'},{faction=opponent or 'orders'}}},C,Maps.create())
  for _,id in ipairs(w.order) do local e=w.entities[id];if e.category=='unit' then e.alive=false end end
  -- Two adjacent blocks in the center clearing; keep casualties from reducing the workload.
  local units={};for p=1,2 do for i=1,perSide do local x=(p==1 and 84 or 99)+(i-1)%10;local y=90+math.floor((i-1)/10)
   for cy=y-1,y+1 do for cx=x-1,x+1 do w.blocked[P.key(w.map,cx,cy)]=nil;w.map.blocked[P.key(w.map,cx,cy)]=nil end end
-  local e=S.unit(w,i%3==0 and 'crossbow' or 'footman',p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
+  local kind=opponent=='megacorp' and p==2 and (i%12==0 and 'battleship' or i%8==0 and 'enforcer' or i%6==0 and 'medic' or 'associate') or (i%3==0 and 'crossbow' or 'footman');local e=S.unit(w,kind,p,x,y);e.hp=1000000;e.maxHp=e.hp;units[#units+1]=e
  end end
  return w,units
 end
@@ -188,7 +188,7 @@ function M.performance()
   assert(w.metrics.pathExpansions<=C.rules.pathBudget)
  end
  if stopProfile then stopProfile() end
- table.sort(times);write('balance-performance.txt',string.format('192x192 map, 240 live mobiles, 2000 active ticks, new combat/sight profile. Clearings widened for fixture deployment.\nSim.step p95 %.3fms; max %.3fms; attacks %d; lead moving ticks %d. Excludes bot/replay/rendering.\n',times[1900],times[2000],attacks,moved))
+ table.sort(times);write('balance-performance.txt',string.format('192x192 map, 240 live mobiles, 2000 active ticks, new combat/sight profile. Clearings widened for fixture deployment.\nSim.step p95 %.3fms; max %.3fms; attacks %d; lead moving ticks %d. Excludes bot/replay/rendering.\nDIST step_ms p50 %.6f p95 %.6f p99 %.6f max %.6f\nCHECKPOINT %d %s\n',times[1900],times[2000],attacks,moved,times[1000],times[1900],times[1980],times[2000],w.tick,require('src.hash').bytes(Sim.serializeAuthoritative(w))))
  assert(attacks>100 and moved>100)
  local budget=M.perfBudget or 10
  assert(times[1900]<budget,string.format('new-profile simulation exceeds %g ms p95 (%.3f ms)',budget,times[1900]))

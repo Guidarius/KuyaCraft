@@ -41,9 +41,41 @@ class Assets(unittest.TestCase):
         with Image.open(self.out/'color-01.png') as page, Image.open(self.out/'mask-01.png') as mask:
             self.assertEqual(page.getpixel((0,0))[3],0)
             self.assertEqual(page.size,mask.size)
+    def test_procedural_aircraft_key_needs_no_external_blend(self):
+        recipe=self.root/'art/recipes/command_blimp.json'
+        recipe.parent.mkdir(parents=True); recipe.write_text('{"version":1}')
+        key,deps=build.build_key(self.root,None,'command_blimp','Blender test')
+        self.assertEqual(list(deps),[str(Path('art/recipes/command_blimp.json'))])
+        recipe.write_text('{"version":2}')
+        changed,_=build.build_key(self.root,None,'command_blimp','Blender test')
+        self.assertNotEqual(key,changed)
     def test_missing_frame_rejected(self):
         self.spec['frames'].pop(); self.save()
         with self.assertRaisesRegex(ValueError,'Missing raw'): self.packed()
+    def test_building_fixed_view_packs_once(self):
+        self.spec.update(unitId='orbital_command',profileId='building_overhead_v1',fixedFacing='S',footprintCells=4)
+        self.spec['clips']={'idle':self.spec['clips']['idle']}
+        self.spec['frames']=[f for f in self.spec['frames'] if f['clip']=='idle' and f['direction']=='S']
+        self.save();meta,path=self.packed();validate_unit(self.root,path)
+        self.assertEqual(len(meta['frames']),1)
+        self.assertEqual(meta['footprintCells'],4)
+        for d in DIRECTIONS: self.assertEqual(meta['clips']['idle']['frames'][d],[1])
+        self.assertEqual(meta['pages'][0]['width'],68)
+    def test_prop_packs_only_unique_frames_without_gameplay_footprint(self):
+        self.spec.update(unitId='drop_pod',profileId='prop_overhead_v1',fixedFacing='S')
+        self.spec['clips']={'idle':self.spec['clips']['idle'],'deploy':dict(samples=6,durationMs=450,loop=False)}
+        base=next(f for f in self.spec['frames'] if f['clip']=='idle' and f['direction']=='S')
+        self.spec['frames']=[base]+[dict(base,clip='deploy',sample=i) for i in range(1,7)]
+        self.save();meta,path=self.packed();validate_unit(self.root,path)
+        self.assertEqual(len(meta['frames']),7)
+        self.assertNotIn('footprintCells',meta)
+        for d in DIRECTIONS: self.assertEqual(meta['clips']['deploy']['frames'][d],list(range(1,7)))
+        self.spec['clips'].pop('deploy');self.spec['frames']=[base];self.save()
+        _,path=self.packed()
+        with self.assertRaisesRegex(ValueError,'Missing required clips'):validate_unit(self.root,path)
+    def test_unit_cannot_skip_headings_with_fixed_view(self):
+        self.spec['fixedFacing']='S';self.save()
+        with self.assertRaisesRegex(ValueError,'Fixed facing'): self.packed()
     def test_clipping_rejected(self):
         Image.new('RGBA',(128,128),'red').save(self.stage/'N.png')
         with self.assertRaisesRegex(ValueError,'Clipped'): self.packed()

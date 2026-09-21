@@ -11,6 +11,9 @@
 --
 -- The randomness here is cosmetic and comes from its own generator, never the simulation's.
 local J={}
+local Frames=require('src.asset_frames')
+local POD_CAP,POD_LIFE=12,2.5
+local TEAM_COLORS={{.38,.75,.96},{.94,.43,.32},{.67,.47,.95},{.92,.78,.32}}
 local PARTICLE_CAP=384
 local RING_CAP=96
 local DECAL_CAP=48
@@ -42,10 +45,10 @@ local REACTIONS={
     channel_started={cue='barrage'},
 }
 function J.create()
-    return setmetatable({particles={},rings={},decals={},clock=0,tick=nil,
+    return setmetatable({particles={},rings={},decals={},landedPods={},clock=0,tick=nil,
         rng=love.math and love.math.newRandomGenerator(7) or nil,counts={}},{__index=J})
 end
-function J:reset() self.particles={};self.rings={};self.decals={};self.tick=nil end
+function J:reset() self.particles={};self.rings={};self.decals={};self.landedPods={};self.tick=nil end
 function J:random() if self.rng then return self.rng:random() end;return .5 end
 -- A particle lives in world subunits on the ground plane with a height in screen units, so
 -- it stays put while the camera moves and falls the same at every zoom.
@@ -68,6 +71,10 @@ function J:decal(x,y,radius)
 end
 function J:update(dt)
     self.clock=self.clock+dt
+    for i=#self.landedPods,1,-1 do
+        local pod=self.landedPods[i];pod.age=pod.age+dt
+        if pod.age>=POD_LIFE then table.remove(self.landedPods,i) end
+    end
     local particles=self.particles
     for i=#particles,1,-1 do
         local p=particles[i];p.age=p.age+dt
@@ -109,6 +116,10 @@ function J:observe(events,app)
         if reaction then
             self.counts[ev.kind]=(self.counts[ev.kind] or 0)+1
             local x,y=place(ev,app,reaction.at)
+            if ev.kind=='pod_landed' and x and y and ev.player==app.player then
+                if #self.landedPods>=POD_CAP then table.remove(self.landedPods,1) end
+                self.landedPods[#self.landedPods+1]={x=x,y=y,owner=ev.player,age=0}
+            end
             if reaction.cue then app.audio:play(reaction.cue,app,x,y) end
             if x then
                 if reaction.ring then self:ring(x,y,reaction.ring[1]*256,reaction.ring[2],reaction.ring[3]) end
@@ -154,6 +165,14 @@ local function cellSize(app)
     local x0,y0=app:screen(0,0);local x1,y1=app:screen(256,256)
     return (x1-x0)/256,(y1-y0)/256
 end
+local function podAsset(app)
+    return app.sprites and app.sprites.units.drop_pod
+end
+local function drawPod(app,x,y,age,opacity)
+    local asset=podAsset(app);if not asset then return end
+    local frame=Frames.sample(asset.metadata,age and 'deploy' or 'idle','S',(age or 0)*1000)
+    app.sprites:drawFrame('drop_pod',frame,x,y,app.camera.zoom,TEAM_COLORS[app.player] or TEAM_COLORS[1],opacity)
+end
 -- Under the units: scorch, rings, and the owner's descent markers.
 function J:drawGround(app)
     local g=love.graphics;g.push('all');g.setShader()
@@ -173,13 +192,13 @@ function J:drawGround(app)
     -- a reticle that tightens onto the site, and in the last stretch the thing itself coming down.
     local player=app.view.player;local descent=app.content.rules.descentTicks or 200
     local now=app.world.tick+math.min(1,(app.accumulator or 0)/0.05)
-    local function marker(cx,cy,half,at,colour,label)
+    local function marker(cx,cy,half,at,colour,label,isPod)
         local t=math.max(0,math.min(1,1-(at-now)/descent))
         local x,y=app:screen(cx,cy);local radius=(half+(1-t)*640)
         g.setColor(colour[1],colour[2],colour[3],.35+.4*t);g.setLineWidth(math.max(1,1.5*z))
         g.ellipse('line',x,y,radius*sx,radius*sy)
         g.ellipse('line',x,y,half*sx,half*sy)
-        if t>.55 then
+        if t>.55 and not (isPod and podAsset(app)) then
             local fall=((1-t)/.45)^2*520*z
             g.setColor(1,.9,.7,.9);g.setLineWidth(math.max(2,3*z));g.line(x,y-fall-26*z,x,y-fall)
             g.setColor(1,.75,.4,.5);g.setLineWidth(math.max(1,1.5*z));g.line(x,y-fall-70*z,x,y-fall-26*z)
@@ -193,12 +212,32 @@ function J:drawGround(app)
         local d=app.content.buildings[landing.kind];local half=(d and d.size or 1)*128
         marker(landing.x*256+half,landing.y*256+half,half,landing.at,COLOURS.door,d and d.label or landing.kind)
     end
-    for _,pod in ipairs(player.pods and player.pods.inFlight or {}) do marker(pod.x*256+128,pod.y*256+128,200,pod.at,COLOURS.flak,'Pod of '..#pod.kinds) end
+    for _,pod in ipairs(player.pods and player.pods.inFlight or {}) do marker(pod.x*256+128,pod.y*256+128,200,pod.at,COLOURS.flak,'Pod of '..#pod.kinds,true) end
+    for _,pod in ipairs(self.landedPods) do
+        if pod.owner==app.player then
+            local x,y=app:screen(pod.x,pod.y)
+            drawPod(app,x,y,pod.age,math.min(1,(POD_LIFE-pod.age)/.6))
+        end
+    end
     g.pop()
 end
 -- Over the units: the particles.
 function J:draw(app)
     local g=love.graphics;g.push('all');g.setShader();local z=app.camera.zoom
+    if podAsset(app) then
+        local descent=app.content.rules.descentTicks or 200
+        local now=app.world.tick+math.min(1,(app.accumulator or 0)/.05)
+        for _,pod in ipairs(app.view.player.pods and app.view.player.pods.inFlight or {}) do
+            local t=math.max(0,math.min(1,1-(pod.at-now)/descent))
+            if t>.55 then
+                local x,y=app:screen(pod.x*256+128,pod.y*256+128)
+                local fall=((1-t)/.45)^2*520*z
+                g.setColor(1,.75,.4,.6);g.setLineWidth(math.max(1,2*z))
+                g.line(x,y-fall-72*z,x,y-fall-35*z)
+                drawPod(app,x,y-fall)
+            end
+        end
+    end
     for _,p in ipairs(self.particles) do
         local x,y=app:screen(p.x,p.y);local fade=1-p.age/p.life;local c=p.colour
         g.setColor(c[1],c[2],c[3],math.min(1,fade*1.6));local size=p.size*z

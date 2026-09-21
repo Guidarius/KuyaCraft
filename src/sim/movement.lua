@@ -8,9 +8,10 @@ local function scale(v) local n=math.floor(math.abs(v)/256);return v<0 and -n or
 local function direction(e) return e.laneX==1 and 0 or e.laneX==-1 and 1 or e.laneY==1 and 2 or 3 end
 local function binKey(x,y) return F.cell(y)*256+F.cell(x) end
 local function bins(w)
-    local out={directions={}}
+    local out={directions={},maxRadius=0}
     for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' and not e.garrisoned and not w.content.units[e.kind].flying then
         local key=binKey(e.x,e.y);out[key]=out[key] or {};out[key][#out[key]+1]=id
+        out.maxRadius=math.max(out.maxRadius,w.content.units[e.kind].radius)
         if e.goal then out.directions[key*4+direction(e)]=true end
     end end
     return out
@@ -29,6 +30,7 @@ end
 local scratch={}
 local function nearby(w,b,x,y,r,out)
     r=r or 1
+    if b.maxRadius>127 then r=math.max(r,2) end
     out=out or scratch
     local n=0
     local entities=w.entities
@@ -45,6 +47,7 @@ end
 -- apart a little each tick by the push pass at the end of M.step.
 M.tuning={squeezeWait=10,push=8,backoffWait=30,backoff=4}
 local function inLane(w,e,x,y,r)
+    if r>127 then return true end -- A vehicle cannot reserve half a two-cell passage.
     if e.opposed then return Path.lanePosition(w,x,y,r,e.laneX or 0,e.laneY or 0) end
     return Path.laneAllowed(w,F.cell(x),F.cell(y),e.laneX or 0,e.laneY or 0)
 end
@@ -153,6 +156,7 @@ local pushTouched=0
 -- The four bins that complete the ring when every bin is visited: east, south-west, south and
 -- south-east. Keys are cy*256+cx, so they are offsets on that key.
 local NEIGHBOUR_BINS={1,255,256,257}
+local VEHICLE_BINS={1,2,254,255,256,257,258,510,511,512,513,514}
 local function accumulate(a,b,push,definitions)
     if not b.alive or b.owner~=a.owner or b.id==a.id then return end
     local dx,dy=a.x-b.x,a.y-b.y
@@ -289,7 +293,7 @@ function M.step(w,halt,route)
                 end
             end
         elseif not p.yielding then e.waitTicks=(e.waitTicks or 0)+1 end
-        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,F.center(e.goal.x),F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
+        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,e.goal.px or F.center(e.goal.x),e.goal.py or F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
             halt(w,e);e.navigation='arrived'
         end
         if not p.yielding and (e.waitTicks or 0)>=10 then
@@ -329,8 +333,9 @@ function M.step(w,halt,route)
                     if a.alive then
                         for j=i+1,#bin do accumulate(a,entities[bin[j]],push,definitions) end
                         -- Half the ring, so every adjacent pair is seen exactly once.
-                        for n=1,4 do
-                            local neighbour=live[key+NEIGHBOUR_BINS[n]]
+                        local offsets=live.maxRadius>127 and VEHICLE_BINS or NEIGHBOUR_BINS
+                        for n=1,#offsets do
+                            local neighbour=live[key+offsets[n]]
                             if neighbour then for j=1,#neighbour do accumulate(a,entities[neighbour[j]],push,definitions) end end
                         end
                     end

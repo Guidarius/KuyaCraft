@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "unitId": "barracks",
+  "sourceId": "procedural_buildings_v1",
+  "profileId": "building_overhead_v1",
+  "footprintCells": 3,
+  "clips": {
+    "idle": {
+      "samples": 1,
+      "durationMs": 1000,
+      "loop": true
+    },
+    "construction": {
+      "samples": 3,
+      "durationMs": 1000,
+      "loop": false
+    }
+  }
+}

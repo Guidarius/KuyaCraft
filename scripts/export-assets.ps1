@@ -1,7 +1,7 @@
 param(
     [ValidateSet('Build','Preview','Inspect','Validate','Legacy','Package')][string]$Mode = 'Build',
     [string[]]$Unit,
-    [ValidateSet('bastion','woodland')][string]$Roster = 'bastion',
+    [ValidateSet('bastion','woodland','megacorp_aircraft','megacorp_infantry','megacorp_buildings','megacorp_props','orders_units','orders_buildings')][string]$Roster = 'bastion',
     [string]$SourceBlend,
     [string]$Blender = 'C:\Program Files\Blender Foundation\Blender 5.1\blender.exe',
     [string]$Python = $env:ASSET_PYTHON,

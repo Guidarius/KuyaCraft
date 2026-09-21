@@ -221,6 +221,7 @@ function App:update(dt)
     local steps=0
     while self.accumulator>=0.05 and steps<8 do
         if self.world.result then self.accumulator=0;break end
+        local tickStart=love.timer.getTime()
         local tick=self.world.tick+1
         local commands
         if self.playback then
@@ -238,9 +239,12 @@ function App:update(dt)
         else
             commands=self.queue;self.queue={}
             for _,c in ipairs(commands) do c.tick=tick end
-            local bot=self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),self.content) or {}
+            -- Tooling may supply a deterministic scenario through the same command
+            -- path. The rest of the live update, events, effects and recording runs.
+            local bot=self.tickCommands and self:tickCommands(tick) or (self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),self.content) or {})
             for _,c in ipairs(bot) do
-                self.sequences[2]=self.sequences[2]+1;c.player=2;c.sequence=self.sequences[2];c.tick=tick;commands[#commands+1]=c
+                local player=self.tickCommands and c.player or 2
+                self.sequences[player]=self.sequences[player]+1;c.player=player;c.sequence=self.sequences[player];c.tick=tick;commands[#commands+1]=c
             end
         end
         -- Interpolation needs one previous position per drawn entity. Rebuilding
@@ -261,8 +265,9 @@ function App:update(dt)
         local afterStep=love.timer.getTime();perf.step=(afterStep-mark)*1000
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
         require('src.ui.selection').prune(self)
-        perf.view=(love.timer.getTime()-afterStep)*1000
+        local afterView=love.timer.getTime();perf.view=(afterView-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
+        local afterEvents=love.timer.getTime();perf.events=(afterEvents-afterView)*1000
         -- Once a tick as well as on motion: with the pointer held still, units walking
         -- under it must still update the cursor and the hover ring.
         Input.refreshHover(self)
@@ -290,12 +295,15 @@ function App:update(dt)
         for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
         self.audio:play('ambience')
         if rejectedCount>0 then self.message=acceptedCount>0 and (acceptedCount..' accepted, '..rejectedCount..' rejected: '..firstReason) or firstReason elseif acceptedCount>0 then self.message=acceptedCount..' order'..(acceptedCount==1 and '' or 's')..' accepted' end
+        local afterFeedback=love.timer.getTime();perf.feedback=(afterFeedback-afterEvents)*1000
         if not self.playback then Replay.record(self.recording,self.world,commands)
         elseif self.playback.hashes[tick] then
             assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..tick)
         end
         if self.network and tick%100==0 then local bytes=Sim.serializeAuthoritative(self.world);self.network:checksum(tick,Hash.bytes(bytes),bytes) end
+        local afterReplay=love.timer.getTime();perf.replay=(afterReplay-afterFeedback)*1000;perf.total=(afterReplay-tickStart)*1000
         self.accumulator=self.accumulator-0.05;steps=steps+1
+        if self.onStep then self:onStep(perf,events,commands) end
         if self.world.result and not self.banner then
             local won=self.world.result.winner==self.player
             local built,lost,kills=self:matchStats()
@@ -396,10 +404,11 @@ function App:drawEntity(e)
     x,y=self:screen(x,y)
     local z=self.camera.zoom
     local team=colors[e.owner] or {0.76,0.61,0.39}
+    local groundZ=z*self:unitGroundScale(e)
     if not e.alive and not (self.sprites and self.sprites.units[Frames.assetId(e)]) then
-        color(team,0.5);g.ellipse('fill',x,y,15*z,5*z);return
+        color(team,0.5);g.ellipse('fill',x,y,15*groundZ,5*groundZ);return
     end
-    g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*z,5*z)
+    if e.category~='building' then g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*groundZ,5*groundZ) end
     -- Ring colour states what the unit is to the viewer, which is the fastest read in
     -- a fight: own selection, hovered, ally, or enemy.
     local isSelected=selected(self,e.id)
@@ -407,39 +416,53 @@ function App:drawEntity(e)
     -- units' circles brighten and swell. Warcraft 3 answers a click before the
     -- simulation has run, and this is the half of that answer you can see.
     local ack=self.ackFlash and self.ackFlash[e.id] and self.ackFlashAt and (self.clock-self.ackFlashAt)<ACK_FLASH
-    if isSelected or ack then
+    if e.category~='building' and (isSelected or ack) then
         if ack then
             local swell=1+(1-(self.clock-self.ackFlashAt)/ACK_FLASH)*0.35
             g.setColor(0.85,1,0.9);g.setLineWidth(2.5)
-            g.ellipse('line',x,y,15*z*swell,7*z*swell)
+            g.ellipse('line',x,y,15*groundZ*swell,7*groundZ*swell)
         else
             -- A selected enemy or neutral, being inspected, keeps its relation colour.
             if e.owner==self.player then g.setColor(0.55,0.93,0.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
             local pop=selectPop(self,e.id)
-            g.setLineWidth(2);g.ellipse('line',x,y,15*z*pop,7*z*pop)
+            g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ*pop,7*groundZ*pop)
         end
-    elseif self.hoverId==e.id then
+    elseif e.category~='building' and self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
         elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
         else g.setColor(1,.4,.32,.8) end
-        g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+        g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ,7*groundZ)
     end
     if e.category=='building' then
         local w,h=e.size*26*z,e.size*CELL_Y*z
         x=x-13*z;y=y-(CELL_Y/2)*z
-        if isSelected then
-            if e.owner==self.player then g.setColor(.55,.93,.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+        if isSelected or self.hoverId==e.id or ack then
+            if ack then g.setColor(.85,1,.9) elseif e.owner==self.player then g.setColor(.55,.93,.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+            g.setLineWidth(2)
             g.rectangle('line',x,y,w,h)
         end
-        color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
-        color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
-        g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
+        local asset=self.sprites and self.sprites.units[Frames.assetId(e)]
+        local sprite=asset and asset.metadata.profileId=='building_overhead_v1' and asset.metadata.footprintCells==e.size
+        local construction=sprite and Frames.construction(asset.metadata,e.remaining,self.content.buildings[e.kind].buildTicks)
+        if sprite then
+            -- Buildings store their first occupied cell; exported origin is footprint centre.
+            if construction then self.sprites:drawFrame(Frames.assetId(e),construction,x+w/2,y+h/2,z,team)
+            else self.sprites:draw(e,x+w/2,y+h/2,z,team,nil,self.world.tick,self.view) end
+        else
+            color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
+            color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
+            g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
+        end
         if e.remaining>0 then
-            g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
+            if not construction then
+                g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
+            end
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
             g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
         end
-        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or ((self.content.buildings[e.kind] or {}).label or e.kind):upper(),x+4,y+h-18*z)
+        if not sprite then
+            g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or ((self.content.buildings[e.kind] or {}).label or e.kind):upper(),x+4,y+h-18*z)
+        end
     elseif e.category=='node' then
         -- A crystal for what workers pick (gold, substrate), a vent for a charge geyser, a tree
         -- for anything else. Drawn, not sprited: the art hooks these kinds by resource.
@@ -470,7 +493,8 @@ function App:drawEntity(e)
         -- reading every bar. Drawn rather than spawned, so the effect budget is untouched.
         if e.owner==self.player and e.alive and e.hp*100<e.maxHp*LOW_HEALTH then
             g.setColor(1,.3,.25,.25+.2*math.sin(self.clock*8));g.setLineWidth(2)
-            g.ellipse('line',x,y,13*z,6*z);g.setLineWidth(1)
+            local pulseZ=z*self:unitGroundScale(e)
+            g.ellipse('line',x,y,13*pulseZ,6*pulseZ);g.setLineWidth(1)
             self.lowHealthDrawn=(self.lowHealthDrawn or 0)+1
         end
         -- Anticipation: the body swells a little as a swing gathers and settles as it lands, so a
@@ -495,7 +519,7 @@ function App:drawEntity(e)
         local damaged=e.hp<e.maxHp
         local bars=self.settings.healthBars or 'damaged'
         if bars=='always' or self.showAllBars or isSelected or (bars~='selected' and damaged) then
-            local barY=y-(d.hero and 53 or 40)*z
+            local barY=y-(e.kind=='associate' and 30 or e.kind=='medic' and 34 or e.kind=='enforcer' and 46 or d.hero and 53 or 40)*z
             g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,barY,28*z,4*z)
             local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
             color(barColor(self,e));g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
@@ -505,7 +529,7 @@ function App:drawEntity(e)
         if e.stackFixed then
             local perHit=self.content.rules.stacks and self.content.rules.stacks.perHit or 200
             local pips=math.min(16,math.floor(e.stackFixed/perHit))
-            local pipY=y-(d.hero and 53 or 40)*z-5*z
+            local pipY=y-(e.kind=='associate' and 30 or e.kind=='medic' and 34 or e.kind=='enforcer' and 46 or d.hero and 53 or 40)*z-5*z
             g.setColor(1,.82,.3)
             for i=1,pips do g.rectangle('fill',x-14*z+(i-1)*3*z,pipY,2*z,3*z) end
         end
@@ -567,6 +591,9 @@ function App:draw()
     end
     Terrain.draw(self.terrainRenderer,self.camera.x,self.camera.y,26*z,CELL_Y*z,viewport)
     g.setColor(1,1,1);g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    -- Rebind after offscreen terrain bakes. LOVE 11.5 can restore the logical
+    -- scissor with the canvas Y orientation, clipping roofs during cache warmup.
+    g.setScissor();g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
     -- Control points lie on the ground, under everything standing on them. The ring is the
     -- owner's colour; the fill grows with a capture in progress, in the capturer's colour.
     local control=self.view.control
@@ -778,6 +805,14 @@ function App:controlGroupBadges()
     return badges
 end
 
+function App:unitGroundScale(e)
+    if e.kind=='associate' or e.kind=='medic' then return .75 end
+    if e.kind=='enforcer' then return 4/3 end
+    local d=e.category=='unit' and self.content.units[e.kind]
+    -- Preserve compact-unit rings; larger ground bodies get proportionate rings
+    -- and picking even when their sprite atlas uses a different canvas size.
+    return d and not d.flying and d.radius>127 and d.radius/80 or 1
+end
 function App:unitVisualScale(e)
     local d=self.content.units[e.kind];if not d then return 1 end
     local u=self.sprites and self.sprites.units[Frames.assetId(e)]
@@ -796,7 +831,7 @@ function App:pick(x,y,ownOnly,selectable)
                 hit=x>=left and x<=left+width and y>=top-38*z and y<=top+height
                 distance=(x-(left+width/2))^2+(y-(top+height/2))^2
             else
-                z=z*self:unitVisualScale(e);distance=(x-sx)^2+(y-(sy-12*z))^2;hit=distance<(20*z)^2
+                z=z*self:unitVisualScale(e)*self:unitGroundScale(e);distance=(x-sx)^2+(y-(sy-12*z))^2;hit=distance<(20*z)^2
             end
             if hit and (not best or distance<dist) then best=e;dist=distance end
         end

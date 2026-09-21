@@ -97,7 +97,11 @@ local Coverage=require('src.sim.coverage')
 -- gap; without `seat` it still refunds the whole pod. The owner's view gains `player.orbit`,
 -- a derived summary (orbit slots, queue size, pods unlocked) the interface used to work out
 -- from the world. No state is added.
-local Sim = { VERSION = 27 }
+-- Version 28: player-isolated groups, individual shipping movement speeds and
+-- responsive navigation. Earlier replays/snapshots require their original build.
+-- Version 29 integrates shared precise routes with vehicle clearance offsets.
+-- Version 30: explicit garrison orders do not acquire or chase enemies en route.
+local Sim = { VERSION = 30 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
 -- Airborne: a unit whose definition flies. Buildings and nodes never do.
@@ -212,7 +216,7 @@ local function lessCandidate(a,b)
     if candDistance[a]~=candDistance[b] then return candDistance[a]<candDistance[b] end
     return candKey[a]<candKey[b]
 end
-local function nearest(w,x,y,except,claimed,radius)
+local function nearest(w,x,y,except,claimed,radius,extraClaims)
     radius=radius or (except and G.radius(w,w.entities[except])) or 112
     local unit=except and w.entities[except]
     -- A flyer may be sent to any cell: it needs no walkable ground and no free body room.
@@ -225,7 +229,7 @@ local function nearest(w,x,y,except,claimed,radius)
     local function consider(cx,cy)
         if cx<0 or cy<0 or cx>=width or cy>=height then return end
         local key=Path.key(map,cx,cy)
-        if (claimed and claimed[key]) or (not aloft and not Path.walkable(w,cx,cy)) then return end
+        if (claimed and claimed[key]) or (extraClaims and extraClaims[key]) or (not aloft and not Path.walkable(w,cx,cy)) then return end
         count=count+1
         candX[count]=cx;candY[count]=cy;candKey[count]=key
         candDistance[count]=unit and F.distance2Bounded(ux,uy,F.center(cx),F.center(cy)) or 0
@@ -243,7 +247,9 @@ local function nearest(w,x,y,except,claimed,radius)
             table.sort(candOrder,lessCandidate)
             for i=1,count do
                 local c=candOrder[i]
-                if aloft or G.free(w,F.center(candX[c]),F.center(candY[c]),radius,except) then return candX[c],candY[c] end
+                local px,py=F.center(candX[c]),F.center(candY[c])
+                if not aloft and radius>127 then px,py=Path.point(w,candX[c],candY[c],radius) end
+                if aloft or px and G.free(w,px,py,radius,except) then return candX[c],candY[c] end
             end
         end
     end
@@ -252,6 +258,13 @@ end
 -- Single definition of how w.blocked derives from the map and standing buildings,
 -- shared with the regression test that proves the derivation (see Sim.recomputeBlocked).
 local function rebuild(w) w.blocked=Sim.recomputeBlocked(w) end
+local function standAt(w,e,x,y)
+    e.x,e.y=F.center(x),F.center(y)
+    local d=w.content.units[e.kind]
+    if not d.flying and d.radius>127 then
+        local px,py=Path.point(w,x,y,d.radius);assert(px,'spawn lacks body clearance');e.x,e.y=px,py
+    end
+end
 local function spawn(w,kind,owner,x,y,category)
     G.invalidate(w)
     local d=w.content.units[kind] or w.content.buildings[kind]
@@ -259,6 +272,7 @@ local function spawn(w,kind,owner,x,y,category)
     local e={id=id,kind=kind,owner=owner,x=F.center(x),y=F.center(y),category=category or 'unit',
         alive=true,hp=d and d.hp or 1,maxHp=d and d.hp or 1,size=d and d.size or 1,cooldown=0,
         path={},pathIndex=1,order={kind='stop'},orders={},lastCombat=-1000}
+    if e.category=='unit' then standAt(w,e,x,y) end
     if d and d.hero then e.xp=0; e.upgrades={}; e.stance=1 end
     -- A caster starts full. Mana is authoritative like every other integer here.
     if d and d.mana then e.mana=d.mana;e.maxMana=d.mana end
@@ -280,7 +294,11 @@ end
 local function route(w,e,x,y)
     if e.goal and e.goal.x==x and e.goal.y==y then return end
     -- A flyer's route is the straight line: one waypoint, no search, nothing to re-validate.
-    if airborne(w,e) then e.path={{x=x,y=y,px=F.center(x),py=F.center(y)}};e.pathIndex=1;e.goal={x=x,y=y};e.pathVersion=w.navVersion;e.blockedReason=nil;w.searches[e.id]=nil;return end
+    if airborne(w,e) then
+        local o=e.order;local exact=o.x==x and o.y==y
+        local px,py=exact and o.px or F.center(x),exact and o.py or F.center(y)
+        e.path={{x=x,y=y,px=px,py=py}};e.pathIndex=1;e.goal={x=x,y=y,px=px,py=py};e.pathVersion=w.navVersion;e.blockedReason=nil;w.searches[e.id]=nil;return
+    end
     Path.request(w,e,x,y)
 end
 local function approachTarget(w,e,t,range)
@@ -291,8 +309,11 @@ local function approachTarget(w,e,t,range)
             local score;local r=math.ceil(range/256)
             for cy=math.max(0,F.cell(t.y)-r),math.min(w.map.height-1,F.cell(t.y)+t.size+r-1) do
                 for cx=math.max(0,F.cell(t.x)-r),math.min(w.map.width-1,F.cell(t.x)+t.size+r-1) do
-                    local px,py=F.center(cx),F.center(cy);local dist=F.distance2Bounded(e.x,e.y,px,py)
-                    if (not score or dist<score) and inRange({x=px,y=py},t,range) and G.free(w,px,py,G.radius(w,e),e.id) then x,y,score=cx,cy,dist end
+                    local px,py=Path.point(w,cx,cy,G.radius(w,e))
+                    if px then
+                        local dist=F.distance2Bounded(e.x,e.y,px,py)
+                        if (not score or dist<score) and inRange({x=px,y=py},t,range) and G.free(w,px,py,G.radius(w,e),e.id) then x,y,score=cx,cy,dist end
+                    end
                 end
             end
         else x,y=nearest(w,F.cell(t.x),F.cell(t.y),e.id) end
@@ -513,7 +534,7 @@ function Sim.create(config,content,map)
     -- test are kept so randomness can be reintroduced as a considered change rather
     -- than rebuilt from nothing; config.seed is retained as part of match identity.
     local w={version=Sim.VERSION,tick=0,config=Codec.copy(config),content=Codec.copy(content),map=Codec.copy(map),
-        players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0,smoothChecks=0}}
+        players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0,smoothChecks=0,bodyChecks=0}}
     for p=1,#config.players do
         local faction=config.players[p].faction or 'bastion'
         local definition=content.factions[faction]
@@ -682,7 +703,7 @@ local function setOrder(w,e,order,append)
     else
         local old=e.order
         e.rally=e.rally
-        local same=old.kind==order.kind and old.target==order.target and old.x==order.x and old.y==order.y
+        local same=old.kind==order.kind and old.target==order.target and old.x==order.x and old.y==order.y and old.px==order.px and old.py==order.py
         e.orders={}
         if same and (order.kind=='move' or order.kind=='attack_move' or order.kind=='attack') then return true end
         halt(w,e);clearCombat(e);Harvest.release(w,e);e.order=order;e.reroutes=0;e.blockedReason=nil;e.lastOrderFailure=nil;e.restAnchor=nil;e.navigation='idle';e.detour=nil;e.rerouteAt=nil
@@ -695,7 +716,7 @@ end
 Sim.setOrder=setOrder
 local function nextOrder(w,e)
     local blocked=e.blockedReason
-    local rest=e.order.x and {x=F.center(e.order.x),y=F.center(e.order.y)} or nil
+    local rest=e.order.x and {x=e.order.px or F.center(e.order.x),y=e.order.py or F.center(e.order.y)} or nil
     halt(w,e);clearCombat(e);Harvest.release(w,e);e.order=table.remove(e.orders,1) or {kind='stop'};e.reroutes=0;e.blockedReason=nil
     e.navigation=blocked and 'failed' or 'idle';e.lastOrderFailure=blocked;e.restAnchor=e.order.kind=='stop' and not blocked and rest or nil
     if e.order.x then route(w,e,e.order.x,e.order.y) end
@@ -785,9 +806,72 @@ local function planFormations(w,ordered)
     end
     w.groupSlots=slots
 end
+-- Counts keep overlapping queued reservations intact when this entity's old orders
+-- are temporarily excluded. Rebuilt only after a non-movement command can change
+-- another entity's orders; otherwise each accepted destination updates its own counts.
+local function reserveOrder(w,o,counts,delta)
+    if o.x then
+        local key=Path.key(w.map,o.x,o.y)
+        local n=(counts[key] or 0)+delta
+        counts[key]=n>0 and n or nil
+    end
+end
+local function reserveOrders(w,e,counts,delta)
+    reserveOrder(w,e.order,counts,delta)
+    for i=1,#e.orders do reserveOrder(w,e.orders[i],counts,delta) end
+end
+local function destination(w,c,e,a,claims)
+    if not validPosition(w,a) then reject(w,c,'invalid position'); return end
+    local rx,ry=F.cell(a.x),F.cell(a.y)
+    -- Equivalent orders preserve their slot even after occupying it. Patrol is
+    -- excluded: reissuing it must be able to reset the beat to the current position.
+    if c.kind~='patrol' and not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry and
+        (not w.content.rules.preciseMovement or e.order.requestPX==a.x and e.order.requestPY==a.y) then
+        e.orders={};w.commandClaims[Path.key(w.map,e.order.x,e.order.y)]=true;return
+    end
+    -- Its place in the formation first, then the point that was clicked.
+    local slot=w.groupSlots and w.groupSlots[c]
+    local x,y
+    if slot then x,y=nearest(w,slot.x,slot.y,e.id,claims,nil,w.commandClaims) end
+    if not x then x,y=nearest(w,rx,ry,e.id,claims,nil,w.commandClaims) end
+    if not x then reject(w,c,'no destination');return end
+    local order={kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group}
+    if w.content.rules.preciseMovement then
+        order.requestPX,order.requestPY=a.x,a.y
+        local px,py=x*256+a.x%256,y*256+a.y%256
+        -- Keep the click's offset in each assigned slot, provided the whole body
+        -- fits. The coarse cell path remains unchanged. Unsafe edges use its centre.
+        if airborne(w,e) or G.free(w,px,py,G.radius(w,e),e.id) then order.px,order.py=px,py end
+    end
+    -- A patrol beat runs between where the unit was standing when ordered and the
+    -- point clicked. Both ends are stored on the order so the route survives
+    -- snapshots and replays without any extra per-entity state.
+    if c.kind=='patrol' then
+        order.originX,order.originY=F.cell(e.x),F.cell(e.y)
+        if w.content.rules.preciseMovement then order.originPX,order.originPY=e.x,e.y end
+    end
+    setOrder(w,e,order,a.append)
+    w.commandClaims[Path.key(w.map,x,y)]=true;return
+end
+local function applyDestination(w,c,e,a)
+    local owners=w.destinationClaims
+    if not owners then owners={};w.destinationClaims=owners end
+    local claims=owners[e.owner]
+    if not claims then
+        claims={};owners[e.owner]=claims
+        for _,id in ipairs(w.order) do
+            local other=w.entities[id]
+            if other.alive and other.owner==e.owner then reserveOrders(w,other,claims,1) end
+        end
+    end
+    reserveOrders(w,e,claims,-1)
+    destination(w,c,e,a,claims)
+    reserveOrders(w,e,claims,1)
+end
 local function apply(w,c)
     local reason=envelopeError(w,c)
     if reason then reject(w,type(c)=='table' and c or {},reason);return end
+    if not destinationKinds[c.kind] then w.destinationClaims=nil end
     local p=w.players[c.player]
     p.sequence=c.sequence
     local a=c.args
@@ -947,8 +1031,8 @@ local function apply(w,c)
         local claimed={}
         for _,id in ipairs(e.occupants) do local o=w.entities[id]
             local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,claimed,G.radius(w,o))
-            if x then claimed[Path.key(w.map,x,y)]=true;o.x=F.center(x);o.y=F.center(y) end
-            o.garrisoned=nil;emit(w,'unloaded',{entity=o.id})
+            if x then claimed[Path.key(w.map,x,y)]=true;standAt(w,o,x,y) end
+            o.garrisoned=nil;G.invalidate(w);emit(w,'unloaded',{entity=o.id})
         end
         e.occupants=nil;G.invalidate(w);return
     end
@@ -993,46 +1077,7 @@ local function apply(w,c)
         -- far away walks into range first, exactly as an attack order does.
         setOrder(w,e,order,a.append);return
     end
-    if destinationKinds[c.kind] then
-        if not validPosition(w,a) then reject(w,c,'invalid position'); return end
-        local rx,ry=F.cell(a.x),F.cell(a.y)
-        -- Equivalent orders preserve their slot even after occupying it. Patrol is
-        -- excluded: reissuing it must be able to reset the beat to the current position.
-        if c.kind~='patrol' and not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry then
-            e.orders={};w.commandClaims[Path.key(w.map,e.order.x,e.order.y)]=true;return
-        end
-        -- A 240-unit group move applies 240 of these commands in one tick. Allocating
-        -- a fresh claims table per command, and a `reserve` closure per entity inside
-        -- the scan, meant tens of thousands of short-lived objects for one order. The
-        -- table is a per-tick scratch that is cleared and refilled, and the closure is
-        -- inlined; the scan itself still runs per command because each unit must not
-        -- see its own reservations, and the set changes as earlier commands are applied.
-        local claims=w.claimScratch
-        for key in pairs(claims) do claims[key]=nil end
-        for key in pairs(w.commandClaims) do claims[key]=true end
-        local map=w.map
-        for _,id in ipairs(w.order) do local other=w.entities[id]
-            if other.alive and other.owner==e.owner and id~=e.id then
-                local active=other.order
-                if active.x then claims[Path.key(map,active.x,active.y)]=true end
-                local queued=other.orders
-                for i=1,#queued do local o=queued[i];if o.x then claims[Path.key(map,o.x,o.y)]=true end end
-            end
-        end
-        -- Its place in the formation first, then the point that was clicked.
-        local slot=w.groupSlots and w.groupSlots[c]
-        local x,y
-        if slot then x,y=nearest(w,slot.x,slot.y,e.id,claims) end
-        if not x then x,y=nearest(w,rx,ry,e.id,claims) end
-        if not x then reject(w,c,'no destination');return end
-        local order={kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group}
-        -- A patrol beat runs between where the unit was standing when ordered and the
-        -- point clicked. Both ends are stored on the order so the route survives
-        -- snapshots and replays without any extra per-entity state.
-        if c.kind=='patrol' then order.originX,order.originY=F.cell(e.x),F.cell(e.y) end
-        setOrder(w,e,order,a.append)
-        w.commandClaims[Path.key(w.map,x,y)]=true;return
-    end
+    if destinationKinds[c.kind] then return applyDestination(w,c,e,a) end
     local target=F.integer(a.target,1) and w.entities[a.target] or nil
     if not target or not target.alive or target.garrisoned or not Sim.visible(w,c.player,target) then reject(w,c,'target unavailable'); return end
     if c.kind=='attack' and (target.owner==e.owner or target.category=='node') then reject(w,c,'invalid enemy'); return end
@@ -1161,7 +1206,7 @@ local function economy(w)
             e.reviveRemaining=math.max(0,e.reviveRemaining-1)
             if e.reviveRemaining==0 and hq(w,e.owner).alive then
                 local home=hq(w,e.owner); local x,y=nearest(w,F.cell(home.x)+3,F.cell(home.y)+3,e.id)
-                if x then e.alive=true;e.hp=e.maxHp;e.x=F.center(x);e.y=F.center(y);e.reviveRemaining=nil;G.invalidate(w);e.order={kind='stop'};e.cooldown=0;e.nextCommitTick=nil;clearCombat(e); emit(w,'revived',{entity=e.id}) end
+                if x then e.alive=true;e.hp=e.maxHp;standAt(w,e,x,y);e.reviveRemaining=nil;G.invalidate(w);e.order={kind='stop'};e.cooldown=0;e.nextCommitTick=nil;clearCombat(e); emit(w,'revived',{entity=e.id}) end
             end
         end
         if e.alive then
@@ -1256,8 +1301,9 @@ local function formation(w)
             local group=order.group
             if group and destinationKinds[order.kind] then
                 local pace=Stats.baseSpeed(w,e)
-                local slowest=groupPace[group]
-                if not slowest or pace<slowest then groupPace[group]=pace end
+                local key=e.owner..':'..group
+                local slowest=groupPace[key]
+                if not slowest or pace<slowest then groupPace[key]=pace end
             end
         end
     end
@@ -1265,7 +1311,7 @@ local function formation(w)
         if e.alive and e.category=='unit' then
             local order=e.order
             local group=order.group
-            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[group] or nil
+            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[e.owner..':'..group] or nil
         end
     end
 end
@@ -1276,9 +1322,13 @@ local function movement(w) formation(w);Movement.step(w,halt,route) end
 local function reversePatrol(w,e)
     local o=e.order
     local x,y=o.originX,o.originY
+    local px,py=o.originPX,o.originPY
     o.originX,o.originY=o.x,o.y
+    o.originPX,o.originPY=o.px,o.py
     o.x,o.y=x,y
+    o.px,o.py=px,py
     o.requestX,o.requestY=x,y
+    o.requestPX,o.requestPY=px,py
     halt(w,e);e.navigation='idle';e.blockedReason=nil
     route(w,e,o.x,o.y)
 end
@@ -1286,7 +1336,8 @@ local function finishOrders(w)
     for _,id in ipairs(ids(w)) do local e=w.entities[id]
         local kind=e.order.kind
         if e.alive and (kind=='move' or kind=='attack_move' or kind=='patrol') and not e.goal and not w.searches[id] and not e.combatTarget then
-            local arrived=e.x==F.center(e.order.x) and e.y==F.center(e.order.y) or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,F.center(e.order.x),F.center(e.order.y))<=F.sq(G.radius(w,e)+32)
+            local tx,ty=e.order.px or F.center(e.order.x),e.order.py or F.center(e.order.y)
+            local arrived=e.x==tx and e.y==ty or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,tx,ty)<=F.sq(G.radius(w,e)+32)
             if kind=='patrol' then
                 -- A patrol that cannot reach one end turns around rather than stopping:
                 -- the point of the order is that it does not need attention.
@@ -1371,8 +1422,11 @@ local function approachWeapon(w,e,t)
     for y=math.max(0,F.cell(t.y)-radius),math.min(w.map.height-1,F.cell(t.y)+radius+(t.size or 1)) do
         for x=math.max(0,F.cell(t.x)-radius),math.min(w.map.width-1,F.cell(t.x)+radius+(t.size or 1)) do
             if Path.walkable(w,x,y) then
-                local px,py=F.center(x),F.center(y);local distance=F.distance2Bounded(e.x,e.y,px,py)
-                if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                local px,py=Path.point(w,x,y,G.radius(w,e))
+                if px then
+                    local distance=F.distance2Bounded(e.x,e.y,px,py)
+                    if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                end
             end
         end
     end
@@ -1413,7 +1467,7 @@ local function combatOrders(w)
             if kind=='attack' then
                 target=w.entities[e.order.target]
                 if not validTarget(w,e,target) then nextOrder(w,e);target=nil end
-            elseif kind~='move' and kind~='build' and kind~='follow' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
+            elseif kind~='move' and kind~='build' and kind~='follow' and kind~='garrison' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
                 target=w.entities[e.combatTarget]
                 if not validTarget(w,e,target) or (kind=='hold' and not G.weaponRange(w,e,target)) or (e.engagement and not G.weaponRange(w,e,target) and (F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768) or F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768))) then target=nil end
                 if not target then target=enemyTarget(w,e,candidates[e.owner]) end
@@ -1600,8 +1654,8 @@ local function combat(w,pending)
                 local claimed={}
                 for _,oid in ipairs(e.occupants) do local o=w.entities[oid]
                     local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,claimed,G.radius(w,o))
-                    if x then claimed[Path.key(w.map,x,y)]=true;o.x=F.center(x);o.y=F.center(y) end
-                    o.garrisoned=nil;emit(w,'unloaded',{entity=o.id})
+                    if x then claimed[Path.key(w.map,x,y)]=true;standAt(w,o,x,y) end
+                    o.garrisoned=nil;G.invalidate(w);emit(w,'unloaded',{entity=o.id})
                 end
                 e.occupants=nil;G.invalidate(w)
             end
@@ -1631,14 +1685,14 @@ local function combat(w,pending)
     if navChanged then w.navVersion=w.navVersion+1;rebuild(w) end;if w.content.rules.profile then require('src.sim.healing').step(w,emit) end; return deathChanged
 end
 function Sim.step(w,commands)
-    w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0;w.metrics.smoothChecks=0
+    w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0;w.metrics.smoothChecks=0;w.metrics.bodyChecks=0
     -- Statuses are swept before commands, so nothing in the tick -- not a command, not
     -- a phase, not a view -- can observe one on a tick it is no longer active for.
     Abilities.expire(w,abilityApi)
     if w.result then return w.events end
     -- Both live only for the command-application part of the step and are removed
     -- before it returns, so neither reaches snapshots or canonical serialization.
-    w.commandClaims={};w.claimScratch={};G.beginStep(w)
+    w.commandClaims={};w.destinationClaims=nil;G.beginStep(w)
     local ordered={}
     for i=1,#commands do ordered[i]=commands[i] end
     table.sort(ordered,function(a,b)
@@ -1651,7 +1705,7 @@ function Sim.step(w,commands)
     end)
     planFormations(w,ordered)
     for _,c in ipairs(ordered) do local before=#w.events;apply(w,c);local rejected=false;for i=before+1,#w.events do if w.events[i].kind=='rejected' then rejected=true end end;if not rejected then emit(w,'accepted',{player=c.player,sequence=c.sequence,entity=c.args.entity}) end end
-    w.commandClaims=nil;w.claimScratch=nil;w.groupSlots=nil
+    w.commandClaims=nil;w.destinationClaims=nil;w.groupSlots=nil
     -- Casts resolve after orders finish and before combat, so a stun landing this tick
     -- is already in force when the combat phase asks whether its victim may swing. The
     -- effects they produce join the tick's attack hits and are applied together, which

@@ -145,3 +145,7 @@ The production workflow creates five source-rig-derived Bastion assets: shieldgu
 Experimental art workflow: [Woodland pixel pilot](docs/art/WOODLAND_PIXEL_PILOT.md).
 Build with `scripts/export-assets.ps1 -Roster woodland`; compare with
 `scripts/run.ps1 -WoodlandViewer`. The pilot has its own catalog.
+
+Megacorp rounded models: [pressure-suit infantry](docs/art/MEGACORP_INFANTRY.md)
+and [pressure-hull aircraft](docs/art/MEGACORP_AIRCRAFT.md). Build their sprite sets
+with `-Roster megacorp_infantry` and `-Roster megacorp_aircraft` respectively.

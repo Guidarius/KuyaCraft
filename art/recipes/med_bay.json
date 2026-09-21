@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "unitId": "med_bay",
+  "sourceId": "procedural_buildings_v1",
+  "profileId": "building_overhead_v1",
+  "footprintCells": 2,
+  "clips": {
+    "idle": {
+      "samples": 1,
+      "durationMs": 1600,
+      "loop": true
+    }
+  }
+}

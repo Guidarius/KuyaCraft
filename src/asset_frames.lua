@@ -1,7 +1,19 @@
 -- Pure presentation frame selection; simulation state is never modified.
 local F={directions={'N','NE','E','SE','S','SW','W','NW'}}
-local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden'}
+local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden',footman='footman',gryphon='gryphon',reliquary='reliquary',command_blimp='command_blimp',battleship='battleship',associate='associate',medic='medic',enforcer='enforcer'}
+local buildingIds={orbital_command=true,mc_barracks=true,requisition_office=true,med_bay=true,armory=true,
+                  orbital_relay=true,substrate_rig=true,charge_rig=true,bunker=true,keep=true,depot=true,barracks=true,sanctum=true}
+-- Optional fixed-facing construction poses. Completion uses the normal idle path.
+function F.construction(m,remaining,buildTicks)
+    local clip=m.clips.construction
+    if not clip or not remaining or remaining<=0 or not buildTicks or buildTicks<=0 then return nil end
+    local ids=clip.frames.S
+    local progress=math.max(0,math.min(1,1-remaining/buildTicks))
+    local index=math.min(#ids,math.floor(progress*#ids)+1)
+    return ids[index],index
+end
 function F.assetId(e)
+    if e.category=='building' then return buildingIds[e.kind] and e.kind or nil end
     -- A worker with a load on its back is the loaded recipe: same body, same clips, a
     -- bundle on its back. Empty, it is the plain one.
     if e.kind=='worker' then return (e.carrying or 0)>0 and 'worker_loaded' or 'worker' end
@@ -37,6 +49,11 @@ function F.sample(m,name,direction,elapsedMs,contactFirst)
 end
 function F.select(m,e,previous,tick,state,view)
     state=state or {};local ms=tick*50
+    if m.profileId=='building_overhead_v1' or m.profileId=='prop_overhead_v1' then
+        state.direction='S';state.tick=tick
+        local id,index=F.sample(m,'idle','S',ms)
+        return id,state,'idle','S',index
+    end
     local dx,dy=0,0;if previous then dx=e.x-previous.x;dy=e.y-previous.y end
     local moving=dx~=0 or dy~=0
     local direction=F.direction(dx,dy,state.direction)

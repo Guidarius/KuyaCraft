@@ -17,9 +17,12 @@ else
             assert(love.window.setMode(assert(tonumber(options.width)),assert(tonumber(options.height)),{resizable=true}))
         end
         print('LoveRTS 0.1 | LOVE '..table.concat({love.getVersion()},'.')..' | save directory: '..love.filesystem.getSaveDirectory())
-        if options['woodland-viewer'] then
+        if options['orders-review'] then app=require('src.orders_review').create(options)
+        elseif options['orders-lab'] then app=require('tests.orders_lab').create(options)
+        elseif options['woodland-viewer'] then
             if not options.width then love.window.setMode(1600,1000,{resizable=true}) end
             app=require('src.woodland_viewer').create(options)
+        elseif options['micro-lab'] then app=require('tests.micro_lab').create(options)
         elseif options['ui-benchmark'] then app=require('tests.ui_benchmark').create(options)
         elseif options['asset-test'] or options['asset-benchmark'] then
             app=require('tests.asset_presentation').create(options)
@@ -40,7 +43,7 @@ else
     end
     function love.draw()
         if app then app:draw() else love.graphics.print('LoveRTS is running',40,40) end
-        if options['auto-quit'] and not options['asset-benchmark'] and frames==2 then
+        if options['auto-quit'] and not options['asset-benchmark'] and not options['ui-benchmark'] and frames==2 then
             love.graphics.captureScreenshot(function(data)
                 local path=options.screenshot or 'artifacts/smoke.png'
                 local file=assert(io.open(path,'wb'))

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "unitId": "gryphon",
+  "sourceId": "RTSAssets",
+  "profileId": "bastion_overhead_v1",
+  "referenceHeight": 1,
+  "scale": 1,
+  "bodyHeightPixels": 32,
+  "sourceHash": "efb90208d845fd180917e2d59a8a30a2e86755cf1c030ae9211191ca20379308",
+  "clips": {
+    "idle": {
+      "samples": 4,
+      "durationMs": 1000,
+      "loop": true
+    },
+    "move": {
+      "samples": 8,
+      "durationMs": 1000,
+      "loop": true
+    },
+    "attack": {
+      "samples": 6,
+      "durationMs": 700,
+      "loop": false,
+      "contactFrame": 3
+    },
+    "death": {
+      "samples": 8,
+      "durationMs": 1000,
+      "loop": false
+    }
+  }
+}

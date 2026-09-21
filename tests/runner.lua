@@ -28,7 +28,17 @@ test('unit','command costs and prerequisites',function() require('tests.command_
 require('tests.balance').register(test)
 require('tests.controls').register(test)
 require('tests.control_scenarios').register(test)
+require('tests.responsiveness').register(test)
+require('tests.integration_navigation').register(test)
+require('tests.orders_art').register(test)
+test('simulation','morning micro fixture has safe placements and mixed pod deployment',function() require('tests.micro_lab').check() end)
+test('soak','overnight 12000 tick production combat replacement replay soak',function() require('tests.overnight_soak').run() end)
 require('tests.maps').register(test)
+test('simulation','Enforcer crosses a two-cell passage with clearance and deterministic restore',function() require('tests.enforcer_footprint').twoCells() end)
+test('simulation','one-cell passage admits infantry and rejects the Enforcer body',function() require('tests.enforcer_footprint').oneCell() end)
+test('simulation','large-body collision includes units two spatial bins away',function() require('tests.enforcer_footprint').bins() end)
+test('simulation','Enforcer replans around new terrain without cutting corners',function() require('tests.enforcer_footprint').newObstacle() end)
+test('simulation','Enforcer unloading preserves wall clearance and full body separation',function() require('tests.enforcer_footprint').unload() end)
 test('balance','new-profile route report',function() require('tests.balance_scenarios').routes() end)
 for _,mapId in ipairs(require('src.maps').tiled) do if mapId~='twin_marches' then
     test('balance','map '..mapId..': routes and a six-minute bot match',function() require('tests.balance_scenarios').mapReport(mapId) end)
@@ -437,9 +447,11 @@ function T.worker(options)
             if tick%100==0 then output:write(tick..' '..Hash.bytes(Sim.serializeCanonical(w))..'\n') end
         end
     end
+    require('tests.responsiveness').checkpoints(output,schedule)
     output:close();print('PASS worker: '..tick..' ticks at '..schedule..' FPS schedule');return 0
 end
 function T.run(options)
+    if options['verify-replay'] then return require('tests.replay_compat').run(options['verify-replay']) end
     if options['compare-left'] then return require('src.diagnostics').compareFiles(options['compare-left'],options['compare-right'],options.output) end
     if options['determinism-worker'] then return T.worker(options) end
     require('tests.control_scenarios').benchmarkTicks=tonumber(options['benchmark-ticks'])

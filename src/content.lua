@@ -6,7 +6,7 @@ local T=require('src.content_time')
 -- this simulation's pace. Balance numbers are the user's; windups are a working default
 -- of about a quarter of the attack period.
 local C = {
-    version = 14,
+    version = 16,
     rules = { profile='orders-v1', tickRate=20, pathBudget=256, directPathBudget=16384, smoothBudget=8192,
         -- Two resources, in display order. Supply comes from buildings and is capped.
         resources={'substrate','charge'}, supplyFromBuildings=true, supplyCap=200,
@@ -29,7 +29,7 @@ local C = {
         -- `decay` (+`decayPerArmor` per armour point) a tick once `grace` ticks pass
         -- without a hit. See Sim.stackThreshold.
         stacks={perHit=200, base=5, armorPercent=150, perHundredHp=2, burst=45, grace=T.ticks(.75), decay=30, decayPerArmor=6},
-        formationPacing=true, lineOfSight=true },
+        formationPacing=false, preciseMovement=true, sharedPaths=true, lineOfSight=true },
     units = {},
     buildings = {
         -- Every Keep is a life: the faction is defeated only when none stands and none is
@@ -113,7 +113,7 @@ C.units.associate={label='Associate',cost={substrate=50},food=1,buildTicks=T.tic
 C.units.medic={label='Medic',cost={substrate=50,charge=25},food=1,buildTicks=T.ticks(20),hp=70,armor=1,
     range=0,speed=44,sight=8,radius=80,heal=6,healRange=T.cells(3),pod=true,requires={'med_bay'}}
 C.units.enforcer={label='Enforcer',cost={substrate=125,charge=50},food=3,buildTicks=T.ticks(30),hp=250,armor=2,
-    damage=25,cooldown=T.ticks(1.4),windup=7,range=T.cells(.25),speed=32,sight=7,radius=96,pod=true,garrisonSlots=2,requires={'armory'}}
+    damage=25,cooldown=T.ticks(1.4),windup=7,range=T.cells(.25),speed=32,sight=7,radius=160,pod=true,garrisonSlots=2,requires={'armory'}}
 -- Workers harvest both resources: ticks per load, and how much a load is.
 C.units.worker.worker=true;C.units.worker.harvest={substrate=T.ticks(2),charge=T.ticks(3)};C.units.worker.carry=8
 -- A shot in flight. It is a unit definition only because every entity needs one; it has
