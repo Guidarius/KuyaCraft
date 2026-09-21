@@ -247,6 +247,12 @@ def mask_material(team):
 
 def run(options):
     sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+    if options.unit in ("keep","depot","barracks","sanctum"):
+        import orders_building_export
+        return orders_building_export.run(options)
+    if options.unit in ("gryphon","reliquary"):
+        import orders_special_export
+        return orders_special_export.run(options)
     if options.unit == "drop_pod":
         import drop_pod_export
         return drop_pod_export.run(options)
@@ -275,6 +281,8 @@ def run(options):
     if options.unit in ('associate','medic','enforcer'):
         import megacorp_model as unit_model
     recipe=json.loads((rootpath/'art'/'recipes'/(options.unit+'.json')).read_text(encoding='utf-8-sig'))
+    if options.unit in ('worker','worker_loaded','footman','crossbow') and recipe.get('model',{}).get('family')=='orders':
+        import orders_model as unit_model
     if recipe['unitId'] != options.unit:
         raise ValueError('Recipe identity mismatch')
     if recipe.get('sourceHash') != info['sourceHash']:
@@ -297,7 +305,10 @@ def run(options):
     max_cell=recipe.get('maxCellSize',128)
     if max_cell not in (128,192,256):
         raise ValueError('maxCellSize must be 128, 192 or 256')
-    for size in [s for s in (64,96,128,192,256) if s<=max_cell]:
+    min_cell=recipe.get('minCellSize',64)
+    if min_cell not in (64,96,128,192,256) or min_cell>max_cell:
+        raise ValueError('Invalid minimum animation canvas')
+    for size in [s for s in (64,96,128,192,256) if min_cell<=s<=max_cell]:
         configure_camera(scene,camera,size);pose_bounds=[]
         for clip,spec in recipe['clips'].items():
             assign(rig,baked[clip])

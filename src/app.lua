@@ -443,16 +443,20 @@ function App:drawEntity(e)
         end
         local asset=self.sprites and self.sprites.units[Frames.assetId(e)]
         local sprite=asset and asset.metadata.profileId=='building_overhead_v1' and asset.metadata.footprintCells==e.size
+        local construction=sprite and Frames.construction(asset.metadata,e.remaining,self.content.buildings[e.kind].buildTicks)
         if sprite then
             -- Buildings store their first occupied cell; exported origin is footprint centre.
-            self.sprites:draw(e,x+w/2,y+h/2,z,team,nil,self.world.tick,self.view)
+            if construction then self.sprites:drawFrame(Frames.assetId(e),construction,x+w/2,y+h/2,z,team)
+            else self.sprites:draw(e,x+w/2,y+h/2,z,team,nil,self.world.tick,self.view) end
         else
             color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
             color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
             g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
         end
         if e.remaining>0 then
-            g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
+            if not construction then
+                g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
+            end
             g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
             g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
         end

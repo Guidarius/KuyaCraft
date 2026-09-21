@@ -26,7 +26,7 @@ function T.run()
     building.profileId='building_overhead_v1';building.fixedFacing='S';building.footprintCells=4
     building.clips={idle=building.clips.idle};C.validate(building,'orbital_command')
     eq(F.assetId({kind='orbital_command',category='building'}),'orbital_command')
-    eq(F.assetId({kind='keep',category='building'}),nil)
+    eq(F.assetId({kind='keep',category='building'}),'keep')
     local _,_,bc,bd=F.select(building,{x=100,y=200,alive=true,attackTick=2}, {x=0,y=0},3,{})
     eq(bc,'idle');eq(bd,'S')
     building.clips.idle.frames.N={2,1};bad(function() C.validate(building,'orbital_command') end)

@@ -23,7 +23,7 @@ function B.create(options)
  local shipping=options['balance-benchmark'] or options.map=='twin_marches'
  local w=shipping and require('tests.balance_scenarios').stressWorld(tonumber(options['ui-units']),options['benchmark-faction']) or require('tests.asset_presentation').fixture()
  if options['require-assets'] then
-  for _,id in ipairs({'associate','medic','enforcer','command_blimp','battleship','drop_pod','orbital_command','mc_barracks','bunker','crossbow'}) do
+  for _,id in ipairs({'associate','medic','enforcer','command_blimp','battleship','drop_pod','orbital_command','mc_barracks','bunker','crossbow','worker','worker_loaded','footman','gryphon','reliquary','keep','depot','barracks','sanctum'}) do
    assert(app.sprites and app.sprites.units[id],'benchmark requires active asset '..id)
   end
   assert(#app.sprites.diagnostics==0,'benchmark asset diagnostics')
