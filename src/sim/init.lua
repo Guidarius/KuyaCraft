@@ -337,14 +337,17 @@ local function visibility(w)
         local player=w.players[p]
         -- Reused rather than replaced: this table is shared by reference into views.
         local visible=player.visible
-        if not visible then visible={};player.visible=visible
-        elseif not w.content.rules.lineOfSight then for key in pairs(visible) do visible[key]=nil end end
+        if visible then for key in pairs(visible) do visible[key]=nil end else visible={};player.visible=visible end
         local explored=player.explored
         player.knownResources=player.knownResources or {}
-        -- Merge cached line-of-sight fields as 32-cell words before writing the
-        -- boolean grid. Radial content keeps its existing span path.
+        -- Line of sight walks each observer's own shadow field, so overlapping armies
+        -- cannot share the work the way the radial span fill does. Radial visibility
+        -- stays available as a content rule for maps and profiles that want it, and
+        -- because it is markedly cheaper with a large army on screen.
         if w.content.rules.lineOfSight then
-            Vision.union(w,p,visible,explored,Stats.sight)
+            for _,id in ipairs(w.order) do local e=w.entities[id]
+                if e.alive and e.owner==p and e.category~='projectile' then Vision.field(w,e,Stats.sight(w,e),visible,explored) end
+            end
             Sim.knownResources(w,p,player)
         else
         local rowCount=0

@@ -10,8 +10,6 @@
 -- the same set that stops movement. A blocking cell is itself visible -- you can see the
 -- wall, just not past it.
 local F=require('src.sim.fixed')
-local Bit=require('bit')
-local BITS={};for i=0,31 do BITS[i+1]=Bit.lshift(1,i) end
 local V={}
 -- xx, xy, yx, yy per octant.
 local OCTANTS={
@@ -20,13 +18,10 @@ local OCTANTS={
 }
 -- Recording state for the field currently being built. Single-threaded and used only
 -- within one V.field call, including its recursion.
-local outKeys,outCount,outWords,outMasks,outWordCount
+local outVisible,outExplored,outKeys,outCount
 local function emit(key)
     outCount=outCount+1;outKeys[outCount]=key
-    local word=math.floor((key-1)/32)+1;local mask=BITS[(key-1)%32+1]
-    local previous=outMasks[word]
-    if previous then outMasks[word]=Bit.bor(previous,mask)
-    else outWordCount=outWordCount+1;outWords[outWordCount]=word;outMasks[word]=mask end
+    outVisible[key]=true;outExplored[key]=true
 end
 -- ox0..oy1 is a rectangle the observer may see through regardless of w.blocked: its own
 -- footprint. Without it a building would be blinded by its own body, because its sight
@@ -75,7 +70,8 @@ local function cast(w,cx,cy,radius,row,startNum,startDen,endNum,endDen,xx,xy,yx,
         if scanning then break end
     end
 end
--- A field depends on origin, footprint, sight radius and blocking cells. An observer that has not changed cell, on a map whose obstructions have
+-- A field depends on exactly two things: where the observer stands and which cells
+-- block sight. An observer that has not changed cell, on a map whose obstructions have
 -- not changed, sees precisely what it saw last tick. Replaying a recorded field is a
 -- table write per cell instead of the whole shadowcast, which matters because buildings
 -- never move and most of an economy stands still. The cache is keyed by world with weak
@@ -92,7 +88,7 @@ local function cacheFor(w)
 end
 -- Mark everything the entity can see. Sight originates at the middle of the entity's
 -- footprint rather than its corner, so a large building looks out from its centre.
-local function field(w,e,sight)
+function V.field(w,e,sight,visible,explored)
     local size=e.size or 1
     local offset=math.floor((size-1)/2)
     local cx,cy=F.cell(e.x)+offset,F.cell(e.y)+offset
@@ -101,12 +97,14 @@ local function field(w,e,sight)
     local origin=cy*width+cx+1
     local fields=cacheFor(w)
     local recorded=fields[e.id]
-    if recorded and recorded.origin==origin and recorded.sight==sight and recorded.size==size and
-        recorded.x==F.cell(e.x) and recorded.y==F.cell(e.y) then return recorded end
-    if not recorded then recorded={keys={},words={},masks={},wordCount=0};fields[e.id]=recorded end
-    for i=1,recorded.wordCount do recorded.masks[recorded.words[i]]=nil end
-    recorded.origin,recorded.sight,recorded.size,recorded.x,recorded.y=origin,sight,size,F.cell(e.x),F.cell(e.y)
-    outKeys,outCount,outWords,outMasks,outWordCount=recorded.keys,0,recorded.words,recorded.masks,0
+    if recorded and recorded.origin==origin and recorded.sight==sight then
+        local keys=recorded.keys
+        for i=1,recorded.count do local key=keys[i];visible[key]=true;explored[key]=true end
+        return
+    end
+    if not recorded then recorded={keys={}};fields[e.id]=recorded end
+    recorded.origin=origin;recorded.sight=sight
+    outVisible,outExplored,outKeys,outCount=visible,explored,recorded.keys,0
     emit(origin)
     local ox0,oy0=F.cell(e.x),F.cell(e.y)
     local ox1,oy1=ox0+size-1,oy0+size-1
@@ -114,39 +112,7 @@ local function field(w,e,sight)
         local o=OCTANTS[i]
         cast(w,cx,cy,sight,1,1,1,0,1,o[1],o[2],o[3],o[4],ox0,oy0,ox1,oy1)
     end
-    recorded.count=outCount;recorded.wordCount=outWordCount
-    outKeys,outWords,outMasks=nil,nil,nil
-    return recorded
-end
--- Full field union retained as a simple reference path for tests/tools.
-function V.field(w,e,sight,visible,explored)
-    local record=field(w,e,sight)
-    if record then for i=1,record.count do local key=record.keys[i];visible[key]=true;explored[key]=true end end
-end
--- Combine overlapping fields one 32-cell word at a time, then materialize the
--- same boolean grid as the full field loop. Scratch is cleared on every call;
--- ownership, death and construction need no persistent union invalidation state.
--- The existing field cache depends only on geometry/sight and is cold after restore.
-local unionWords,touched={},{}
-function V.union(w,p,visible,explored,sightOf)
-    for key in pairs(visible) do visible[key]=nil end
-    local count=0
-    for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.owner==p and e.category~='projectile' then
-            local record=field(w,e,sightOf(w,e))
-            if record then for i=1,record.wordCount do
-                local word=record.words[i];local mask=record.masks[word]
-                local previous=unionWords[word]
-                if previous then unionWords[word]=Bit.bor(previous,mask)
-                else count=count+1;touched[count]=word;unionWords[word]=mask end
-            end end
-        end
-    end
-    -- Both loops have explicit order. Signed 32-bit masks are derived scratch,
-    -- never coordinates, serialized values or floating-point gameplay arithmetic.
-    for i=1,count do local word=touched[i];local mask=unionWords[word];local base=(word-1)*32
-        for b=1,32 do if Bit.band(mask,BITS[b])~=0 then local key=base+b;visible[key]=true;explored[key]=true end end
-        unionWords[word]=nil;touched[i]=nil
-    end
+    recorded.count=outCount
+    outVisible,outExplored,outKeys=nil,nil,nil
 end
 return V
