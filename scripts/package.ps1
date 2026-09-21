@@ -77,7 +77,8 @@ Double-click LoveRTS.exe to play.
 Double-click PlayMicro.cmd for the prepared five-minute controls practice scene.
 Double-click PlayOrders.cmd for the cathedral army/construction practice scene.
 Double-click ReviewOrders.cmd for scale, silhouette and all-sample comparisons.
-The full playtest checklist is in docs/OVERNIGHT_HANDOFF.md.
+The Orders art checklist is in docs/art/ORDERS_CATHEDRAL.md.
+Controls/pod checks are in docs/OVERNIGHT_HANDOFF.md.
 
 Keep every file in this folder together: LoveRTS.exe needs the DLLs beside it. You can
 move or rename the folder, and you can make a desktop shortcut to LoveRTS.exe.

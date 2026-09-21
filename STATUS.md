@@ -1,5 +1,17 @@
 # Implementation status
 
+## 2026-09-21 — Orders cathedral art
+
+The art branch delivers six unit variants, four buildings and three construction stages
+per building. Existing Megacorp assets, gameplay contracts and simulation 30/content 16
+remain unchanged. All 194 headless checks, full rendered/network/determinism suites,
+33 Python asset tests and 1,304 reopened Blender pose checks pass. The previous combined
+build's 12,000-tick replay matches all 24 checkpoints. Catalog atlas memory decreases
+13.6028 MiB. Three fresh final runs per faction pass simulation p95 below 10 ms but all
+six rendered frame gates still fail (median p95 Orders 17.915 ms; Megacorp 18.043 ms).
+Human recognition, gameplay feel and two-PC testing remain outstanding. See
+docs/art/ORDERS_ART_HANDOFF.md for evidence, comparison ranges and delivery instructions.
+
 
 
 This repository contains the accepted roadmap and a playable **prototype**, not a completed release. Milestones have explicit validation limits below.
