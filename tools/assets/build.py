@@ -13,6 +13,7 @@ from pack import contained, digest, lua, pack, validate_unit, write_pair
 
 ROSTER = ['shieldguard','worker','worker_loaded','crossbow','warden']
 AIRCRAFT = ['command_blimp','battleship']
+PROPS = ['drop_pod']
 INFANTRY = ['associate','medic','enforcer']
 BUILDINGS = ['orbital_command','mc_barracks','requisition_office','med_bay','armory',
              'orbital_relay','substrate_rig','charge_rig','bunker']
@@ -139,7 +140,7 @@ def main(argv=None):
     ap.add_argument('--source',type=Path)
     ap.add_argument('--blender',default=r'C:\Program Files\Blender Foundation\Blender 5.1\blender.exe')
     ap.add_argument('--mode',choices=['build','preview','inspect','validate','legacy','package'],default='build')
-    ap.add_argument('--unit',action='append'); ap.add_argument('--roster',choices=['bastion','woodland','megacorp_aircraft','megacorp_infantry','megacorp_buildings'],default='bastion')
+    ap.add_argument('--unit',action='append'); ap.add_argument('--roster',choices=['bastion','woodland','megacorp_aircraft','megacorp_infantry','megacorp_buildings','megacorp_props'],default='bastion')
     ap.add_argument('--force',action='store_true'); ap.add_argument('--destination',type=Path)
     args = ap.parse_args(argv); root = args.root.resolve()
     if args.roster == 'woodland':
@@ -147,8 +148,8 @@ def main(argv=None):
             raise ValueError('Woodland pilot supports Build/Preview/Validate with its three fixed variants')
         from woodland import build
         return build(root,(args.source or root/'art/source/rig-library/RTSAssets.blend').resolve(),args.blender,args.mode,args.force)
-    units = args.unit or (AIRCRAFT if args.roster == 'megacorp_aircraft' else INFANTRY if args.roster == 'megacorp_infantry' else BUILDINGS if args.roster == 'megacorp_buildings' else ROSTER)
-    if any(u not in ROSTER+AIRCRAFT+INFANTRY+BUILDINGS for u in units): raise ValueError('Unknown asset; choose '+', '.join(ROSTER+AIRCRAFT+INFANTRY+BUILDINGS))
+    units = args.unit or (AIRCRAFT if args.roster == 'megacorp_aircraft' else INFANTRY if args.roster == 'megacorp_infantry' else BUILDINGS if args.roster == 'megacorp_buildings' else PROPS if args.roster == 'megacorp_props' else ROSTER)
+    if any(u not in ROSTER+AIRCRAFT+INFANTRY+BUILDINGS+PROPS for u in units): raise ValueError('Unknown asset; choose '+', '.join(ROSTER+AIRCRAFT+INFANTRY+BUILDINGS+PROPS))
     if args.mode == 'package':
         if not args.destination: raise ValueError('Package requires --destination')
         package(root,args.destination.resolve()); print('Active assets packaged and verified.'); return
@@ -164,7 +165,7 @@ def main(argv=None):
     batch_start = time.monotonic()
     for unit in units:
         started = time.monotonic()
-        key, deps = build_key(root,None if unit in AIRCRAFT+BUILDINGS else source,unit,version)
+        key, deps = build_key(root,None if unit in AIRCRAFT+BUILDINGS+PROPS else source,unit,version)
         stage = root/'artifacts/asset-build'/(key+('-preview' if args.mode == 'preview' else ''))/unit
         output = root/'assets/generated/builds'/key/unit
         metadata = (output/'metadata.lua').relative_to(root).as_posix()

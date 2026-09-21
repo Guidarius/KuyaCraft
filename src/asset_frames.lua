@@ -40,7 +40,7 @@ function F.sample(m,name,direction,elapsedMs,contactFirst)
 end
 function F.select(m,e,previous,tick,state,view)
     state=state or {};local ms=tick*50
-    if m.profileId=='building_overhead_v1' then
+    if m.profileId=='building_overhead_v1' or m.profileId=='prop_overhead_v1' then
         state.direction='S';state.tick=tick
         local id,index=F.sample(m,'idle','S',ms)
         return id,state,'idle','S',index

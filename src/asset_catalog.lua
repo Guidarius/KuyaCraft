@@ -10,10 +10,11 @@ function C.validate(m,expected)
     assert(type(m)=='table' and m.version==2,'unsupported asset version')
     assert(type(m.unitId)=='string' and m.unitId==expected,'unit identity mismatch')
     assert(type(m.buildId)=='string' and #m.buildId>0,'missing build identity')
-    assert(m.profileId=='bastion_overhead_v1' or m.profileId=='legacy_v1' or m.profileId=='woodland_pixel_v1' or m.profileId=='building_overhead_v1','unsupported render profile')
+    assert(m.profileId=='bastion_overhead_v1' or m.profileId=='legacy_v1' or m.profileId=='woodland_pixel_v1' or m.profileId=='building_overhead_v1' or m.profileId=='prop_overhead_v1','unsupported render profile')
     if m.profileId=='building_overhead_v1' then
         assert(m.fixedFacing=='S' and integer(m.footprintCells,1) and m.footprintCells<=4,'invalid building footprint/facing')
     end
+    if m.profileId=='prop_overhead_v1' then assert(m.fixedFacing=='S','invalid prop facing') end
     if m.profileId=='woodland_pixel_v1' then
         local s=m.pixelStyle
         assert(type(s)=='table' and type(s.palette)=='table' and #s.palette<=32 and integer(s.teamStart,1) and s.teamStart+5==#s.palette,'invalid pixel palette')
@@ -42,7 +43,7 @@ function C.validate(m,expected)
         assert(integer(f.anchorX) and integer(f.anchorY) and f.anchorX<=f.width and f.anchorY<=f.height,'invalid anchor')
     end
     assert(type(m.clips)=='table','missing clips')
-    for _,name in ipairs(m.profileId=='building_overhead_v1' and {'idle'} or m.profileId=='woodland_pixel_v1' and {'idle','move','work'} or {'idle','move','attack','death'}) do assert(m.clips[name],'missing clip '..name) end
+    for _,name in ipairs(m.profileId=='prop_overhead_v1' and {'idle','deploy'} or m.profileId=='building_overhead_v1' and {'idle'} or m.profileId=='woodland_pixel_v1' and {'idle','move','work'} or {'idle','move','attack','death'}) do assert(m.clips[name],'missing clip '..name) end
     if expected=='worker' or expected=='worker_loaded' then assert(m.clips.work,'missing worker work clip') end
     for name,c in pairs(m.clips) do
         assert(type(name)=='string' and type(c)=='table' and integer(c.durationMs,1) and type(c.loop)=='boolean','invalid clip')
@@ -52,7 +53,7 @@ function C.validate(m,expected)
             local ids=c.frames[d];assert(type(ids)=='table' and #ids>0,'missing direction '..d)
             count=count or #ids;assert(#ids==count,'direction sample counts differ')
             for _,id in ipairs(ids) do assert(integer(id,1) and m.frames[id],'invalid frame reference') end
-            if m.profileId=='building_overhead_v1' then
+            if m.profileId=='building_overhead_v1' or m.profileId=='prop_overhead_v1' then
                 for i,id in ipairs(ids) do assert(id==c.frames.S[i],'building directions must alias the fixed view') end
             end
         end

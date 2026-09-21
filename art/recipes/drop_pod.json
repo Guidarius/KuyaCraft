@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "unitId": "drop_pod",
+  "sourceId": "procedural_drop_pod_v1",
+  "profileId": "prop_overhead_v1",
+  "visualDiameterCells": 2.4,
+  "clips": {
+    "idle": {"samples": 1, "durationMs": 1000, "loop": true},
+    "deploy": {"samples": 6, "durationMs": 450, "loop": false}
+  }
+}

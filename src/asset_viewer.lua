@@ -2,7 +2,7 @@ local Frames=require('src.asset_frames')
 local V={}
 local teams={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.7,0.48,0.95}}
 local backgrounds={{0.08,0.11,0.13},{0.65,0.7,0.58},{0.18,0.27,0.2}}
-local clipOrder={'idle','move','attack','death','work','hit'}
+local clipOrder={'idle','move','attack','death','work','hit','deploy'}
 function V.create(sprites)
     local ids={};for id in pairs(sprites and sprites.units or {}) do ids[#ids+1]=id end;table.sort(ids)
     return setmetatable({sprites=sprites,ids=ids,unitIndex=1,clipIndex=1,directionIndex=1,playing=true,timeMs=0,speed=1,zoom=3,teamIndex=1,backgroundIndex=1,guides=true,rectangles=false,buttons={}}, {__index=V})

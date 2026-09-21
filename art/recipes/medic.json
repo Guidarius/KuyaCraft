@@ -7,7 +7,7 @@
   "slot": "OBArmature",
   "profileId": "bastion_overhead_v1",
   "scale": 1.0,
-  "referenceHeight": 1.65,
+  "referenceHeight": 3.3,
   "model": {
     "type": "medic"
   },

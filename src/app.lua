@@ -507,7 +507,7 @@ function App:drawEntity(e)
         local damaged=e.hp<e.maxHp
         local bars=self.settings.healthBars or 'damaged'
         if bars=='always' or self.showAllBars or isSelected or (bars~='selected' and damaged) then
-            local barY=y-(d.hero and 53 or 40)*z
+            local barY=y-(e.kind=='associate' and 30 or e.kind=='medic' and 34 or e.kind=='enforcer' and 46 or d.hero and 53 or 40)*z
             g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,barY,28*z,4*z)
             local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
             color(barColor(self,e));g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
@@ -517,7 +517,7 @@ function App:drawEntity(e)
         if e.stackFixed then
             local perHit=self.content.rules.stacks and self.content.rules.stacks.perHit or 200
             local pips=math.min(16,math.floor(e.stackFixed/perHit))
-            local pipY=y-(d.hero and 53 or 40)*z-5*z
+            local pipY=y-(e.kind=='associate' and 30 or e.kind=='medic' and 34 or e.kind=='enforcer' and 46 or d.hero and 53 or 40)*z-5*z
             g.setColor(1,.82,.3)
             for i=1,pips do g.rectangle('fill',x-14*z+(i-1)*3*z,pipY,2*z,3*z) end
         end
@@ -791,6 +791,8 @@ function App:controlGroupBadges()
 end
 
 function App:unitGroundScale(e)
+    if e.kind=='associate' or e.kind=='medic' then return .75 end
+    if e.kind=='enforcer' then return 4/3 end
     local d=e.category=='unit' and self.content.units[e.kind]
     -- Preserve compact-unit rings; larger ground bodies get proportionate rings
     -- and picking even when their sprite atlas uses a different canvas size.

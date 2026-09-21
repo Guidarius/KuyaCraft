@@ -57,13 +57,13 @@ function T.run(capture)
  end
  app.selected={810001,810002,810003}
  local heavy=app.view.byId[810003];local hx,hy=app:screen(heavy.x,heavy.y)
- local hit=app:pick(hx+28*app.camera.zoom,hy-24*app.camera.zoom,true,true)
+ local hit=app:pick(hx+22*app.camera.zoom,hy-16*app.camera.zoom,true,true)
  assert(hit and hit.id==heavy.id,'vehicle picking still uses the infantry-sized target')
  app.selectedSince=app.selectedSince or {};app.selectedSince[heavy.id]=app.clock-1
  local ellipse=g.ellipse;local heavyRing=false
  g.ellipse=function(mode,x,y,rx,ry,...)
   if mode=='line' and math.abs(x-hx)<.01 and math.abs(y-hy)<.01 then
-   heavyRing=heavyRing or (math.abs(rx-30*app.camera.zoom)<.01 and math.abs(ry-14*app.camera.zoom)<.01)
+   heavyRing=heavyRing or (math.abs(rx-20*app.camera.zoom)<.01 and math.abs(ry-(28/3)*app.camera.zoom)<.01)
   end
   return ellipse(mode,x,y,rx,ry,...)
  end

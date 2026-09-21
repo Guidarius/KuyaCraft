@@ -16,6 +16,12 @@ local function fixture(id)
     return m
 end
 function T.run()
+    local pod=fixture('drop_pod');pod.profileId='prop_overhead_v1';pod.fixedFacing='S'
+    pod.clips={idle=pod.clips.idle,deploy=pod.clips.death};C.validate(pod,'drop_pod')
+    eq(F.sample(pod,'deploy','S',9999),6)
+    pod.clips.deploy.frames.N={1};bad(function() C.validate(pod,'drop_pod') end)
+    pod.clips.deploy.frames.N={1,2,3,4,5,6};pod.fixedFacing='N';bad(function() C.validate(pod,'drop_pod') end)
+    pod.fixedFacing='S';pod.clips.deploy=nil;bad(function() C.validate(pod,'drop_pod') end)
     local building=fixture('orbital_command')
     building.profileId='building_overhead_v1';building.fixedFacing='S';building.footprintCells=4
     building.clips={idle=building.clips.idle};C.validate(building,'orbital_command')

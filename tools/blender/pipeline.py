@@ -247,6 +247,9 @@ def mask_material(team):
 
 def run(options):
     sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+    if options.unit == "drop_pod":
+        import drop_pod_export
+        return drop_pod_export.run(options)
     import building_model
     if options.unit in building_model.IDS:
         import building_export

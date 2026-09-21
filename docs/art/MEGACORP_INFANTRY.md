@@ -11,13 +11,14 @@ The geometric shells and neutral glass remain readable with either team color.
 These squat rounded silhouettes contrast with the Orders' taller shields and armor.
 The medical mark is secondary; recognition should survive its disappearance at zoom.
 
-Associate and Medic occupy the same infantry size class. The Enforcer is a small
-walking vehicle: its assembly is 1.7 times the first-pass Enforcer, reduced 15% from
-the doubled revision. It stands about 1.60 times Associate height and 1.69 times
-Medic height, retaining the broad barrel and gauntlet. Its authoritative collision
-radius is 160 simulation subunits (Associate/Medic: 80). Selection, acknowledgement,
-hover and low-health rings, ground shadow and picking follow the larger footprint.
-At normal zoom the selection ellipse has 30/14-pixel radii.
+Associate and Medic occupy the same Marine-like infantry size class. The Enforcer
+is a broad walking vehicle, about 1.28 times Associate standing height and 1.35 times
+Medic height. Its size comes mainly from its barrel width and oversized gauntlet.
+See [the shared unit/building scale guide](MEGACORP_SCALE.md) for actual pixel bounds.
+Collision remains 160 simulation subunits for Enforcer and 80 for Associate/Medic.
+At normal zoom selection ellipse radii are 20/9.33 pixels for Enforcer and
+11.25/5.25 pixels for the two infantry. Shadows, hover, acknowledgement and picking
+use those presentation dimensions; health bars sit above the smaller bodies.
 
 Large bodies use radius-aware, integer off-centre waypoints to clear two-cell
 passages and reject one-cell gaps. Neighbor queries include a second ring of spatial
@@ -52,11 +53,11 @@ render/downsample, shared ground anchor and occlusion-aware team mask are reused
 `referenceHeight` supplies a fixed authored normalization for the shorter suits;
 camera scale never changes between poses. Canvas expansion only prevents clipping.
 Runtime sizing retains the shared 32-pixel body reference used by other units.
-The Enforcer's `referenceHeight=0.8529411764705883` supplies the reduced assembly
-scale (`0.725 / 0.85`). Its recipe permits cells up to 256 pixels through `maxCellSize`;
-other recipes retain the 128-pixel limit. Larger cells preserve pixel density and
-all directional death poses rather than shrinking the unit to fit. The packer
-continues to split paired pages at the existing 2048-pixel limit.
+The unit/building scale pass uses `referenceHeight=3.3` for Associate/Medic and
+`2.1323529411764706` for Enforcer. These bake 50% and 40% of their preceding model
+scales respectively. All three now fit 96-pixel cells across all clips/headings;
+the recipe maximum remains 128. Atlas canvas size is padding, not body size.
+The packer splits paired pages at the existing 2048-pixel limit.
 
 All three export idle, walk, attack and death. Associate fires a compact recoil
 gesture; Enforcer punches with its oversized gauntlet. The unarmed Medic's required

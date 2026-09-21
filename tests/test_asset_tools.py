@@ -61,6 +61,18 @@ class Assets(unittest.TestCase):
         self.assertEqual(meta['footprintCells'],4)
         for d in DIRECTIONS: self.assertEqual(meta['clips']['idle']['frames'][d],[1])
         self.assertEqual(meta['pages'][0]['width'],68)
+    def test_prop_packs_only_unique_frames_without_gameplay_footprint(self):
+        self.spec.update(unitId='drop_pod',profileId='prop_overhead_v1',fixedFacing='S')
+        self.spec['clips']={'idle':self.spec['clips']['idle'],'deploy':dict(samples=6,durationMs=450,loop=False)}
+        base=next(f for f in self.spec['frames'] if f['clip']=='idle' and f['direction']=='S')
+        self.spec['frames']=[base]+[dict(base,clip='deploy',sample=i) for i in range(1,7)]
+        self.save();meta,path=self.packed();validate_unit(self.root,path)
+        self.assertEqual(len(meta['frames']),7)
+        self.assertNotIn('footprintCells',meta)
+        for d in DIRECTIONS: self.assertEqual(meta['clips']['deploy']['frames'][d],list(range(1,7)))
+        self.spec['clips'].pop('deploy');self.spec['frames']=[base];self.save()
+        _,path=self.packed()
+        with self.assertRaisesRegex(ValueError,'Missing required clips'):validate_unit(self.root,path)
     def test_unit_cannot_skip_headings_with_fixed_view(self):
         self.spec['fixedFacing']='S';self.save()
         with self.assertRaisesRegex(ValueError,'Fixed facing'): self.packed()

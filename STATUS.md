@@ -2309,3 +2309,59 @@ temporary-file cleanup warnings after successful builds and scene checks.
 Work is on `codex/megacorp-buildings`, based on the completed infantry branch.
 Draft PR creation returned GitHub integration 403; no PR was created. Generated
 models, atlases, concept references, screenshots and archives remain ignored.
+
+
+## 2026-09-20 — Megacorp drop pod and unit/building scale
+
+Added an original rounded drop-pod model: 23 named meshes, 2,144 triangles, a heat
+shield, three landing fins, broad team panels and two rigid doors with editable
+object keys. One closed idle and six opening samples pack into seven fixed-view
+frames (0.534 MiB paired RGBA). The new optional `prop_overhead_v1` asset uses the
+existing paired team-mask shader, viewer and transactional publication path.
+
+The owner sees the closed pod descend during the final 45% of its existing flight.
+The landing event opens its doors, holds the shell briefly, then fades it by 2.5
+seconds. Landed effects are capped at 12 and cleared on replay rewind. Missing art
+retains the earlier marker. This reads the filtered view/events only: no simulation
+entity, collision, arrival timing, capacity or troop-spawn behavior changed.
+
+Normalized Megacorp infantry against the existing buildings. Associate/Medic are
+50% of their preceding assembly scales; Enforcer is 40%. Reopened standing heights
+are 0.478958, 0.453625 and 0.611982 Blender units: the heavy is 1.28x Associate height
+and gains its distinction from width. Idle sprite widths across headings are
+16–20, 18–22 and 29–41 pixels respectively, versus barracks 76 and headquarters 98.
+This follows the compact Marine/Medic versus broad Goliath relationship; it does
+not copy StarCraft artwork or equate collision bounds with sprite bounds.
+
+All three now fit 96-pixel atlas cells, reducing paired uncompressed allocation
+from about 166.13 to 50.35 MiB. This is memory evidence, not an FPS measurement.
+Presentation rings, shadows, picking and bar offsets follow the smaller bodies.
+The authoritative 80/160 collision radii and existing building footprints remain.
+Source instructions and the BWAPI reference are in `docs/art/MEGACORP_SCALE.md`.
+
+Verified locally:
+
+- Final four-asset Build (333.89 seconds), active Validate, and 26 Python asset-tool
+  tests passed. The catalog retains the other active units and buildings.
+- Reopened the saved pod and all three infantry scenes. Both pod joints retain six
+  keyed poses; all 632 infantry directional bounds, 65-bone/source-action retention,
+  ground clearance, support grip and targeted weapon/body intersection checks pass.
+- `scripts/test-all.ps1` passed all 171 headless cases, fresh-process 100,000-tick
+  agreement at 30/60/144 FPS schedules and two JIT configurations, plus real ENet
+  host/client agreement through 600 ticks. Its rendered phase initially failed on
+  the new test fixture's incomplete pod queue, then on missing lazy initialization.
+  The fixture was corrected to retain/provide the HUD's `open` and cooldown fields.
+- The affected `scripts/test-ui.ps1` rerun passed at 1280x720, 1920x1080 and 2560x1080:
+  real shader scale boards, all door poses, descent/landing anchors, opening, fading,
+  owner isolation, expiry, optional-art fallback and unchanged canonical state.
+- Final `scripts/test-presentation.ps1` and asset-viewer smoke test passed with the
+  final published catalog after those fixture fixes. No golden replays changed.
+
+The pod preview and a convenient editable blend copy are in
+`artifacts/drop-pod-review/`; actual-renderer comparison sheets are
+`artifacts/ui-megacorp-scale-board-{1,2}-1280.png`. These generated assets stay
+ignored; modeling/export recipes, integration, checks and documentation are tracked.
+Human crowd recognition and mouse-feel playtests, and cross-PC/GPU appearance, are
+still outstanding. Work is on `codex/megacorp-drop-pod-scale`, based on the building
+branch. GitHub's integration refused draft-PR creation with HTTP 403; this does not
+prevent the required task-branch push.

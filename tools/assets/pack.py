@@ -52,8 +52,8 @@ def pack(stage, output, build_id, game_prefix, raw_root=None):
     spec = json.loads((stage / 'render.json').read_text(encoding='utf8'))
     if spec['directions'] != DIRECTIONS: raise ValueError('Expected canonical eight directions')
     fixed = spec.get('fixedFacing')
-    if fixed and (fixed != 'S' or spec['profileId'] != 'building_overhead_v1'):
-        raise ValueError('Fixed facing requires the building profile and S direction')
+    if fixed and (fixed != 'S' or spec['profileId'] not in ('building_overhead_v1','prop_overhead_v1')):
+        raise ValueError('Fixed facing requires a fixed-view profile and S direction')
     render_directions = [fixed] if fixed else DIRECTIONS
     cell = spec['cellSize']
     width, height = (cell, cell) if isinstance(cell, int) else cell
@@ -82,7 +82,8 @@ def pack(stage, output, build_id, game_prefix, raw_root=None):
                 bodyHeightPixels=spec['bodyHeightPixels'], pages=[], frames=[], clips={})
     if 'referenceStride' in spec: meta['referenceStride'] = spec['referenceStride']
     if fixed:
-        meta.update(fixedFacing=fixed,footprintCells=spec['footprintCells'])
+        meta['fixedFacing']=fixed
+        if 'footprintCells' in spec: meta['footprintCells']=spec['footprintCells']
     pixel_style=spec.get('pixelStyle')
     if pixel_style:
         import pixel
@@ -157,7 +158,7 @@ def validate_unit(root, metadata_path):
     for name, expected in report['files'].items():
         if digest(contained(file.parent, name)) != expected: raise ValueError('Corrupt asset: ' + name)
     if not meta['pages'] or not meta['frames']: raise ValueError('Empty asset')
-    required_clips = {'idle'} if meta['profileId']=='building_overhead_v1' else {'idle','move','work'} if meta['profileId']=='woodland_pixel_v1' else {'idle','move','attack','death'}
+    required_clips = {'idle','deploy'} if meta['profileId']=='prop_overhead_v1' else {'idle'} if meta['profileId']=='building_overhead_v1' else {'idle','move','work'} if meta['profileId']=='woodland_pixel_v1' else {'idle','move','attack','death'}
     if meta['unitId'] in ('worker','worker_loaded'): required_clips.add('work')
     if not required_clips.issubset(meta['clips']): raise ValueError('Missing required clips')
     def integer(value): return type(value) is int
@@ -165,6 +166,8 @@ def validate_unit(root, metadata_path):
     if meta['profileId']=='building_overhead_v1':
         if meta.get('fixedFacing')!='S' or not integer(meta.get('footprintCells')) or not 1<=meta['footprintCells']<=4:
             raise ValueError('Invalid building footprint/facing')
+    if meta['profileId'] in ('building_overhead_v1','prop_overhead_v1'):
+        if meta.get('fixedFacing')!='S': raise ValueError('Invalid fixed facing')
         if any(clip['frames'][d]!=clip['frames']['S'] for clip in meta['clips'].values() for d in DIRECTIONS):
             raise ValueError('Building directions must alias the fixed view')
     if not finite(meta['bodyHeightPixels']) or meta['bodyHeightPixels'] <= 0: raise ValueError('Invalid body height')
