@@ -10,6 +10,10 @@ local function distribution(name,values)
  return string.format('DIST %s p50 %.6f p95 %.6f p99 %.6f max %.6f',name,percentile(values,.5),percentile(values,.95),percentile(values,.99),percentile(values,1))
 end
 function B.create(options)
+ if options['benchmark-vsync'] then
+  local vsync=assert(tonumber(options['benchmark-vsync']));assert(vsync==0 or vsync==1)
+  love.window.setVSync(vsync) -- Diagnostic only; acceptance runs leave the default untouched.
+ end
  local shippingContent=options['balance-benchmark'] or options.map=='twin_marches'
  -- The fixture battle is built from the mechanics fixture, so the app plays that content too.
  local app=require('src.app').create({map='open_fields',settings=Codec.copy(require('src.ui.settings').defaults),content=not shippingContent and require('tests.fixture_content') or nil})
@@ -89,6 +93,7 @@ function B:update(dt)
   for _,name in ipairs(PHASES) do lines[#lines+1]=distribution(name..'_ms',self.phase[name]) end
   local renderer,version,vendor,device=love.graphics.getRendererInfo()
   local stats=love.graphics.getStats()
+  lines[#lines+1]='VSYNC '..love.window.getVSync()
   lines[#lines+1]=string.format('RENDERER %s | %s | %s | %s',renderer,version,vendor,device)
   lines[#lines+1]=string.format('TEXTURE_BYTES %d; IMAGES %d; CANVASES %d',stats.texturememory,stats.images,stats.canvases)
   lines[#lines+1]='AUTHORITATIVE_BUILD '..require('src.build').fingerprint()
