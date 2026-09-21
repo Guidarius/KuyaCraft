@@ -137,3 +137,13 @@ contains raw performance and verification logs.
 Work is pushed to `codex/overnight-controls-performance`; master was not merged.
 Draft PR creation was attempted but GitHub returned HTTP 403, “Resource not
 accessible by integration.” The branch remains available for review.
+
+
+Packaged build `LoveRTS-20260921-003836` was produced from clean commit `46e914b`.
+Its fused executable passed the rendered suite (both shipping faction views, replay
+seek and Megacorp pod presentation), plus separate practice and production-replay
+launches. The latter two screenshots were visually reviewed. The packaged unit suite
+passed 25 checks. Every packaged source Lua file and all 106 active asset files
+were compared byte-for-byte/hash-for-hash with the tested working tree. The package
+includes the compatible `artifacts/overnight-soak.replay` and `VERIFICATION.json`.
+The replay launch smoke is separate from the full 12,000-tick source replay proof.
