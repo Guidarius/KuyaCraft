@@ -1,5 +1,7 @@
 # Control and movement implementation
 
+Current shipping control changes: [simulation 28 response update](CONTROL_RESPONSE.md). The versioned sections below document earlier implementations.
+
 
 
 Simulation version 3 implements the accepted core-control plan. The existing 20 Hz step, integer arithmetic, shared command stream and three-tick network lookahead remain in use. This source/content change intentionally invalidates earlier snapshots and replays; it does not silently migrate them or replace a golden result.

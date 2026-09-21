@@ -2365,3 +2365,99 @@ Human crowd recognition and mouse-feel playtests, and cross-PC/GPU appearance, a
 still outstanding. Work is on `codex/megacorp-drop-pod-scale`, based on the building
 branch. GitHub's integration refused draft-PR creation with HTTP 403; this does not
 prevent the required task-branch push.
+
+## 2026-09-20 — Responsive shipping control and measured performance (simulation 28)
+
+Implemented on `desk/control-response`, based on `b6339d9`. Content version 15.
+The target is Brood War style pace and individual control; coarse navigation remains a
+performance compromise. Shipping selections now retain individual speeds, optional
+formation pacing is scoped to player plus group, and safe subcell click destinations
+survive queues, patrols and snapshots. Nearby compatible group searches share terrain
+work while retaining independent destinations, body steering and congestion reroutes.
+Destination reservations are counted once per player during a command batch, and every
+smoothing probe now consumes the hard sample budget. See [CONTROL_RESPONSE.md](docs/CONTROL_RESPONSE.md).
+
+The shipping wall-detour tests for 1/12/24/48 workers all start actual movement by tick 14
+(0.70 simulated seconds). The audited 48-worker p95 was 30.55 seconds. The new enforced
+limit is 40 ticks on this deliberately difficult synthetic wall, not a promise about all
+terrain and congestion. A shipping mixed 50-versus-50 two-cell counterflow completes at
+tick 874 with clearance and destination checks. Regressions cover queued reservations,
+same-cell clicks, unsafe endpoints, patrol, leader cancellation/death and terrain changes.
+
+The host JIT cache was repeatedly flushing in a fresh shipping battle. Raising the
+capacity to 16,000 traces / 16 MiB machine code eliminated flushes in the diagnostic run;
+arithmetic settings and gameplay are unchanged. The real-update benchmark now drives
+App:update/App:draw, selects 24 units and includes juice, audio, view/observation, hover
+and recording. It exercises Orders and the Megacorp sidebar, with scripted commands
+replacing the bot. Network costs remain excluded. `scripts/test-performance.ps1` runs
+fresh-process simulation and both rendered gates; it returns failure when a gate fails.
+
+Verified on this Windows desktop, AMD Ryzen 5 5600G, pinned LOVE 11.5:
+
+- `scripts/test-all.ps1`: 179 headless passes; four fresh 100,000-tick workers and the
+  added 1,800-tick shipping shared-route checkpoints agree across 30/60/144 schedules and
+  default/tuned JIT caches; local ENet agrees through 600 ticks. Rendered UI/input passes
+  at 1280x720, 1920x1080 and 2560x1080; presentation and asset-viewer smoke passes.
+- A final reservation-scope review kept move claims out of unrelated spawn/unload
+  placement. `scripts/test.ps1` was rerun on the final source: 179 passes, all four workers
+  and local ENet pass again. The warmed shipping simulation p95 was 5.801 ms.
+- Final `scripts/test-performance.ps1`, default budgets: three separate shipping
+  240-unit/2,000-tick processes pass at 8.414, 7.634 and 6.043 ms p95. Each produces 9,260
+  attacks and 832 lead-unit moving ticks. Max steps remain about 39–40 ms.
+- **Rendered performance gate fails.** At 1080p, 240 units and 600 ticks, Orders simulation
+  p95 is 8.195 ms and frame cadence p95 17.788 ms; Megacorp simulation p95 is 7.424 ms and
+  frame cadence p95 17.833 ms. Both simulations pass 10 ms, both frame cadences miss
+  16.667 ms. Whole tick p95 is 11.313 / 9.809 ms; max whole ticks 54.630 / 55.509 ms. No
+  backlog ticks were discarded, but startup frame time was clamped by 0.088 / 0.071 s.
+  These are the updated benchmark workloads, not a controlled A/B against the old
+  benchmark that omitted live effects and selection. No budget was relaxed.
+
+Generated evidence is in this worktree's ignored `artifacts/response-test-all.log`,
+`response-headless-final.log`, `response-performance-final.log` and
+`performance-{fresh-1,fresh-2,fresh-3,live-orders,live-megacorp}.log`. Rendered tests used
+process-local APPDATA under ignored artifacts so sandboxed saves did not touch normal
+preferences. Heap figures in the live reports are sampled allocation, not retained-heap
+leak evidence. The existing 10,000-tick command-abuse soak also passes.
+
+The control changes intentionally change shipping bot matches: Orders mirror now ends
+at 21:32.2, player 1 wins; Orders vs Megacorp at 9:48.65, Megacorp wins. First contact is
+3:41 / 4:11. The audit measured roughly 12:23 / 10:23 endings. Recorded matches reproduce
+exactly; no golden was silently replaced. Combat/economy statistics were not retuned.
+Earlier simulation snapshots/replays require their original build.
+
+Still requiring separate evidence: human kiting/retreat and congestion feel, human
+match pacing/balance, real two-PC latency/jitter, other-machine performance and longer
+casualty/production sessions. Remaining measured work includes the frame-time target;
+coverage/vision union caching and historical-entity iteration remain future candidates.
+Source and tests are pushed on the task branch. Draft PR creation was blocked by the
+GitHub connector's 403 response; automatic approval review rejected extracting stored
+GitHub credentials as an alternative. No credential was read and no PR was created.
+
+
+## 2026-09-20 overnight integration checkpoint (simulation 29 / content 16)
+
+The isolated `codex/overnight-controls-performance` worktree combines drop-pod/art
+`fd851d4` with controls `541498d`. Shared vehicle routes preserve radius-specific
+waypoints and validate suffixes from the shared route endpoint. Mandatory clearance
+checks no longer consume the optional smoothing budget; three new vehicle regressions
+pass, including restore/cancellation and terrain invalidation. Current models, scales,
+selection rings and collision radii remain intact. No balance numbers were changed.
+
+Integration verification so far: the full test-all run passes 188 existing/new checks
+but identified one error in the new soak's production counter (it counted barracks
+recruitment events, missing Megacorp pod spawns). After correcting that test, its fresh
+12,000-tick run passes: 24 canonical replay checkpoints, exact restores at 4000/8000,
+1,632 attacks; Orders produced 49 units / lost 42, Megacorp produced 54 / lost 14.
+Both factions produced replacements after casualties. Retained Lua heap in the fresh
+process is 16,132 KiB at tick 12,000 including world/history/recording; temporary
+reclamation is reported separately in artifacts/overnight-soak-fresh.log. The full
+rendered/input/presentation checks pass at all three sizes, with the active 20-asset
+catalog. A separate practice-fixture regression and 1080p smoke pass.
+
+The original two-cell 50v50 fixture assumed a smaller Enforcer. Infantry counterflow
+still has a two-cell arrival gate (615 ticks); large-body congestion preserves orders
+and recovers after one army is redirected (1954 ticks). Dense unassisted opposing
+vehicle traffic remains a known jam, including a three-cell gap; this is not claimed
+fixed. See docs/OVERNIGHT_HANDOFF.md for the distinction and the five-minute practice
+scene (`--micro-lab`). Final measured performance and package verification follow in
+later entries. Earlier recordings require their original build; no golden was replaced.

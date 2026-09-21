@@ -91,25 +91,29 @@ end
 -- keep-right rule in a narrow passage. In the open a forty-cell march becomes one
 -- straight line; around a corner the route bends at the corner and nowhere else.
 --
--- The result is a subsequence of the original nodes, so `e.path` keeps exactly the shape
--- it had: no new fields, nothing new in the snapshot, and the final node is never
--- dropped because arrival is an exact-equality test on it.
-local function lineClear(w,x0,y0,x1,y1,r,lx,ly)
+-- The result is a subsequence of the original nodes. The final node (including its
+-- optional precise endpoint) is never dropped: arrival compares against that endpoint.
+local function lineClear(w,x0,y0,x1,y1,r,lx,ly,smoothing)
     local dx,dy=x1-x0,y1-y0
     local span=math.abs(dx)>math.abs(dy) and math.abs(dx) or math.abs(dy)
-    if span==0 then return G.terrain(w,x0,y0,r) end
     -- Never step further than the body radius, so consecutive samples overlap and the
     -- swept circle is covered rather than sampled through.
     local step=r<128 and r or 128
     if step<1 then step=1 end
     local steps=math.floor(span/step)+1
     for i=0,steps do
+        -- Optional smoothing may stop early; a required body-clearance test must
+        -- never turn budget exhaustion into an impassable edge. Required probes
+        -- are bounded by the direct/expansion budgets and three revalidation segments.
+        if smoothing then
+            if w.metrics.smoothChecks>=(w.content.rules.smoothBudget or 4096) then return nil end
+            w.metrics.smoothChecks=w.metrics.smoothChecks+1
+        else w.metrics.bodyChecks=(w.metrics.bodyChecks or 0)+1 end
         local x=x0+F.mulDiv(dx,i,steps)
         local y=y0+F.mulDiv(dy,i,steps)
         if not G.terrain(w,x,y,r) then return false end
         if not P.laneAllowed(w,F.cell(x),F.cell(y),lx,ly) then return false end
     end
-    w.metrics.smoothChecks=w.metrics.smoothChecks+steps+1
     return true
 end
 -- How far ahead a single pull may reach. Long enough that an ordinary cross-map march
@@ -145,7 +149,12 @@ local function smooth(w,e,path)
         -- body through anything, and the final node survives because the scan stops at it.
         local best=i
         for k=limit,i+1,-1 do
-            if lineClear(w,ax,ay,path[k].px or F.center(path[k].x),path[k].py or F.center(path[k].y),r,lx,ly) then best=k;break end
+            local clear=lineClear(w,ax,ay,path[k].px or F.center(path[k].x),path[k].py or F.center(path[k].y),r,lx,ly,true)
+            if clear==nil then
+                for j=i,n do out[#out+1]=path[j] end
+                return out
+            end
+            if clear then best=k;break end
         end
         out[#out+1]=path[best]
         ax,ay=path[best].px or F.center(path[best].x),path[best].py or F.center(path[best].y)
@@ -154,6 +163,17 @@ local function smooth(w,e,path)
     return out
 end
 P.smooth=smooth
+-- Exact endpoints live on orders/goals and therefore survive queues and snapshots.
+-- Only the last waypoint is refined; global navigation still works in whole cells.
+local function finish(w,e,path)
+    local goal=e.goal
+    if goal.px then
+        if #path==0 then path[1]={x=goal.x,y=goal.y} end
+        path[#path].px,path[#path].py=goal.px,goal.py
+    end
+    e.path=smooth(w,e,path);e.pathIndex=1;e.pathVersion=w.navVersion
+    if #path==0 then e.goal=nil end
+end
 -- Is the route still there? A completed path used to be trusted forever: only the very
 -- next waypoint was tested for walkability, so a war hall dropped ten cells ahead went
 -- unnoticed until the unit walked into it and spent ten ticks stuck before the
@@ -188,9 +208,9 @@ local function heuristic(x,y,gx,gy)
     local dx,dy = math.abs(x-gx),math.abs(y-gy)
     return 10 * math.max(dx,dy) + 4 * math.min(dx,dy)
 end
-local function directPath(w,e,sx,sy,gx,gy)
+local function directPath(w,e,sx,sy,gx,gy,startX,startY)
     local path={};local x,y=sx,sy
-    local r=G.radius(w,e);local ax,ay=e.x,e.y
+    local r=G.radius(w,e);local ax,ay=startX or e.x,startY or e.y
     while x~=gx or y~=gy do
         if w.metrics.directChecks>=w.content.rules.directPathBudget then return nil end
         w.metrics.directChecks=w.metrics.directChecks+1
@@ -207,11 +227,11 @@ local function directPath(w,e,sx,sy,gx,gy)
     if #path==0 then
         local last=node(w,e,gx,gy)
         if not last then return nil end
-        if e.x~=(last.px or F.center(gx)) or e.y~=(last.py or F.center(gy)) then path[1]=last end
+        if ax~=(last.px or F.center(gx)) or ay~=(last.py or F.center(gy)) then path[1]=last end
     end
     return path
 end
-function P.request(w,e,gx,gy)
+function P.request(w,e,gx,gy,independent)
     if not P.point(w,gx,gy,G.radius(w,e)) then e.blockedReason='destination blocked';e.goal=nil;w.searches[e.id]=nil;return false end
     e.blockedReason=nil
     local sx,sy = F.cell(e.x),F.cell(e.y)
@@ -221,13 +241,63 @@ function P.request(w,e,gx,gy)
     e.laneY=math.abs(gx-sx)<math.abs(gy-sy) and (gy>=sy and 1 or -1) or 0
     e.path,e.pathIndex = {},1
     e.goal = {x=gx,y=gy}
+    if e.order.x==gx and e.order.y==gy then e.goal.px,e.goal.py=e.order.px,e.order.py end
     if not e.detour or e.detour.untilTick<=w.tick then
         local direct=directPath(w,e,sx,sy,gx,gy)
-        if direct then e.path=smooth(w,e,direct);e.pathVersion=w.navVersion;w.searches[e.id]=nil;if #direct==0 then e.goal=nil end;return true end
+        if direct then finish(w,e,direct);w.searches[e.id]=nil;return true end
+    end
+    local group=not independent and w.content.rules.sharedPaths and e.order.group
+    if e.detour and e.detour.untilTick>w.tick then group=nil end
+    if e.order.x~=gx or e.order.y~=gy then group=nil end
+    local radius=G.radius(w,e)
+    if group then
+        for _,id in ipairs(w.order) do
+            local s=w.searches[id];local other=w.entities[id]
+            if id~=e.id and s and not s.leader and other.alive and other.goal and
+                s.group==group and s.owner==e.owner and s.version==w.navVersion and
+                s.radius==radius and s.laneX==e.laneX and s.laneY==e.laneY and
+                math.abs(s.sx-sx)<=12 and math.abs(s.sy-sy)<=12 and
+                math.abs(s.gx-gx)<=12 and math.abs(s.gy-gy)<=12 then
+                w.searches[e.id]={leader=id,leaderGX=s.gx,leaderGY=s.gy,gx=gx,gy=gy,
+                    group=group,owner=e.owner,version=w.navVersion,radius=radius,laneX=e.laneX,laneY=e.laneY}
+                return true
+            end
+        end
     end
     w.searches[e.id] = {open={ {x=sx,y=sy,key=start,g=0,h=h,f=h} }, costs={[start]=0},
+        sx=sx,sy=sy,group=group,owner=e.owner,radius=radius,
         closed={}, parents={}, gx=gx,gy=gy, version=w.navVersion, expanded=0, laneX=math.abs(gx-sx)>=math.abs(gy-sy) and (gx>=sx and 1 or -1) or 0, laneY=math.abs(gx-sx)<math.abs(gy-sy) and (gy>=sy and 1 or -1) or 0}
     return true
+end
+-- Share terrain work, not a unit's steering or its destination. Followers connect
+-- to a nearby raw waypoint and receive their own chain and their own final slot.
+-- Both connectors consume the existing direct-route budget. A failed connection
+-- falls back to ordinary A*, and congestion always reroutes independently.
+local function followers(w,id,path)
+    for _,otherId in ipairs(w.order) do
+        local s=w.searches[otherId]
+        if s and s.leader==id then
+            local e=w.entities[otherId]
+            if not e.alive or not e.goal then w.searches[otherId]=nil
+            else
+                local prefix,join
+                for k=math.min(16,#path),1,-1 do
+                    local n=path[k]
+                    if math.abs(n.x-F.cell(e.x))<=16 and math.abs(n.y-F.cell(e.y))<=16 then
+                        prefix=directPath(w,e,F.cell(e.x),F.cell(e.y),n.x,n.y)
+                        if prefix then join=k;break end
+                    end
+                end
+                local last=path[#path]
+                local suffix=last and (last.x==s.gx and last.y==s.gy and {} or directPath(w,e,last.x,last.y,s.gx,s.gy,last.px or F.center(last.x),last.py or F.center(last.y)))
+                if prefix and suffix then
+                    for k=join+1,#path do local n=path[k];prefix[#prefix+1]={x=n.x,y=n.y,px=n.px,py=n.py} end
+                    for k=1,#suffix do prefix[#prefix+1]=suffix[k] end
+                    finish(w,e,prefix);w.searches[otherId]=nil
+                else P.request(w,e,s.gx,s.gy,true) end
+            end
+        end
+    end
 end
 local function expand(w,id,s)
     local e = w.entities[id]
@@ -245,12 +315,12 @@ local function expand(w,id,s)
         end
         e.path={}
         for i=#reverse,1,-1 do e.path[#e.path+1]=reverse[i] end
-        e.path=smooth(w,e,e.path);e.pathVersion=w.navVersion
-        e.pathIndex=1; w.searches[id]=nil
         if #e.path==0 then
             local last=node(w,e,s.gx,s.gy)
-            if e.x~=(last.px or F.center(s.gx)) or e.y~=(last.py or F.center(s.gy)) then e.path={last} else e.goal=nil end
+            if e.x~=(last.px or F.center(s.gx)) or e.y~=(last.py or F.center(s.gy)) then e.path={last} end
         end
+        followers(w,id,e.path)
+        finish(w,e,e.path);w.searches[id]=nil
         return
     end
     for i=1,#dirs do
@@ -275,12 +345,33 @@ end
 function P.step(w)
     local count=#w.order
     if count==0 then return end
+    -- Rebuild the small active schedule in stable world order. Waiting followers
+    -- spend no expansions; cancelled/dead leaders cause deterministic promotion.
+    local active={}
+    for index,id in ipairs(w.order) do
+        local s=w.searches[id]
+        if s and s.leader then
+            local leader=w.searches[s.leader];local source=w.entities[s.leader]
+            if s.version~=w.navVersion or not leader or leader.leader or not source.alive or not source.goal or
+                leader.gx~=s.leaderGX or leader.gy~=s.leaderGY or leader.group~=s.group then
+                local e=w.entities[id]
+                if e.alive and e.goal then P.request(w,e,s.gx,s.gy) else w.searches[id]=nil end
+                s=w.searches[id]
+            end
+        end
+        if s and not s.leader then active[#active+1]={id=id,index=index} end
+    end
+    if #active==0 then return end
+    local cursor=0
+    for i=1,#active do if active[i].index<=w.pathCursor then cursor=i end end
     for _=1,w.content.rules.pathBudget do
         local found=false
-        for _=1,count do
-            w.pathCursor=w.pathCursor%count+1
-            local id=w.order[w.pathCursor]
-            if w.searches[id] then expand(w,id,w.searches[id]); found=true; break end
+        for _=1,#active do
+            cursor=cursor%#active+1
+            local entry=active[cursor];local s=w.searches[entry.id]
+            if s and not s.leader then
+                w.pathCursor=entry.index;expand(w,entry.id,s);found=true;break
+            end
         end
         if not found then break end
     end

@@ -28,6 +28,10 @@ test('unit','command costs and prerequisites',function() require('tests.command_
 require('tests.balance').register(test)
 require('tests.controls').register(test)
 require('tests.control_scenarios').register(test)
+require('tests.responsiveness').register(test)
+require('tests.integration_navigation').register(test)
+test('simulation','morning micro fixture has safe placements and mixed pod deployment',function() require('tests.micro_lab').check() end)
+test('soak','overnight 12000 tick production combat replacement replay soak',function() require('tests.overnight_soak').run() end)
 require('tests.maps').register(test)
 test('simulation','Enforcer crosses a two-cell passage with clearance and deterministic restore',function() require('tests.enforcer_footprint').twoCells() end)
 test('simulation','one-cell passage admits infantry and rejects the Enforcer body',function() require('tests.enforcer_footprint').oneCell() end)
@@ -442,6 +446,7 @@ function T.worker(options)
             if tick%100==0 then output:write(tick..' '..Hash.bytes(Sim.serializeCanonical(w))..'\n') end
         end
     end
+    require('tests.responsiveness').checkpoints(output,schedule)
     output:close();print('PASS worker: '..tick..' ticks at '..schedule..' FPS schedule');return 0
 end
 function T.run(options)

@@ -221,6 +221,7 @@ function App:update(dt)
     local steps=0
     while self.accumulator>=0.05 and steps<8 do
         if self.world.result then self.accumulator=0;break end
+        local tickStart=love.timer.getTime()
         local tick=self.world.tick+1
         local commands
         if self.playback then
@@ -238,9 +239,12 @@ function App:update(dt)
         else
             commands=self.queue;self.queue={}
             for _,c in ipairs(commands) do c.tick=tick end
-            local bot=self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),self.content) or {}
+            -- Tooling may supply a deterministic scenario through the same command
+            -- path. The rest of the live update, events, effects and recording runs.
+            local bot=self.tickCommands and self:tickCommands(tick) or (self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),self.content) or {})
             for _,c in ipairs(bot) do
-                self.sequences[2]=self.sequences[2]+1;c.player=2;c.sequence=self.sequences[2];c.tick=tick;commands[#commands+1]=c
+                local player=self.tickCommands and c.player or 2
+                self.sequences[player]=self.sequences[player]+1;c.player=player;c.sequence=self.sequences[player];c.tick=tick;commands[#commands+1]=c
             end
         end
         -- Interpolation needs one previous position per drawn entity. Rebuilding
@@ -261,8 +265,9 @@ function App:update(dt)
         local afterStep=love.timer.getTime();perf.step=(afterStep-mark)*1000
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
         require('src.ui.selection').prune(self)
-        perf.view=(love.timer.getTime()-afterStep)*1000
+        local afterView=love.timer.getTime();perf.view=(afterView-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
+        local afterEvents=love.timer.getTime();perf.events=(afterEvents-afterView)*1000
         -- Once a tick as well as on motion: with the pointer held still, units walking
         -- under it must still update the cursor and the hover ring.
         Input.refreshHover(self)
@@ -290,12 +295,15 @@ function App:update(dt)
         for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
         self.audio:play('ambience')
         if rejectedCount>0 then self.message=acceptedCount>0 and (acceptedCount..' accepted, '..rejectedCount..' rejected: '..firstReason) or firstReason elseif acceptedCount>0 then self.message=acceptedCount..' order'..(acceptedCount==1 and '' or 's')..' accepted' end
+        local afterFeedback=love.timer.getTime();perf.feedback=(afterFeedback-afterEvents)*1000
         if not self.playback then Replay.record(self.recording,self.world,commands)
         elseif self.playback.hashes[tick] then
             assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..tick)
         end
         if self.network and tick%100==0 then local bytes=Sim.serializeAuthoritative(self.world);self.network:checksum(tick,Hash.bytes(bytes),bytes) end
+        local afterReplay=love.timer.getTime();perf.replay=(afterReplay-afterFeedback)*1000;perf.total=(afterReplay-tickStart)*1000
         self.accumulator=self.accumulator-0.05;steps=steps+1
+        if self.onStep then self:onStep(perf,events,commands) end
         if self.world.result and not self.banner then
             local won=self.world.result.winner==self.player
             local built,lost,kills=self:matchStats()

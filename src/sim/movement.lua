@@ -293,7 +293,7 @@ function M.step(w,halt,route)
                 end
             end
         elseif not p.yielding then e.waitTicks=(e.waitTicks or 0)+1 end
-        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,F.center(e.goal.x),F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
+        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,e.goal.px or F.center(e.goal.x),e.goal.py or F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
             halt(w,e);e.navigation='arrived'
         end
         if not p.yielding and (e.waitTicks or 0)>=10 then
