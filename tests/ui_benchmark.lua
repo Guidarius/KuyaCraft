@@ -124,7 +124,8 @@ function B:draw()
  local begin=love.timer.getTime();self.app:draw();self.drawTimes[#self.drawTimes+1]=(love.timer.getTime()-begin)*1000;self.frames=self.frames+1
  local calls=love.graphics.getStats().drawcalls
  self.drawCalls[#self.drawCalls+1]=calls;self.maxDrawCalls=math.max(self.maxDrawCalls,calls)
- if self.steps>=120 and not self.shot then self.shot=true;love.graphics.captureScreenshot(function(data) local f=assert(io.open(self.app.balanceBenchmark and 'artifacts/balance-ui-battle.png' or 'artifacts/ui-battle.png','wb'));f:write(data:encode('png'):getString());f:close() end) end
+ -- Readback and PNG encoding happen after the timed interval and report.
+ if self.done and not self.shot then self.shot=true;love.graphics.captureScreenshot(function(data) local f=assert(io.open(self.app.balanceBenchmark and 'artifacts/balance-ui-battle.png' or 'artifacts/ui-battle.png','wb'));f:write(data:encode('png'):getString());f:close() end) end
 end
 function B:keypressed() end
 function B:mousepressed() end

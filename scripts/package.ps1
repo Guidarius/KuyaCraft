@@ -74,6 +74,8 @@ LoveRTS
 -------
 
 Double-click LoveRTS.exe to play.
+Double-click PlayMicro.cmd for the prepared five-minute controls practice scene.
+The full playtest checklist is in docs/OVERNIGHT_HANDOFF.md.
 
 Keep every file in this folder together: LoveRTS.exe needs the DLLs beside it. You can
 move or rename the folder, and you can make a desktop shortcut to LoveRTS.exe.
@@ -92,12 +94,31 @@ Built $stamp from LOVE $($Toolchain.loveVersion).
 "@
 [IO.File]::WriteAllText((Join-Path $destination 'HOW-TO-PLAY.txt'), $readme)
 
-Remove-Item -LiteralPath $stage -Recurse -Force
+$resolvedStage=[IO.Path]::GetFullPath($stage)
+$artifactRoot=[IO.Path]::GetFullPath((Join-Path $ProjectRoot 'artifacts'))+[IO.Path]::DirectorySeparatorChar
+if (-not $resolvedStage.StartsWith($artifactRoot,[StringComparison]::OrdinalIgnoreCase)) { throw 'Package stage escaped the artifact directory' }
+Remove-Item -LiteralPath $resolvedStage -Recurse -Force
 if (-not $SkipTests) {
     Write-Host 'Verifying the packaged archive runs its own unit suite...'
     & (Join-Path $destination 'lovec.exe') (Join-Path $destination 'LoveRTS.love') --test unit
     if ($LASTEXITCODE -ne 0) { throw 'Packaged build failed its unit suite.' }
 }
+$practice = @'
+@echo off
+cd /d "%~dp0"
+"%~dp0LoveRTS.exe" --micro-lab --width 1920 --height 1080
+'@
+[IO.File]::WriteAllText((Join-Path $destination 'PlayMicro.cmd'),$practice.Replace("`n","`r`n"))
+$gitSafe='safe.directory='+($ProjectRoot -replace '\\','/')
+$buildInfo=[ordered]@{built=$stamp;sourceRevision=(& git -c $gitSafe -C $ProjectRoot rev-parse HEAD);
+    dirty=@(& git -c $gitSafe -C $ProjectRoot status --porcelain);runtime=$Toolchain.loveVersion;
+    executableSha256=(Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash;
+    archiveSha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash;
+    assetsRequired=[bool]$WithAssets}
+if (Test-Path -LiteralPath (Join-Path $generated 'catalog.lua')) {
+    $buildInfo.catalogSha256=(Get-FileHash -LiteralPath (Join-Path $generated 'catalog.lua') -Algorithm SHA256).Hash
+}
+$buildInfo | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $destination 'BUILD-INFO.json') -Encoding utf8
 Get-FileHash -LiteralPath $executable | Format-List
 [IO.File]::WriteAllText((Join-Path $ProjectRoot 'artifacts/latest-package.txt'), $destination)
 Write-Host "Package: $destination"

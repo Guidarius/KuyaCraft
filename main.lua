@@ -41,7 +41,7 @@ else
     end
     function love.draw()
         if app then app:draw() else love.graphics.print('LoveRTS is running',40,40) end
-        if options['auto-quit'] and not options['asset-benchmark'] and frames==2 then
+        if options['auto-quit'] and not options['asset-benchmark'] and not options['ui-benchmark'] and frames==2 then
             love.graphics.captureScreenshot(function(data)
                 local path=options.screenshot or 'artifacts/smoke.png'
                 local file=assert(io.open(path,'wb'))
