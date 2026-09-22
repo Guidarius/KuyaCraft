@@ -1,5 +1,5 @@
 """Reopen every Orders scene and compare all saved poses with the export report.
-Run with Blender background --python-exit-code 1 --python this.py -- <root>.
+Run with Blender background --python-exit-code 1 --python this.py -- <root> [unit ...].
 """
 import json, math, sys
 from pathlib import Path
@@ -10,7 +10,9 @@ import pipeline as p
 ids=['worker','worker_loaded','footman','crossbow','gryphon','reliquary','keep','depot','barracks','sanctum']
 cat=json.loads((root/'assets/generated/catalog.json').read_text())
 results=[]
-for uid in ids:
+requested=sys.argv[sys.argv.index('--')+2:] or ids
+assert all(uid in ids for uid in requested), 'Unknown Orders unit'
+for uid in requested:
     meta=json.loads((root/cat['units'][uid]).with_suffix('.json').read_text())
     stage=root/'artifacts/asset-build'/meta['buildId']/uid
     recipe=json.loads((root/'art/recipes'/f'{uid}.json').read_text())

@@ -1,7 +1,8 @@
 """Cathedral infantry around the preserved humanoid rig; derived geometry only."""
 import copy
+import math
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 import unit_model as base
 
 
@@ -72,6 +73,13 @@ def build_unit(rig, recipe):
         b.prism('ShoulderMantle',[(-.29,1.27),(.29,1.27),(.20,1.46),(-.20,1.46)],.25,
                 'spine_03',mats['cloth'],Matrix.Translation((0,-.015,0)))
     else:
+        # A broader bevel-free blade survives the fixed overhead projection.
+        remove(('SwordBlade',))
+        right=rig.data.bones['hand_r'].matrix_local
+        blade=[(.12,-.075),(.55,-.075),(.64,0),(.55,.075),(.12,.075)]
+        vertices=[right@(base.PALM+Vector((x,y,z))) for z in (-.022,.022) for x,y in blade]
+        faces=[(4,3,2,1,0),(5,6,7,8,9)]+[(i,(i+1)%5,(i+1)%5+5,i+5) for i in range(5)]
+        b.mesh('SwordBlade',vertices,faces,'hand_r',mats['edge'])
         # Kite geometry in hand-local XY, with the face on +Z like the fitted carry pose.
         hand=rig.data.bones['hand_l'].matrix_local
         outline=[(-.29,-.18),(.17,-.23),(.31,0),(.17,.23),(-.29,.18)]
@@ -93,8 +101,26 @@ def correct_pose(rig, recipe, clip, phase):
         # Both rigid packs support the upper body during the source fall.
         r['model']['type']='worker_loaded'
     base.correct_pose(rig,r,clip,phase)
+    if recipe['model']['type']=='footman' and clip in ('idle','move','attack'):
+        torso=rig.pose.bones['spine_03'].matrix @ rig.data.bones['spine_03'].matrix_local.inverted()
+        rotation=torso.to_quaternion().to_matrix()
+        # Tilt the kite face upward 45 degrees and clear the torso silhouette.
+        q=math.sqrt(.5)
+        shield=rotation @ Matrix(((0,1,0),(-q,0,-q),(-q,0,q)))
+        base._solve_arm(rig,'_l',torso@Vector((.43,-.22,1.12)),shield)
+        # Ready -> windup -> contact (sample 3) -> follow-through -> ready.
+        yaw,pitch=0,.35
+        if clip=='attack':
+            keys=[(0,0,.35),(.2,-1.05,.85),(.4,.15,.12),(.6,1.05,.12),(.8,.4,.25),(1,0,.35)]
+            for a,b in zip(keys,keys[1:]):
+                if a[0]<=phase<=b[0]:
+                    t=(phase-a[0])/(b[0]-a[0]);t=t*t*(3-2*t)
+                    yaw=a[1]+(b[1]-a[1])*t;pitch=a[2]+(b[2]-a[2])*t
+                    break
+        c,s=math.cos(pitch),math.sin(pitch)
+        sword=rotation @ Matrix.Rotation(yaw,3,'Z') @ Matrix(((0,1,0),(-c,0,s),(s,0,c)))
+        base._solve_arm(rig,'_r',torso@Vector((-.36,-.28,1.05)),sword)
     if clip=='death' and recipe['model']['type'] in ('worker','worker_loaded'):
-        from mathutils import Matrix
         t=max(0,min(1,(phase-.25)/.23));t=t*t*(3-2*t)
         spine=rig.pose.bones['spine_01'];m=spine.matrix.copy()
         tilted=(Matrix.Rotation(.23*t,3,'X')@m.to_3x3()).to_4x4();tilted.translation=m.translation
