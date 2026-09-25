@@ -2,6 +2,11 @@
 
 Repository and production overview, audited 2026-09-21 (America/Chicago).
 
+For expert implementation analysis, failure studies and improvement experiments, read
+the companion [engineering case study](RTS_ENGINEERING_CASE_STUDY.md), audited
+2026-09-25 against the same merged game revision. This inventory retains its original
+date; local tooling and unmerged work should be rechecked before use.
+
 This document describes the game we have, the hero systems retained underneath it,
 and the art and engineering tools around it. It is a snapshot, not a new design brief.
 The merged baseline is `4da4c0e` on `master`, simulation version **30**, content version
