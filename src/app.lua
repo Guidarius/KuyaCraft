@@ -10,6 +10,7 @@ local F=require('src.sim.fixed')
 -- inline require() is a package.loaded hash lookup on every single call.
 local Camera=require('src.ui.camera')
 local Minimap=require('src.ui.minimap')
+local Terrain=require('src.ui.terrain')
 local Hud=require('src.ui.hud')
 local Input=require('src.ui.input')
 local Frames=require('src.asset_frames')
@@ -22,6 +23,18 @@ local DAY_LENGTH=9600
 -- How long an ordered unit's selection circle brightens for. Long enough to register
 -- as a reply, short enough that it has faded before the order visibly starts.
 local ACK_FLASH=0.2
+-- Health trail: hold the lost chunk this long, never longer than the cap, then drain it with
+-- this time constant.
+local TRAIL_HOLD,TRAIL_HOLD_CAP,TRAIL_DRAIN=0.3,1.0,0.2
+-- After a group order, how long the cells its units were given stay marked.
+local FORMATION_GHOST=1.0
+-- Own units below this percentage of their health pulse; a winding-up body swells this much.
+local LOW_HEALTH,WINDUP_SWELL=30,0.07
+-- The order marker and formation ghosts are coloured by what was ordered, so the player can
+-- see what they told the army to do: move, attack-move, a focused attack, a patrol beat.
+local ORDER_COLORS={
+    move={.55,.95,.6},follow={.55,.9,.85},build={.95,.8,.4},patrol={.45,.8,.95},
+    attack={1,.38,.32},attack_move={1,.5,.34},rejected={1,.38,.32},cast={.75,.6,1}}
 local colors={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.67,0.47,0.95},{0.92,0.78,0.32}}
 local function color(c,a) love.graphics.setColor(c[1],c[2],c[3],a or 1) end
 -- Warcraft 3 colours a health bar by relation, not by player colour: green is yours,
@@ -42,20 +55,33 @@ local function barColor(app,e)
     if e.owner==0 then return BAR_NEUTRAL end
     return BAR_ENEMY
 end
+-- The faction ids a content table offers, in a fixed order, so a default can be chosen
+-- without the app knowing any faction's name.
+local function factionIds(content)
+    local ids={};for id in pairs(content.factions) do ids[#ids+1]=id end;table.sort(ids);return ids
+end
 function App.create(options)
-    assert(Content.factions[options.faction or 'bastion'],'unknown faction: use bastion or wild')
-    local config={seed=12345,players={{faction=options.faction or 'bastion'},{faction=options.opponent or 'wild'}}}
+    -- The content this app plays: the shipping catalogue unless a caller (a test with a
+    -- fixture) supplies its own. Everything the presentation reads about a unit or a
+    -- building comes from here, never from the shipping module directly.
+    local content=options.content or Content
+    local ids=factionIds(content)
+    local faction=options.faction or ids[1]
+    assert(content.factions[faction],'unknown faction: '..tostring(faction))
+    local opponent=options.opponent or ids[2] or ids[1]
+    assert(content.factions[opponent],'unknown faction: '..tostring(opponent))
+    local config={seed=12345,players={{faction=faction},{faction=opponent}}}
     local map=Maps.create(options.map)
-    local self=setmetatable({options=options,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
-        camera={x=28,y=115,zoom=1},previous={},message='Select a worker and build an extractor on a gold mine to begin.',effects={},fonts={}}, {__index=App})
+    local self=setmetatable({options=options,content=content,player=1,queue={},sequences={0,0},selected={},groups={},accumulator=0,
+        camera={x=28,y=115,zoom=1},previous={},message=content.factions[faction].worker==false and 'Select the Orbital Command: Requisition (B) orders buildings from orbit, Drop pod (P) sends troops.' or content.rules.resources and 'Select a worker and right-click a substrate patch to begin.' or 'Select a worker and press B to build.',effects={},fonts={}}, {__index=App})
     self.fonts.title=love.graphics.newFont(24);self.fonts.body=love.graphics.newFont(14);self.fonts.small=love.graphics.newFont(12);self.fonts.card=love.graphics.newFont(10)
     if options.replay then
-        self.playback=Replay.read(options.replay,Content);config=self.playback.header.config;map=self.playback.header.map
+        self.playback=Replay.read(options.replay,content);config=self.playback.header.config;map=self.playback.header.map
         self.message='Replay playback | commands are read-only'
     end
-    self.world=Sim.create(config,Content,map);self.recording=Replay.create(config,Content,map,Replay.OFFLINE_INTERVAL)
+    self.world=Sim.create(config,content,map);self.recording=Replay.create(config,content,map,Replay.OFFLINE_INTERVAL)
     if options.host or options.join then
-        self.network=require('src.net.session').create(options,config,Content,map);self.player=self.network.player
+        self.network=require('src.net.session').create(options,config,content,map);self.player=self.network.player
     end
     self.settings=options.settings or Settings.load()
     self.widgets=require('src.ui.widgets').create();self.observation=require('src.ui.observation').create()
@@ -65,13 +91,23 @@ function App.create(options)
     if options['audio-disabled'] then self.audio.templates={} end
     self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
     self.feedback=require('src.feedback').create()
+    -- Known before the first frame, because the battlefield rectangle depends on it.
+    self.sidebar=require('src.ui.orbital').active(self.view,self.content)
+    self.juice=require('src.ui.juice').create()
     self.feedback:observe({},self.view,self.world.tick)
-    self.selected={self.world.players[self.player].hero}
+    self.selected={self:focus()}
     local ok,sprites=pcall(require,'src.sprites')
     if ok then self.sprites=sprites.load() end
     Camera.normalize(self)
-    Camera.center(self,self.world.entities[self.view.player.hero].x,self.world.entities[self.view.player.hero].y)
+    local home=self.world.entities[self:focus()]
+    Camera.center(self,home.x,home.y)
     return self
+end
+-- What the player looks at first and returns to with F1: the hero, or for a faction
+-- without one, the headquarters.
+function App:focus()
+    local p=self.world.players[self.player]
+    return p.hero or p.hq
 end
 function App:screen(x,y)
     return self.camera.x+x/256*26*self.camera.zoom,self.camera.y+y/256*CELL_Y*self.camera.zoom
@@ -101,11 +137,20 @@ function App:update(dt)
         local hero=self.view.byId[self.view.player.hero]
         if hero and hero.alive then Camera.center(self,hero.x,hero.y) end
     end
+    -- The health trail holds the chunk just lost for a moment before draining it, so a big hit
+    -- reads as big instead of melting away with the bar. Under sustained damage the hold keeps
+    -- restarting, so it is capped: the trail always starts draining within a second.
     for _,e in ipairs(self.view.entities) do
         local trail=self.healthTrails[e.id] or {value=e.hp};self.healthTrails[e.id]=trail
-        if e.hp<trail.value then trail.value=math.max(e.hp,trail.value-dt*e.maxHp*1.5) else trail.value=e.hp end
+        if e.hp<trail.value then
+            if trail.seen~=e.hp then trail.seen=e.hp;trail.since=self.clock;trail.first=trail.first or self.clock end
+            if self.clock-trail.since>=TRAIL_HOLD or self.clock-trail.first>=TRAIL_HOLD_CAP then
+                trail.value=math.max(e.hp,trail.value-math.max(dt*e.maxHp*.5,(trail.value-e.hp)*dt/TRAIL_DRAIN))
+            end
+        else trail.value=e.hp;trail.seen=e.hp;trail.first=nil end
     end
     if self.feedback.update then self.feedback:update(dt) end
+    self.juice:update(dt)
     if self.seeking then
         local target=self.seeking;local limit=math.min(target,self.world.tick+40)
         while self.world.tick<limit do
@@ -119,17 +164,19 @@ function App:update(dt)
     end
     if self.overlay and not self.network then self.accumulator=0;return end
     if self.playback then if self.replayPaused then self.accumulator=0;return end;dt=dt*self.replaySpeed end
+    -- Which way the player is panning: -1, 0 or 1 on each axis, from the screen edge and the
+    -- arrow keys. Camera.scroll turns that into movement with the speed setting and the ramp.
+    local panX,panY=0,0
     if self.settings.edgeScroll and not self.overlay and not self.capture then
         local mx,my=love.mouse.getPosition();local r=Camera.rect(self)
         if Camera.contains(self,mx,my) then
-            if mx<8 then self.camera.x=self.camera.x+dt*350 elseif mx>r.w-8 then self.camera.x=self.camera.x-dt*350 end
-            if my<r.y+8 then self.camera.y=self.camera.y+dt*350 elseif my>r.y+r.h-8 then self.camera.y=self.camera.y-dt*350 end
+            if mx<8 then panX=-1 elseif mx>r.w-8 then panX=1 end
+            if my<r.y+8 then panY=-1 elseif my>r.y+r.h-8 then panY=1 end
         end
     end
-    if love.keyboard.isDown('left') then self.camera.x=self.camera.x+dt*350 end
-    if love.keyboard.isDown('right') then self.camera.x=self.camera.x-dt*350 end
-    if love.keyboard.isDown('up') then self.camera.y=self.camera.y+dt*350 end
-    if love.keyboard.isDown('down') then self.camera.y=self.camera.y-dt*350 end
+    if love.keyboard.isDown('left') then panX=-1 elseif love.keyboard.isDown('right') then panX=1 end
+    if love.keyboard.isDown('up') then panY=-1 elseif love.keyboard.isDown('down') then panY=1 end
+    Camera.scroll(self,dt,panX,panY)
     if not self.overlay then Camera.clamp(self) end
     if self.network then
         self.network:poll()
@@ -144,14 +191,14 @@ function App:update(dt)
         end
         if not self.network.ready then return end
         if not self.started then
-            self.started=true;self.world=Sim.create(self.network.config,Content,self.network.map)
-            self.recording=Replay.create(self.network.config,Content,self.network.map,Replay.OFFLINE_INTERVAL)
-            self.selected={self.world.players[self.player].hero};self.view=Sim.view(self.world,self.player)
+            self.started=true;self.world=Sim.create(self.network.config,self.content,self.network.map)
+            self.recording=Replay.create(self.network.config,self.content,self.network.map,Replay.OFFLINE_INTERVAL)
+            self.selected={self:focus()};self.view=Sim.view(self.world,self.player)
             self.observation=require('src.ui.observation').create();self.observation:update(self.view)
             self.alerts=require('src.ui.alerts').create();self.healthTrails={};self.audio:clear()
             if self.sprites then self.sprites:reset() end
             self.previous={}
-            self.feedback:reset();self.feedback:observe({},self.view,self.world.tick)
+            self.feedback:reset();self.juice:reset();self.feedback:observe({},self.view,self.world.tick)
             for tick=1,3 do self.network:submit(tick,{}) end
         end
     end
@@ -174,6 +221,7 @@ function App:update(dt)
     local steps=0
     while self.accumulator>=0.05 and steps<8 do
         if self.world.result then self.accumulator=0;break end
+        local tickStart=love.timer.getTime()
         local tick=self.world.tick+1
         local commands
         if self.playback then
@@ -191,9 +239,12 @@ function App:update(dt)
         else
             commands=self.queue;self.queue={}
             for _,c in ipairs(commands) do c.tick=tick end
-            local bot=self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),Content) or {}
+            -- Tooling may supply a deterministic scenario through the same command
+            -- path. The rest of the live update, events, effects and recording runs.
+            local bot=self.tickCommands and self:tickCommands(tick) or (self.world.tick%20==0 and Bot.commands(Sim.view(self.world,2),self.content) or {})
             for _,c in ipairs(bot) do
-                self.sequences[2]=self.sequences[2]+1;c.player=2;c.sequence=self.sequences[2];c.tick=tick;commands[#commands+1]=c
+                local player=self.tickCommands and c.player or 2
+                self.sequences[player]=self.sequences[player]+1;c.player=player;c.sequence=self.sequences[player];c.tick=tick;commands[#commands+1]=c
             end
         end
         -- Interpolation needs one previous position per drawn entity. Rebuilding
@@ -213,14 +264,17 @@ function App:update(dt)
         local events=Sim.step(self.world,commands)
         local afterStep=love.timer.getTime();perf.step=(afterStep-mark)*1000
         self.view=Sim.view(self.world,self.player);self.observation:update(self.view)
-        perf.view=(love.timer.getTime()-afterStep)*1000
+        require('src.ui.selection').prune(self)
+        local afterView=love.timer.getTime();perf.view=(afterView-afterStep)*1000
         events=Sim.eventsFor(self.world,self.player)
+        local afterEvents=love.timer.getTime();perf.events=(afterEvents-afterView)*1000
         -- Once a tick as well as on motion: with the pointer held still, units walking
         -- under it must still update the cursor and the hover ring.
         Input.refreshHover(self)
         self.alerts:observe(events,self)
         if self.sprites then self.sprites:observe(events,self.view,self.world.tick) end
         self.feedback:observe(events,self.view,self.world.tick)
+        if not self.options['effects-disabled'] then self.juice:observe(events,self) end
         local acceptedCount,rejectedCount,firstReason=0,0,nil
         for _,event in ipairs(events) do
             if (event.kind=='rejected' or event.kind=='accepted') and event.player==self.player then
@@ -241,17 +295,21 @@ function App:update(dt)
         for _,unit in ipairs(self.view.entities) do if unit.owner==self.player and unit.alive and (unit.order.kind=='build' and not unit.goal) then self.audio:play('work',self,unit.x,unit.y);break end end
         self.audio:play('ambience')
         if rejectedCount>0 then self.message=acceptedCount>0 and (acceptedCount..' accepted, '..rejectedCount..' rejected: '..firstReason) or firstReason elseif acceptedCount>0 then self.message=acceptedCount..' order'..(acceptedCount==1 and '' or 's')..' accepted' end
+        local afterFeedback=love.timer.getTime();perf.feedback=(afterFeedback-afterEvents)*1000
         if not self.playback then Replay.record(self.recording,self.world,commands)
         elseif self.playback.hashes[tick] then
             assert(self.playback.hashes[tick]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..tick)
         end
         if self.network and tick%100==0 then local bytes=Sim.serializeAuthoritative(self.world);self.network:checksum(tick,Hash.bytes(bytes),bytes) end
+        local afterReplay=love.timer.getTime();perf.replay=(afterReplay-afterFeedback)*1000;perf.total=(afterReplay-tickStart)*1000
         self.accumulator=self.accumulator-0.05;steps=steps+1
+        if self.onStep then self:onStep(perf,events,commands) end
         if self.world.result and not self.banner then
             local won=self.world.result.winner==self.player
             local built,lost,kills=self:matchStats()
+            local reason=self.world.result.reason=='control' and (won and 'Held both control points   ' or 'The enemy held both control points   ') or ''
             self.banner={won=won,age=0,
-                detail=string.format('%02d:%02d   %d units built   %d lost   %d kills',
+                detail=reason..string.format('%02d:%02d   %d units built   %d lost   %d kills',
                     math.floor(self.world.tick/1200),math.floor(self.world.tick/20)%60,
                     built,lost,kills)}
             self.feedback.banner=self.banner
@@ -266,13 +324,26 @@ local function byDepth(a,b)
     return a.id<b.id
 end
 -- Rebuilt once per frame rather than scanned per drawn entity.
+-- Also remembers when each unit joined the selection, which is what the selection pop reads.
 local function selectionSet(self)
     local set=self.selectedSet
     if not set then set={};self.selectedSet=set else for key in pairs(set) do set[key]=nil end end
-    for _,v in ipairs(self.selected) do set[v]=true end
+    local since=self.selectedSince;if not since then since={};self.selectedSince=since end
+    for _,v in ipairs(self.selected) do set[v]=true;if not since[v] then since[v]=self.clock end end
+    for id in pairs(since) do if not set[id] then since[id]=nil end end
     return set
 end
 local function selected(self,id) return self.selectedSet and self.selectedSet[id] or false end
+-- A newly selected unit's ring settles into place over a short beat instead of blinking on, so
+-- a box selection reads as the units answering. Scale, not a new effect: nothing is allocated.
+local SELECT_POP=0.08
+local function selectPop(self,id)
+    local at=self.selectedSince and self.selectedSince[id]
+    if not at then return 1 end
+    local t=(self.clock-at)/SELECT_POP
+    if t>=1 then return 1 end
+    return 1+0.15*(1-t)
+end
 -- Resource gains are announced from the observed ledger delta rather than from a
 -- delivery event, because the simulation does not currently emit one. That means a
 -- refund or a bounty is announced the same way a drop-off is; the amount is always
@@ -294,7 +365,7 @@ end
 -- Income is announced from the simulation's `delivered` event, so the figure and the
 -- place it appears are both exact: the text rises over the worker that actually made the
 -- delivery, and a refund or a kill bounty is never mistaken for one.
-local RESOURCE_COLOURS={gold={.96,.82,.36}}
+local RESOURCE_COLOURS={gold={.96,.82,.36},substrate={.62,.86,.96},charge={.6,.95,.55}}
 function App:announceDelivery(event)
     local worker=self.view.byId[event.entity]
     local x,y=event.x,event.y
@@ -308,7 +379,7 @@ end
 function App:interpolated(e)
     local x,y=e.x,e.y;local prev=self.previous[e.id]
     if prev and prev.stamp~=self.previousStamp then prev=nil end
-    if prev and (e.category=='unit' or e.category=='carrier') then
+    if prev and e.category=='unit' then
         local alpha=math.min(1,self.accumulator/0.05)
         x=prev.x+(x-prev.x)*alpha;y=prev.y+(y-prev.y)*alpha
     end
@@ -333,10 +404,11 @@ function App:drawEntity(e)
     x,y=self:screen(x,y)
     local z=self.camera.zoom
     local team=colors[e.owner] or {0.76,0.61,0.39}
+    local groundZ=z*self:unitGroundScale(e)
     if not e.alive and not (self.sprites and self.sprites.units[Frames.assetId(e)]) then
-        color(team,0.5);g.ellipse('fill',x,y,15*z,5*z);return
+        color(team,0.5);g.ellipse('fill',x,y,15*groundZ,5*groundZ);return
     end
-    g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*z,5*z)
+    if e.category~='building' then g.setColor(0,0,0,0.28);g.ellipse('fill',x,y,12*groundZ,5*groundZ) end
     -- Ring colour states what the unit is to the viewer, which is the fastest read in
     -- a fight: own selection, hovered, ally, or enemy.
     local isSelected=selected(self,e.id)
@@ -344,33 +416,58 @@ function App:drawEntity(e)
     -- units' circles brighten and swell. Warcraft 3 answers a click before the
     -- simulation has run, and this is the half of that answer you can see.
     local ack=self.ackFlash and self.ackFlash[e.id] and self.ackFlashAt and (self.clock-self.ackFlashAt)<ACK_FLASH
-    if isSelected or ack then
+    if e.category~='building' and (isSelected or ack) then
         if ack then
             local swell=1+(1-(self.clock-self.ackFlashAt)/ACK_FLASH)*0.35
             g.setColor(0.85,1,0.9);g.setLineWidth(2.5)
-            g.ellipse('line',x,y,15*z*swell,7*z*swell)
-        else g.setColor(0.55,0.93,0.73);g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z) end
-    elseif self.hoverId==e.id then
+            g.ellipse('line',x,y,15*groundZ*swell,7*groundZ*swell)
+        else
+            -- A selected enemy or neutral, being inspected, keeps its relation colour.
+            if e.owner==self.player then g.setColor(0.55,0.93,0.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+            local pop=selectPop(self,e.id)
+            g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ*pop,7*groundZ*pop)
+        end
+    elseif e.category~='building' and self.hoverId==e.id then
         if e.owner==self.player then g.setColor(.55,.93,.73,.7)
         elseif e.owner==0 then g.setColor(.85,.72,.4,.7)
         else g.setColor(1,.4,.32,.8) end
-        g.setLineWidth(2);g.ellipse('line',x,y,15*z,7*z)
+        g.setLineWidth(2);g.ellipse('line',x,y,15*groundZ,7*groundZ)
     end
     if e.category=='building' then
         local w,h=e.size*26*z,e.size*CELL_Y*z
         x=x-13*z;y=y-(CELL_Y/2)*z
-        if isSelected then g.setColor(.55,.93,.73);g.rectangle('line',x,y,w,h) end
-        color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
-        color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
-        g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
-        if e.remaining>0 then
-            g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
-            g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
-            g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/Content.buildings[e.kind].buildTicks),5*z)
+        if isSelected or self.hoverId==e.id or ack then
+            if ack then g.setColor(.85,1,.9) elseif e.owner==self.player then g.setColor(.55,.93,.73) elseif e.owner==0 then g.setColor(.95,.78,.38) else g.setColor(1,.38,.3) end
+            g.setLineWidth(2)
+            g.rectangle('line',x,y,w,h)
         end
-        g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or e.kind,x+4,y+h-18*z)
+        local asset=self.sprites and self.sprites.units[Frames.assetId(e)]
+        local sprite=asset and asset.metadata.profileId=='building_overhead_v1' and asset.metadata.footprintCells==e.size
+        local construction=sprite and Frames.construction(asset.metadata,e.remaining,self.content.buildings[e.kind].buildTicks)
+        if sprite then
+            -- Buildings store their first occupied cell; exported origin is footprint centre.
+            if construction then self.sprites:drawFrame(Frames.assetId(e),construction,x+w/2,y+h/2,z,team)
+            else self.sprites:draw(e,x+w/2,y+h/2,z,team,nil,self.world.tick,self.view) end
+        else
+            color(team,0.5);g.rectangle('fill',x,y-22*z,w,h+22*z)
+            color(team);g.polygon('fill',x,y-22*z,x+w/2,y-38*z,x+w,y-22*z,x+w/2,y-8*z)
+            g.setColor(0.07,0.1,0.13);g.rectangle('fill',x+w*0.35,y+h-24*z,w*0.3,24*z)
+        end
+        if e.remaining>0 then
+            if not construction then
+                g.setColor(.72,.58,.32);g.rectangle('line',x,y-22*z,w,h+22*z);g.line(x,y-22*z,x+w,y+h,x+w,y-22*z,x,y+h)
+            end
+            g.setColor(.07,.1,.12);g.rectangle('fill',x,y-44*z,w,5*z)
+            g.setColor(.95,.77,.36);g.rectangle('fill',x,y-44*z,w*(1-e.remaining/self.content.buildings[e.kind].buildTicks),5*z)
+        end
+        if not sprite then
+            g.setColor(0.92,0.94,0.91);g.setFont(self.fonts.small);g.print(({hq='HQ',keep='KEEP',depot='DEPOT',tower='T',barracks='WAR',extractor='MINE',outpost='OUTPOST'})[e.kind] or ((self.content.buildings[e.kind] or {}).label or e.kind):upper(),x+4,y+h-18*z)
+        end
     elseif e.category=='node' then
-        if e.resource=='gold' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;g.setColor(0.9,0.71,0.27);g.polygon('fill',x-12*z,y,x-5*z,y-20*z,x+8*z,y-17*z,x+14*z,y)
+        -- A crystal for what workers pick (gold, substrate), a vent for a charge geyser, a tree
+        -- for anything else. Drawn, not sprited: the art hooks these kinds by resource.
+        if e.resource=='gold' or e.resource=='substrate' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;if e.resource=='gold' then g.setColor(0.9,0.71,0.27) else g.setColor(0.5,0.78,0.9) end;g.polygon('fill',x-12*z,y,x-5*z,y-20*z,x+8*z,y-17*z,x+14*z,y)
+        elseif e.resource=='charge' then x=x+(e.size-1)*13*z;y=y+(e.size-1)*CELL_Y/2*z;z=z*e.size;g.setColor(0.25,0.4,0.3);g.ellipse('fill',x,y-4*z,16*z,8*z);g.setColor(0.55,0.95,0.55,0.85);g.ellipse('fill',x,y-6*z,9*z,4*z);g.polygon('fill',x-3*z,y-8*z,x,y-22*z,x+4*z,y-8*z)
         else g.setColor(0.32,0.24,0.13);g.rectangle('fill',x-3*z,y-22*z,6*z,22*z);g.setColor(0.21,0.48,0.33);g.polygon('fill',x-16*z,y-12*z,x,y-44*z,x+16*z,y-12*z) end
     -- Carriers are drawn small and stooped, with the gold they are holding above them, so
     -- a stream of them reads at a glance as income crossing the map -- and so an enemy
@@ -387,14 +484,23 @@ function App:drawEntity(e)
         g.line(x-dx,y-dy-14*z,x+dx,y+dy-14*z)
         g.setColor(1,.75,.35,.5);g.circle('fill',x+dx,y+dy-14*z,2*z)
         g.setLineWidth(1)
-    elseif e.category=='carrier' then
-        z=z*0.66
-        color(team);g.rectangle('fill',x-6*z,y-16*z,12*z,12*z,3*z)
-        g.setColor(0.9,0.82,0.66);g.circle('fill',x,y-19*z,4*z)
-        if (e.payload or 0)>0 then g.setColor(0.96,0.82,0.36);g.polygon('fill',x-6*z,y-24*z,x,y-30*z,x+6*z,y-24*z,x,y-21*z) end
-        if self.feedback:flashing(e.id,self.world.tick) then g.setColor(1,1,1,.55);g.ellipse('fill',x,y-10*z,8*z,10*z) end
     else
-        local d=Content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
+        if e.garrisoned then return end
+        local d=self.content.units[e.kind];z=z*self:unitVisualScale(e);local height=d.hero and 31 or 23
+        -- A flyer hangs above its shadow, so height reads without any art.
+        if d.flying then g.setColor(0,0,0,.28);g.ellipse('fill',x,y,10*z,5*z);y=y-14*z end
+        -- Your own badly hurt units pulse on the ground, so the one about to die is found without
+        -- reading every bar. Drawn rather than spawned, so the effect budget is untouched.
+        if e.owner==self.player and e.alive and e.hp*100<e.maxHp*LOW_HEALTH then
+            g.setColor(1,.3,.25,.25+.2*math.sin(self.clock*8));g.setLineWidth(2)
+            local pulseZ=z*self:unitGroundScale(e)
+            g.ellipse('line',x,y,13*pulseZ,6*pulseZ);g.setLineWidth(1)
+            self.lowHealthDrawn=(self.lowHealthDrawn or 0)+1
+        end
+        -- Anticipation: the body swells a little as a swing gathers and settles as it lands, so a
+        -- blow reads as thrown before the hit appears.
+        local swing=self.feedback.windup and self.feedback:windup(e.id,self.world.tick)
+        if swing then z=z*(1+WINDUP_SWELL*math.sin(swing*math.pi));self.windupsDrawn=(self.windupsDrawn or 0)+1 end
         local drawn=self.sprites and self.sprites:draw(e,x,y,z,team,prev,self.world.tick,self.view)
         if not drawn then
             color(team);g.rectangle('fill',x-8*z,y-height*z,16*z,(height-5)*z,4*z)
@@ -413,10 +519,28 @@ function App:drawEntity(e)
         local damaged=e.hp<e.maxHp
         local bars=self.settings.healthBars or 'damaged'
         if bars=='always' or self.showAllBars or isSelected or (bars~='selected' and damaged) then
-            local barY=y-(d.hero and 53 or 40)*z
+            local barY=y-(e.kind=='associate' and 30 or e.kind=='medic' and 34 or e.kind=='enforcer' and 46 or d.hero and 53 or 40)*z
             g.setColor(0.06,0.08,0.1);g.rectangle('fill',x-14*z,barY,28*z,4*z)
             local trail=self.healthTrails[e.id];if trail then g.setColor(.95,.74,.42);g.rectangle('fill',x-14*z,barY,28*z*trail.value/e.maxHp,4*z) end
             color(barColor(self,e));g.rectangle('fill',x-14*z,barY,28*z*e.hp/e.maxHp,4*z)
+        end
+        -- Target stacks: one pip per stack above the bar, shown to both sides, because
+        -- the pips are the tell that a burst is coming.
+        if e.stackFixed then
+            local perHit=self.content.rules.stacks and self.content.rules.stacks.perHit or 200
+            local pips=math.min(16,math.floor(e.stackFixed/perHit))
+            local pipY=y-(e.kind=='associate' and 30 or e.kind=='medic' and 34 or e.kind=='enforcer' and 46 or d.hero and 53 or 40)*z-5*z
+            g.setColor(1,.82,.3)
+            for i=1,pips do g.rectangle('fill',x-14*z+(i-1)*3*z,pipY,2*z,3*z) end
+        end
+        -- A channel: the circle it is falling on, drawn for both sides. The enemy is not
+        -- told which ability, so its ring is a fixed size.
+        if e.channel then
+            local spec=e.channel.ability and self.content.abilities and self.content.abilities[e.channel.ability]
+            local radius=spec and spec.radius or 1024
+            local ax,ay=self:screen(e.channel.x,e.channel.y)
+            g.setColor(1,.55,.4,.5);g.setLineWidth(2)
+            g.ellipse('line',ax,ay,radius/256*26*z,radius/256*CELL_Y*z);g.setLineWidth(1)
         end
         -- Mana under the health bar, and a status strip above it. A stunned enemy has to
         -- read as stunned or the player cannot tell why their focus target stopped, and
@@ -447,6 +571,7 @@ function App:draw()
     if self.options['sprite-proof'] then return require('src.sprite_proof').draw(self.sprites) end
     local g=love.graphics;local width,height=g.getDimensions();local panel=width
     g.clear(0.055,0.078,0.088)
+    self.lowHealthDrawn=0;self.windupsDrawn=0
     local cameraRect=Camera.rect(self);if self.camera.viewportHeight and self.camera.viewportHeight~=cameraRect.h then local cx,cy=self:position(cameraRect.w/2,cameraRect.y+cameraRect.h/2);Camera.normalize(self);Camera.center(self,cx,cy) end;self.camera.viewportHeight=cameraRect.h
     local viewport=cameraRect;g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
     local m=self.world.map;local z=self.camera.zoom
@@ -458,8 +583,35 @@ function App:draw()
     if shakeX~=0 or shakeY~=0 then g.push();g.translate(shakeX,shakeY) end
     self.groupBadges=self:controlGroupBadges()
     local terrain=Minimap.cache(self)
-    g.setColor(1,1,1);g.draw(terrain.terrain,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
-    g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    -- The ground, baked per chunk from the map's terrain types (src/ui/terrain.lua). It used to
+    -- be the minimap's one-pixel-per-cell canvas stretched over the world.
+    if not self.terrainRenderer or self.terrainRenderer.map~=m then
+        if self.terrainRenderer then Terrain.release(self.terrainRenderer) end
+        self.terrainRenderer=Terrain.create(m)
+    end
+    Terrain.draw(self.terrainRenderer,self.camera.x,self.camera.y,26*z,CELL_Y*z,viewport)
+    g.setColor(1,1,1);g.draw(terrain.fog,self.camera.x,self.camera.y,0,26*z,CELL_Y*z)
+    -- Rebind after offscreen terrain bakes. LOVE 11.5 can restore the logical
+    -- scissor with the canvas Y orientation, clipping roofs during cache warmup.
+    g.setScissor();g.setScissor(viewport.x,viewport.y,viewport.w,viewport.h)
+    -- Control points lie on the ground, under everything standing on them. The ring is the
+    -- owner's colour; the fill grows with a capture in progress, in the capturer's colour.
+    local control=self.view.control
+    if control then
+        local rules=self.content.rules.control or require('src.sim.control').DEFAULT
+        local rx,ry=rules.radius/256*26*z,rules.radius/256*CELL_Y*z
+        for _,point in ipairs(control.points) do
+            local px,py=self:screen(point.x,point.y)
+            if point.progress>0 then
+                local t=point.progress/rules.captureTicks
+                if point.capturer==self.player then g.setColor(.35,.78,1,.3) else g.setColor(1,.35,.25,.3) end
+                g.ellipse('fill',px,py,rx*t,ry*t)
+            end
+            if point.owner==self.player then g.setColor(.35,.78,1,.9) elseif point.owner==0 then g.setColor(.9,.82,.45,.9) else g.setColor(1,.35,.25,.9) end
+            g.setLineWidth(2*z);g.ellipse('line',px,py,rx,ry);g.setLineWidth(1)
+            g.ellipse('fill',px,py,5*z,3*z)
+        end
+    end
     selectionSet(self)
     -- Cull to the viewport before sorting. On the shipping 128x112 map most of the
     -- army is off-screen at normal zoom, and every off-screen entity previously paid a
@@ -481,19 +633,46 @@ function App:draw()
         end
     end
     table.sort(entities,byDepth)
+    -- Scorch, impact rings and descent markers lie on the ground, under whatever stands on it.
+    if not self.options['effects-disabled'] then self.juice:drawGround(self) end
     for i=1,count do self:drawEntity(entities[i]) end
-    if not self.options['effects-disabled'] then self.feedback:draw(self);require('src.ui.command_feedback').draw(self) end
+    if not self.options['effects-disabled'] then self.feedback:draw(self);self.juice:draw(self);require('src.ui.command_feedback').draw(self) end
     -- Target marker: green for a move, red for an attack, contracting rather than
     -- expanding so the eye is pulled to the destination instead of away from it.
-    if self.orderMarker and self.clock-(self.orderMarker.time or 0)<.45 then
-        local marker=self.orderMarker;local mx,my=self:screen(marker.x,marker.y)
+    local marker=self.orderMarker
+    if marker and self.clock-(marker.time or 0)<.45 then
+        local mx,my=self:screen(marker.x,marker.y)
         local t=(self.clock-(marker.time or 0))/.45
-        local hostile=marker.kind=='attack' or marker.kind=='attack_move' or marker.kind=='rejected'
-        if hostile then g.setColor(1,.38,.32,1-t) else g.setColor(.55,.95,.6,1-t) end
+        local c=ORDER_COLORS[marker.kind] or ORDER_COLORS.move
+        g.setColor(c[1],c[2],c[3],1-t)
         g.setLineWidth(2*z)
         for ring=0,1 do
             local scale=(1-t)*(1+ring*0.55)
             g.ellipse('line',mx,my,(4+14*scale)*z,(2+8*scale)*z)
+        end
+        -- A focused attack is aimed at something, not somewhere: a cross says so.
+        if marker.kind=='attack' then
+            local s=(4+6*(1-t))*z
+            g.line(mx-s,my-s*.6,mx+s,my+s*.6);g.line(mx-s,my+s*.6,mx+s,my-s*.6)
+        end
+        g.setLineWidth(1)
+    end
+    -- Formation ghosts: the cell each unit of the last group order was actually given. They come
+    -- from the orders the simulation accepted, so they appear once the order has been applied
+    -- and show exactly what the formation did, rather than a prediction of it.
+    self.formationGhosts=0
+    if marker and marker.group and (marker.count or 0)>1 and self.ackFlash and self.clock-(self.ackFlashAt or -10)<FORMATION_GHOST then
+        local fade=1-(self.clock-self.ackFlashAt)/FORMATION_GHOST
+        local c=ORDER_COLORS[marker.kind] or ORDER_COLORS.move
+        g.setColor(c[1],c[2],c[3],.45*fade)
+        for id in pairs(self.ackFlash) do
+            local e=self.view.byId[id]
+            local o=e and e.order
+            if o and o.x and o.group==marker.group then
+                local gx,gy=self:screen(o.x*256+128,o.y*256+128)
+                g.circle('fill',gx,gy,2.5*z)
+                self.formationGhosts=self.formationGhosts+1
+            end
         end
     end
     -- Ability targeting preview. A spell you cannot see the shape of is a spell you
@@ -540,9 +719,32 @@ function App:draw()
         local mx,my=love.mouse.getPosition();g.setColor(0.52,0.86,0.73,0.18);g.rectangle('fill',self.drag.x,self.drag.y,mx-self.drag.x,my-self.drag.y)
         g.setColor(0.52,0.86,0.73);g.setLineWidth(1);g.rectangle('line',self.drag.x,self.drag.y,mx-self.drag.x,my-self.drag.y)
     end
+    -- Aiming a drop pod: the same territory tint a landing shows, and a ring at the pointer that
+    -- is green on covered ground and red off it, so the refusal is seen before the click.
+    if self.targeting and self.targeting.command=='pod_launch' and self.view.player.coverage then
+        local coverage=self.view.player.coverage;local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my)
+        local r=Camera.rect(self);local left,top=self:position(r.x,r.y);local right,bottom=self:position(r.x+r.w,r.y+r.h)
+        g.setColor(.4,.7,1,.13)
+        for cy=math.max(0,F.cell(top)),math.min(self.world.map.height-1,F.cell(bottom)) do for cx=math.max(0,F.cell(left)),math.min(self.world.map.width-1,F.cell(right)) do
+            if coverage[cy*self.world.map.width+cx+1] then local sx,sy=self:screen(cx*256,cy*256);g.rectangle('fill',sx,sy,26*z,CELL_Y*z) end
+        end end
+        local inside=wx>=0 and wy>=0 and F.cell(wx)<self.world.map.width and F.cell(wy)<self.world.map.height and coverage[F.cell(wy)*self.world.map.width+F.cell(wx)+1]
+        local px,py=self:screen(F.cell(wx)*256+128,F.cell(wy)*256+128)
+        g.setColor(inside and .45 or 1,inside and 1 or .35,.4,.85);g.setLineWidth(2);g.ellipse('line',px,py,2.2*26*z,2.2*CELL_Y*z);g.ellipse('line',px,py,.5*26*z,.5*CELL_Y*z);g.setLineWidth(1)
+        if not inside then g.setFont(self.fonts.small);g.print('Outside relay coverage',px+14,py-8) end
+    end
     if self.building then
-        local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=Content.buildings[self.building].size
-        local valid,reason=Sim.placement(self.view,Content,self.building,F.cell(wx),F.cell(wy))
+        local mx,my=love.mouse.getPosition();local wx,wy=self:position(mx,my);local x,y=self:screen(F.cell(wx)*256,F.cell(wy)*256);local size=self.content.buildings[self.building].size
+        -- Territory: while placing, a coverage faction sees where its relays reach.
+        local coverage=self.view.player.coverage
+        if coverage then
+            local r=Camera.rect(self);local left,top=self:position(r.x,r.y);local right,bottom=self:position(r.x+r.w,r.y+r.h)
+            g.setColor(.4,.7,1,.13)
+            for cy=math.max(0,F.cell(top)),math.min(self.world.map.height-1,F.cell(bottom)) do for cx=math.max(0,F.cell(left)),math.min(self.world.map.width-1,F.cell(right)) do
+                if coverage[cy*self.world.map.width+cx+1] then local sx,sy=self:screen(cx*256,cy*256);g.rectangle('fill',sx,sy,26*z,CELL_Y*z) end
+            end end
+        end
+        local valid,reason=Sim.placement(self.view,self.content,self.building,F.cell(wx),F.cell(wy),self.landing~=nil)
         g.setColor(valid and .4 or 1,valid and .85 or .3,.3,.4);g.rectangle('fill',x,y,size*26*z,size*CELL_Y*z)
         g.setColor(valid and .65 or 1,valid and 1 or .3,.4);g.rectangle('line',x,y,size*26*z,size*CELL_Y*z)
         if not valid then for offset=0,size*26*z,8 do g.line(x+offset,y,x+offset,y+size*CELL_Y*z) end end
@@ -588,7 +790,7 @@ function App:draw()
         g.rectangle('fill',viewport.x,viewport.y,viewport.w,viewport.h)
     end
     if shakeX~=0 or shakeY~=0 then g.pop() end
-    g.setScissor();Hud.draw(self)
+    g.setScissor();Hud.draw(self);Hud.control(self)
     self.feedback:drawText(self,width,height)
 end
 -- Which control group each selected unit belongs to, for the badge above it. Built once
@@ -603,16 +805,25 @@ function App:controlGroupBadges()
     return badges
 end
 
+function App:unitGroundScale(e)
+    if e.kind=='associate' or e.kind=='medic' then return .75 end
+    if e.kind=='enforcer' then return 4/3 end
+    local d=e.category=='unit' and self.content.units[e.kind]
+    -- Preserve compact-unit rings; larger ground bodies get proportionate rings
+    -- and picking even when their sprite atlas uses a different canvas size.
+    return d and not d.flying and d.radius>127 and d.radius/80 or 1
+end
 function App:unitVisualScale(e)
-    local d=Content.units[e.kind];if not d then return 1 end
+    local d=self.content.units[e.kind];if not d then return 1 end
     local u=self.sprites and self.sprites.units[Frames.assetId(e)]
     local target=d.hero and 38.4 or d.worker and 26.24 or 32
     return u and target/(u.metadata.bodyHeightPixels*(u.metadata.drawScale or 1)) or d.worker and .82 or 1
 end
-function App:pick(x,y,ownOnly)
+-- `selectable` leaves out what can be shot but never selected: carriers and shots in flight.
+function App:pick(x,y,ownOnly,selectable)
     local best,dist
     for _,e in ipairs(self.view.entities) do
-        if e.alive and (not ownOnly or e.owner==self.player) then
+        if e.alive and (not ownOnly or e.owner==self.player) and not (selectable and (e.category=='projectile' or e.garrisoned)) then
             local z=self.camera.zoom;local sx,sy=self:screen(e.x,e.y);local hit,distance
             if e.category~='unit' then
                 local left,top=self:screen(F.cell(e.x)*256,F.cell(e.y)*256)
@@ -620,7 +831,7 @@ function App:pick(x,y,ownOnly)
                 hit=x>=left and x<=left+width and y>=top-38*z and y<=top+height
                 distance=(x-(left+width/2))^2+(y-(top+height/2))^2
             else
-                z=z*self:unitVisualScale(e);distance=(x-sx)^2+(y-(sy-12*z))^2;hit=distance<(20*z)^2
+                z=z*self:unitVisualScale(e)*self:unitGroundScale(e);distance=(x-sx)^2+(y-(sy-12*z))^2;hit=distance<(20*z)^2
             end
             if hit and (not best or distance<dist) then best=e;dist=distance end
         end
@@ -640,15 +851,15 @@ function App:requestSeek(tick,player)
 end
 function App:seek(tick,player)
     if not self.playback then return end
-    self.player=player or self.player;self.world=Sim.create(self.playback.header.config,Content,self.playback.header.map)
+    self.player=player or self.player;self.world=Sim.create(self.playback.header.config,self.content,self.playback.header.map)
     self.observation=require('src.ui.observation').create();self.observation:update(Sim.view(self.world,self.player))
     for i=1,math.min(tick,#self.playback.frames) do
         Sim.step(self.world,self.playback.frames[i].commands)
         if self.playback.hashes[i] then assert(self.playback.hashes[i]==Hash.bytes(Sim.serializeAuthoritative(self.world)),'Replay diverged at tick '..i) end
         self.observation:update(Sim.view(self.world,self.player))
     end
-    self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.audio:clear()
-    self.alerts=require('src.ui.alerts').create();self.selected={self.view.player.hero};self.cardPage=nil;self.cardSelection=nil;self.uiNotice=nil;self.costFlash=nil;self.commandMarks={};self.orderMarker=nil;if self.sprites then self.sprites:reset() end
+    self.view=Sim.view(self.world,self.player);self.previous={};self.accumulator=0;self.feedback:reset();self.juice:reset();self.audio:clear()
+    self.alerts=require('src.ui.alerts').create();self.selected={self:focus()};self.cardPage=nil;self.cardSelection=nil;self.uiNotice=nil;self.costFlash=nil;self.commandMarks={};self.orderMarker=nil;if self.sprites then self.sprites:reset() end
 end
 -- Saving a replay must never be able to take the game down with it. A packaged build
 -- can easily be sitting somewhere the player cannot write -- Program Files, a read-only
@@ -676,5 +887,5 @@ function App:save(path)
     self.message='Replay saved: '..path;print(self.message)
     return true
 end
-function App:close() if not self.noAutoSave then self:save() end;self.audio:clear();if self.miniCache then self.miniCache.terrain:release();self.miniCache.fog:release();self.miniCache=nil end;if self.network then self.network:close() end end
+function App:close() if not self.noAutoSave then self:save() end;self.audio:clear();if self.miniCache then self.miniCache.terrain:release();self.miniCache.fog:release();self.miniCache=nil end;if self.terrainRenderer then Terrain.release(self.terrainRenderer);self.terrainRenderer=nil end;if self.network then self.network:close() end end
 return App

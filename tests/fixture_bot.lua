@@ -23,20 +23,7 @@ function M.commands(view,content)
             else enemy=enemy or e end
         end
     end
-    -- One extractor on the nearest uncovered mine. Nothing harvests, so an idle worker
-    -- is only ever useful as a builder.
-    local covered={}
-    for _,e in ipairs(view.entities) do if e.alive and e.mine then covered[e.mine]=true end end
-    if worker and worker.order.kind=='stop' and view.player.resources.gold>=content.buildings.extractor.cost.gold then
-        local best,dist
-        for _,n in ipairs(nodes) do
-            if n.resource=='gold' and not covered[n.id] then
-                local d=(worker.x-n.x)^2+(worker.y-n.y)^2
-                if not best or d<dist then best=n;dist=d end
-            end
-        end
-        if best then add('build',worker,{building='extractor',x=math.floor(best.x/256),y=math.floor(best.y/256)}) end
-    end
+    local builderId
     if worker and not barracks and view.player.resources.gold>=content.buildings.barracks.cost.gold then
         local ox,oy=math.floor(hq.x/256),math.floor(hq.y/256)
         local placed=false
@@ -54,9 +41,17 @@ function M.commands(view,content)
                             if obstacle.alive and cx>=ex and cy>=ey and cx<ex+(obstacle.size or 1) and cy<ey+(obstacle.size or 1) then ok=false end
                         end
                     end end
-                    if ok then add('build',worker,{building='barracks',x=x,y=y});placed=true;break end
+                    if ok then add('build',worker,{building='barracks',x=x,y=y});builderId=worker.id;placed=true;break end
                 end
             end
+        end
+    end
+    -- Every idle worker but the builder harvests the nearest gold node.
+    for _,e in ipairs(view.entities) do
+        if e.alive and e.owner==player and e.kind=='worker' and e.order.kind=='stop' and e.id~=builderId then
+            local best,dist
+            for _,n in ipairs(nodes) do if n.resource=='gold' and (n.amount or 1)>0 then local d=(e.x-n.x)^2+(e.y-n.y)^2;if not best or d<dist then best=n;dist=d end end end
+            if best then add('harvest',e,{target=best.id}) end
         end
     end
     if barracks and barracks.remaining==0 and #barracks.queue<2 then

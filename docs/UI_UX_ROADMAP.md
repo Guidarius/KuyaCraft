@@ -225,3 +225,13 @@ player's side only -- never to everyone, or a ping would hand the enemy your att
 Not added: autocast, ability levels, charges, a talking portrait, unit voice assets. The
 audio manifest, the cursor set, the status swatches and the effect anchors are the slots
 those drop into.
+
+## Icon and pip inventory — 2026-09-17
+
+[docs/art/ICON_AND_PIP_INVENTORY.md](art/ICON_AND_PIP_INVENTORY.md) is the drawing list for
+every symbol the match HUD and the world overlays need: 94 of them in three tiers ordered by
+how often a player reads them, with the key, the meaning, the slot it is drawn in today and
+the size it has to read at. It is where the status swatches above, the cost letters in
+`src/ui/widgets.lua` and the procedural glyphs in `src/ui/icons.lua` are headed. It also
+specifies the move from smooth bars to Warcraft 3 style notched ones. Nothing in it is
+implemented yet.

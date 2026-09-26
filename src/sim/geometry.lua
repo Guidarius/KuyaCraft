@@ -9,9 +9,10 @@ function G.endStep(w) w._geometryActive=nil;w._geometry=nil end
 function G.invalidate(w) w._geometry=nil end
 local function index(w)
     if not w._geometry then
-        local bins={}
+        local bins={maxRadius=0}
         for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' then
             local key=F.cell(e.y)*256+F.cell(e.x);bins[key]=bins[key] or {};bins[key][#bins[key]+1]=e
+            bins.maxRadius=math.max(bins.maxRadius,w.content.units[e.kind].radius)
         end end
         w._geometry=bins
     end
@@ -29,12 +30,23 @@ function G.terrain(w,x,y,r)
     end end
     return true
 end
+-- Allies compress to 75% of their combined radii. Exposed by radius so a hot loop that already
+-- has both radii in hand need not look them up again.
+function G.alliedGap(ra,rb) return math.floor((ra+rb)*3/4) end
 function G.separation(w,a,b)
+    local ra,rb=G.radius(w,a),G.radius(w,b)
+    return a.owner==b.owner and G.alliedGap(ra,rb) or ra+rb
+end
+-- How far allies may be pressed together by a unit squeezing past, as a percentage of their
+-- combined radii. Below G.separation, above this. Enemies never press: it equals separation.
+G.PRESS=65
+function G.pressedSeparation(w,a,b)
     local r=G.radius(w,a)+G.radius(w,b)
-    return a.owner==b.owner and math.floor(r*3/4) or r
+    return a.owner==b.owner and math.floor(r*G.PRESS/100) or r
 end
 local function blocks(w,e,x,y,r,except)
-        if e.alive and e.category=='unit' and e.id~=except then
+        -- A flyer blocks nothing on the ground.
+        if e.alive and e.category=='unit' and e.id~=except and not e.garrisoned and not w.content.units[e.kind].flying then
             local gap=r+G.radius(w,e)
             if math.abs(x-e.x)<gap and math.abs(y-e.y)<gap and F.distance2Bounded(x,y,e.x,e.y)<gap*gap then return true end
         end
@@ -44,7 +56,8 @@ function G.free(w,x,y,r,except)
     if not G.terrain(w,x,y,r) then return false end
     if w._geometryActive then
         local bins=index(w)
-        for cy=F.cell(y)-1,F.cell(y)+1 do for cx=F.cell(x)-1,F.cell(x)+1 do
+        local reach=math.ceil((r+bins.maxRadius)/256)
+        for cy=F.cell(y)-reach,F.cell(y)+reach do for cx=F.cell(x)-reach,F.cell(x)+reach do
             for _,e in ipairs(bins[cy*256+cx] or {}) do if blocks(w,e,x,y,r,except) then return false end end
         end end
     else
@@ -62,5 +75,14 @@ function G.weaponRangeAt(w,e,x,y,t,extra)
     range=range+G.radius(w,t)
     return F.distance2Bounded(x,y,t.x,t.y)<=range*range
 end
-function G.weaponRange(w,e,t,extra) return G.weaponRangeAt(w,e,e.x,e.y,t,extra) end
+-- A building shoots from the edge of its footprint nearest the target, so a wide building's
+-- range means reach past its wall on every side rather than from its origin cell.
+function G.weaponRange(w,e,t,extra)
+    local x,y=e.x,e.y
+    if e.category=='building' then
+        local size=e.size or 1
+        x=math.max(e.x-128,math.min(t.x,e.x-128+size*256));y=math.max(e.y-128,math.min(t.y,e.y-128+size*256))
+    end
+    return G.weaponRangeAt(w,e,x,y,t,extra)
+end
 return G

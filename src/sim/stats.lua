@@ -89,16 +89,19 @@ function S.baseSpeed(w,e)
     local n=apply(w.content.units[e.kind].speed,flat,percent)
     return n<1 and 1 or n
 end
--- Damage dealt by one committed hit, before the target's mitigation.
-function S.damage(w,e)
+-- Damage dealt by one committed hit, before the target's mitigation. Against a flyer a
+-- weapon with a separate `airDamage` uses that as its base.
+function S.damage(w,e,target)
     local d=def(w,e)
     if not d or not d.damage then return 0 end
+    local base=d.damage
+    if target and d.airDamage and target.category=='unit' then local td=w.content.units[target.kind];if td and td.flying then base=d.airDamage end end
     local rules=w.content.rules
     local flat,percent=modifiers(w,e,'damage')
     if e.upgrades and e.upgrades[2]==1 then flat=flat+(rules.heroDamage or 8) end
     if e.kind=='warden' and e.stance==2 then flat=flat+(rules.offensiveDamage or 6) end
     if e.kind=='beastkeeper' and e.stance==2 then flat=flat-(rules.pursuitPenalty or 5) end
-    local n=apply(d.damage,flat,percent)
+    local n=apply(base,flat,percent)
     return n<1 and 1 or n
 end
 -- Every warden in the world, in `w.order` order. Gathered once per tick by the combat
@@ -140,7 +143,9 @@ function S.armor(w,e,protectors)
             end
         end
     end
-    local flat=modifiers(w,e,'armor')
+    -- Content armour is the base every unit and building carries into the fight.
+    local d=def(w,e)
+    local flat=modifiers(w,e,'armor')+(d and d.armor or 0)
     return reduction+flat
 end
 -- Commit-to-commit period in ticks. The windup lives inside it and is never added to it.

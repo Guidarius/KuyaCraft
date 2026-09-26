@@ -3,7 +3,7 @@ function T.run()
     local App=require('src.app');local Sim=require('src.sim')
     for _,fps in ipairs({30,60,144}) do
         for _,network in ipairs({false,true}) do
-            local app=App.create({map='open_fields'});app.noAutoSave=true
+            local app=App.create({map='open_fields',content=require('tests.fixture_content')});app.noAutoSave=true
             if network then
                 local n={ready=true,config=app.world.config,map=app.world.map,submitted={},frames={},status='Test lockstep'}
                 function n:poll() end

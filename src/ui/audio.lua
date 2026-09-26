@@ -25,6 +25,24 @@ local A={manifest={
  -- this manifest makes them play with no code change.
  ack={frequency=600,duration=.06,gain=.16,priority=3,cooldown=.05,bus='ui'},
  windup={frequency=300,duration=.05,gain=.07,priority=0,cooldown=.12,bus='effects'},
+ -- World cues named by src/ui/juice.lua. Each is a stand-in tone under the name the real
+ -- recording will take: give a row a `path` and the file plays instead, with no code change.
+ burst={frequency=900,endFrequency=260,duration=.16,gain=.24,priority=3,cooldown=.1,bus='effects'},
+ splash={frequency=120,endFrequency=60,duration=.22,gain=.24,priority=2,cooldown=.15,bus='effects'},
+ barrage={frequency=180,endFrequency=90,duration=.35,gain=.24,priority=3,cooldown=.4,bus='effects'},
+ cast={frequency=520,endFrequency=780,duration=.14,gain=.18,priority=2,cooldown=.15,bus='effects'},
+ pod_launch={frequency=260,endFrequency=900,duration=.3,gain=.2,priority=3,cooldown=.3,bus='effects'},
+ pod_land={frequency=110,endFrequency=50,duration=.3,gain=.3,priority=4,cooldown=.2,bus='effects'},
+ landing={frequency=700,endFrequency=350,duration=.3,gain=.18,priority=3,cooldown=.3,bus='effects'},
+ land={frequency=90,endFrequency=40,duration=.4,gain=.32,priority=4,cooldown=.2,bus='effects'},
+ requisition={frequency=540,endFrequency=680,duration=.1,gain=.16,priority=3,cooldown=.15,bus='ui'},
+ ready_to_land={frequency=660,endFrequency=990,duration=.2,gain=.22,priority=4,cooldown=.5,bus='ui'},
+ harvest={frequency=1200,duration=.03,gain=.06,priority=0,cooldown=.5,bus='effects'},
+ deliver={frequency=880,endFrequency=1100,duration=.05,gain=.07,priority=0,cooldown=.6,bus='effects'},
+ depleted={frequency=200,endFrequency=110,duration=.25,gain=.2,priority=3,cooldown=.5,bus='effects'},
+ garrison={frequency=240,endFrequency=180,duration=.1,gain=.16,priority=2,cooldown=.15,bus='effects'},
+  pod_ready={frequency=620,endFrequency=930,duration=.12,gain=.16,priority=3,cooldown=1,bus='ui'},
+ unload={frequency=180,endFrequency=260,duration=.1,gain=.16,priority=2,cooldown=.15,bus='effects'},
  victory={frequency=1040,duration=.4,gain=.25,priority=6,cooldown=2,bus='ui'}}}
 function A.create(settings)
  local self=setmetatable({settings=settings,pool={},last={},clock=0,templates={},variation=0}, {__index=A})
@@ -64,6 +82,14 @@ function A:play(name,app,x,y)
 end
 -- Most specific acknowledgement that exists: per unit kind and order, then per unit
 -- kind, then the generic cue. Faction voice lines slot in by naming alone.
+-- The selection reply, chosen the way an acknowledgement is: `select-shield` plays when the
+-- manifest has it, otherwise `select`. A unit's own selection voice then needs no code, only a
+-- manifest entry with a `path`; nothing is recorded or bundled until the user makes it.
+function A:selected(kind,app,x,y)
+ local name=kind and 'select-'..kind
+ if name and self.templates[name] then return self:play(name,app,x,y) end
+ return self:play('select',app,x,y)
+end
 function A:ack(kind,order,app,x,y)
  local names={}
  if kind and order then names[#names+1]='ack-'..kind..'-'..order end

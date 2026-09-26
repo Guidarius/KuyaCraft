@@ -17,15 +17,23 @@ else
             assert(love.window.setMode(assert(tonumber(options.width)),assert(tonumber(options.height)),{resizable=true}))
         end
         print('LoveRTS 0.1 | LOVE '..table.concat({love.getVersion()},'.')..' | save directory: '..love.filesystem.getSaveDirectory())
-        if options['woodland-viewer'] then
+        if options['orders-review'] then app=require('src.orders_review').create(options)
+        elseif options['orders-lab'] then app=require('tests.orders_lab').create(options)
+        elseif options['woodland-viewer'] then
             if not options.width then love.window.setMode(1600,1000,{resizable=true}) end
             app=require('src.woodland_viewer').create(options)
+        elseif options['micro-lab'] then app=require('tests.micro_lab').create(options)
         elseif options['ui-benchmark'] then app=require('tests.ui_benchmark').create(options)
         elseif options['asset-test'] or options['asset-benchmark'] then
             app=require('tests.asset_presentation').create(options)
         elseif options['asset-viewer'] then
             app=require('src.asset_viewer').create(require('src.sprites').load())
-        elseif not options.smoke then app=require(options['ui-test'] and 'src.app' or 'src.ui.shell').create(options); if options['ui-test'] then require('tests.presentation').run(app) end end
+        elseif options['ui-test'] then
+            -- The rendered suite exercises the hero panel, stances, upgrades and abilities, which
+            -- live on in the mechanics fixture; it plays the fixture factions on the shipping map.
+            options.content=options.content or require('tests.fixture_content')
+            app=require('src.app').create(options);require('tests.presentation').run(app)
+        elseif not options.smoke then app=require('src.ui.shell').create(options) end
     end
     local frames=0
     function love.update(dt)
@@ -35,7 +43,7 @@ else
     end
     function love.draw()
         if app then app:draw() else love.graphics.print('LoveRTS is running',40,40) end
-        if options['auto-quit'] and not options['asset-benchmark'] and frames==2 then
+        if options['auto-quit'] and not options['asset-benchmark'] and not options['ui-benchmark'] and frames==2 then
             love.graphics.captureScreenshot(function(data)
                 local path=options.screenshot or 'artifacts/smoke.png'
                 local file=assert(io.open(path,'wb'))

@@ -1,5 +1,7 @@
 # Control and movement implementation
 
+Current shipping control changes: [simulation 28 response update](CONTROL_RESPONSE.md). The versioned sections below document earlier implementations.
+
 
 
 Simulation version 3 implements the accepted core-control plan. The existing 20 Hz step, integer arithmetic, shared command stream and three-tick network lookahead remain in use. This source/content change intentionally invalidates earlier snapshots and replays; it does not silently migrate them or replace a golden result.
@@ -30,7 +32,7 @@ Simulation version 3 implements the accepted core-control plan. The existing 20 
 
 
 
-- Ordinary units and heroes have an 80-subunit radius; rams and heavy beasts use 112. Allies can compress to 75% of combined radii; enemy bodies retain full separation. Terrain/buildings remain solid. Spawn, revival, construction footprints and recruitment exits use body clearance.
+- Ordinary units and heroes have an 80-subunit radius; rams and heavy beasts use 112. Allies keep 75% of combined radii apart, and can be pressed to 65% by a unit squeezing past (see crowds below); enemy bodies retain full separation. Terrain/buildings remain solid. Spawn, revival, construction footprints and recruitment exits use body clearance.
 
 - Weapon definitions now express edge range. Values are unchanged: ordinary unit-to-unit center reach therefore increases by 160 subunits (0.625 cells); an ordinary attacker gains 80 subunits against a building footprint. Large-unit combinations use their actual radii. These intentional range changes require human balance review.
 
@@ -42,6 +44,15 @@ Simulation version 3 implements the accepted core-control plan. The existing 20 
 
 - Ten ticks without waypoint progress trigger detour/yield attempts. Global congestion retries are limited to once per twenty ticks; unavailable firing-position retries are staggered deterministically over 20–26 ticks. Stopped allies can yield within one cell of their yield origin; Hold units cannot. After ten blocked ticks, a unit within its radius plus 32 subunits of its final slot may finish there; subsequent yielding stays within one cell of the slot. More distant temporary crowding keeps the order pending. Exhausted terrain searches report failure and advance the queue.
 
+- Crowds (simulation version 14):
+  - **Squeeze.** A unit blocked for 10 ticks may step inside an ally's usual spacing, down to 65% of their combined radii, but only past an ally that is itself moving and not heading the same way: a crossing, oncoming or re-routing ally. It never presses into the queue in front of it, since that packs the whole queue to the floor. Enemies, terrain and lanes stay solid.
+  - **Push.** Every tick, allies closer than their usual 75% spacing are eased apart by up to 8 subunits (units walk 26–44 a tick), including units that are going somewhere. A push never moves a unit closer to anyone, never leaves a keep-right lane, and never moves an idle unit more than a cell from where it was standing. Hold, building, mid-swing, rooted and stunned units are not pushed. All pushes are decided from one set of positions, then applied in world order.
+  - **Detours.** A congested unit does not restart a detour search that is still running, and keeps walking its old path until the new one arrives. Restarting every 20 ticks with an empty path starved every search behind a jam and froze the units waiting on them.
+  - The numbers were chosen from 18 settings over 28 crowd cases and checked on 24 cases they were not chosen on (`Movement.tuning`, `G.PRESS`). Tighter settings (70% floor, or later squeezing) still let the largest counterflows jam.
+
+- Group orders and crowd cost (simulation version 18):
+  - **Formation.** Every unit in a group searches for its destination from the ordered point offset by where it stands relative to the middle of its group, so the group keeps its shape and units do not cross each other to reach cells that are interchangeable. Offsets are clamped by group size, so a selection spread across the map still forms up around the destination. Destinations are still made distinct by the claim set; only which unit gets which cell changed.
+  - **Backing off.** A unit blocked for 30 ticks proposes a move every fourth tick instead of every tick, staggered by id. It still takes an opening within a fifth of a second, and where it ends up does not change; a jammed crowd simply stops costing a full steering pass per unit per tick.
 - Searches beginning inside their destination cell still route to its center. This prevents a subcell-position retry from declaring arrival prematurely.
 
 
@@ -128,7 +139,7 @@ regressed into a staircase and every crowd test would still have passed.
 | 20 mixed units | 868 ticks | 705 |
 | 50 versus 50 counterflow | 4,079 ticks | 849 |
 
-Body radii are worker 72, ordinary 80, hero 96, heavy/ram/camp leader 112, carrier 56.
+Body radii are worker 72, ordinary 80, Blimp 96, Battleship 112 and Enforcer 160 (fixture: hero 96, heavy/ram/camp leader 112).
 The earlier text here said 80 and 112 only. Patrol and follow shipped in simulation
 version 6 and are no longer deferred; projectile travel shipped in version 10 for
 abilities, and is deliberately still off for auto-attacks.
@@ -136,3 +147,28 @@ abilities, and is deliberately still off for auto-attacks.
 `rules.smoothBudget` bounds the terrain samples the smoother may spend per tick across
 every route completed that tick. A route that cannot be smoothed inside it is walked as
 A* produced it, which is correct, just less straight.
+
+## Large ground bodies — Enforcer footprint
+
+Content version 15 raises the Enforcer radius from 96 to 160 subunits while reducing
+its doubled visual model by 15%. Content permits radii up to 192. Units at or below
+127 retain the existing cell-centre navigation and keep-right behavior. Larger ground
+units test a fixed order of integer clearance points within each cell, offset by at
+most `radius - 128` (64 at the supported maximum). Waypoints retain cell coordinates
+and store their actual positions in the existing `px`/`py` fields, covered by snapshots.
+
+Direct routes, A* edges, smoothing and changed-terrain revalidation all check the
+larger circle. Two-cell passages remain usable; one-cell gaps do not. Large bodies
+do not reserve a half-width traffic lane that cannot contain them. Spawn/unload,
+destination selection and combat approach use the same clearance points. Allied
+compression percentages and enemy separation rules remain unchanged.
+
+Spatial occupancy includes every bin reached by the queried radii. Movement uses
+a second bin ring only when a large ground unit is present, including reservations
+and the push pass. Derived bin limits are rebuilt and never retained as snapshot state.
+Selection/hover/acknowledgement rings, shadows and picking scale to large ground
+bodies; the Enforcer's ordinary ring is 30 by 14 pixels in radius at 1x zoom.
+
+`tests/enforcer_footprint.lua` covers narrow/wide passages, snapshot continuation,
+new-obstacle rerouting, map edges and collision across two bins. Content fingerprinting
+separates the changed shipping balance from earlier matches; no golden was re-blessed.

@@ -1,4 +1,3 @@
-local C=require('src.content')
 local S={}
 local Settings=require('src.ui.settings')
 local HEALTH_BAR_LABELS={always='Always',selected='Selected',damaged='Damaged too'}
@@ -31,26 +30,33 @@ function S.settings(app,w,h,back)
  app.widgets:button('speed','Game speed: '..(Settings.SPEED_LABELS[speed] or 'Normal'),x,y+280,215,28,function()
   app.settings.gameSpeed=speed%#Settings.SPEEDS+1;store()
  end,app.network and 'Network matches always run at 1x' or nil,'Offline pacing only. The tick rate never changes, so replays and checkpoints are identical at every speed.')
+ local scroll=app.settings.scrollSpeed or 2
+ app.widgets:button('scroll','Scroll speed: '..(Settings.SCROLL_LABELS[scroll] or 'Normal'),x,y+314,215,28,function()
+  app.settings.scrollSpeed=scroll%#Settings.SCROLL_SPEEDS+1;store()
+ end,nil,'How fast the camera pans with the arrow keys and the screen edge. Panning starts gentle and speeds up while held.')
+ app.widgets:button('alertcam','Camera to alerts: '..(app.settings.alertCamera and 'On' or 'Off'),x+245,y+314,215,28,
+  function() app.settings.alertCamera=not app.settings.alertCamera;store() end,nil,
+  'On: the camera glides to an attack on your hero, headquarters or forces when it is announced. Off: only the alert key moves it.')
  for i,key in ipairs({'attack','stop','hold','hero','alert','build','tower','idle'}) do
-  app.widgets:button('bind-'..key,key..': '..app.settings.bindings[key],x+((i-1)%3)*155,y+322+math.floor((i-1)/3)*34,148,28,function() app.rebind=key end,nil,'Click, then press a key. Numbers, Q/W/E/R/U/Y, Tab, Escape and F2-F8/F10 are reserved.')
+  app.widgets:button('bind-'..key,key..': '..app.settings.bindings[key],x+((i-1)%3)*155,y+356+math.floor((i-1)/3)*34,148,28,function() app.rebind=key end,nil,'Click, then press a key. Numbers, Q/W/E/R/U/Y, Tab, Escape and F2-F8/F10 are reserved.')
  end
- if app.rebind then g.setColor(1,.8,.4);g.print('Press a key for '..app.rebind..' (Escape cancels)',x,y+428) end
- app.widgets:button('back','Back',x,y+460,460,30,back)
+ if app.rebind then g.setColor(1,.8,.4);g.print('Press a key for '..app.rebind..' (Escape cancels)',x,y+462) end
+ app.widgets:button('back','Back',x,y+494,460,30,back)
 end
 function S.overlay(app,w,h)
  local g=love.graphics;g.setColor(0,0,0,.7);g.rectangle('fill',0,0,w,h)
  -- Discard underlying hit targets while a modal panel owns input.
- app.widgets.items={}
+ app.widgets.items={};app.widgets:clearHover()
  if app.overlay=='settings' then return S.settings(app,w,h,function() app.overlay='pause' end) end
  local x,y=w/2-220,h/2-170;g.setColor(.07,.1,.12);g.rectangle('fill',x-20,y-25,480,355,6)
  if app.overlay=='upgrade' then
-  local hero=app:entity(app.view.player.hero);local milestone=app.upgradeMilestone;local faction=C.factions[app.view.player.faction]
+  local hero=app:entity(app.view.player.hero);local milestone=app.upgradeMilestone;local faction=app.content.factions[app.view.player.faction]
   local Actions=require('src.ui.actions');local reason=app.playback and 'Replay is read-only' or Actions.upgradeReason(app,hero,milestone)
   g.setColor(.94,.85,.6);g.print('Choose a permanent hero upgrade',x,y)
   for i=1,2 do
    local xx=x+(i-1)*225
    app.widgets:button('choice-'..i,faction.upgrades[milestone][i],xx,y+40,215,45,function() app.upgradeChoice=i;app.audio:play('menu') end,reason)
-   g.setColor(.84,.88,.82);g.printf(require('src.ui.actions').upgrades[app.view.player.faction][milestone][i],xx,y+100,210)
+   g.setColor(.84,.88,.82);g.printf(((require('src.ui.actions').upgrades[app.view.player.faction] or {})[milestone] or {})[i] or '',xx,y+100,210)
    if app.upgradeChoice==i then g.setColor(.85,.75,.35);g.rectangle('line',xx-2,y+38,219,170) end
   end
   app.widgets:button('commit','Choose Upgrade',x,y+235,440,34,function()

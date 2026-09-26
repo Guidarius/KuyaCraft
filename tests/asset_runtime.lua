@@ -16,6 +16,25 @@ local function fixture(id)
     return m
 end
 function T.run()
+    local pod=fixture('drop_pod');pod.profileId='prop_overhead_v1';pod.fixedFacing='S'
+    pod.clips={idle=pod.clips.idle,deploy=pod.clips.death};C.validate(pod,'drop_pod')
+    eq(F.sample(pod,'deploy','S',9999),6)
+    pod.clips.deploy.frames.N={1};bad(function() C.validate(pod,'drop_pod') end)
+    pod.clips.deploy.frames.N={1,2,3,4,5,6};pod.fixedFacing='N';bad(function() C.validate(pod,'drop_pod') end)
+    pod.fixedFacing='S';pod.clips.deploy=nil;bad(function() C.validate(pod,'drop_pod') end)
+    local building=fixture('orbital_command')
+    building.profileId='building_overhead_v1';building.fixedFacing='S';building.footprintCells=4
+    building.clips={idle=building.clips.idle};C.validate(building,'orbital_command')
+    eq(F.assetId({kind='orbital_command',category='building'}),'orbital_command')
+    eq(F.assetId({kind='keep',category='building'}),'keep')
+    local _,_,bc,bd=F.select(building,{x=100,y=200,alive=true,attackTick=2}, {x=0,y=0},3,{})
+    eq(bc,'idle');eq(bd,'S')
+    building.clips.idle.frames.N={2,1};bad(function() C.validate(building,'orbital_command') end)
+    building.clips.idle.frames.N={1,2};building.footprintCells=0
+    bad(function() C.validate(building,'orbital_command') end)
+    eq(F.assetId({kind='command_blimp'}),'command_blimp')
+    eq(F.assetId({kind='battleship'}),'battleship')
+    for _,kind in ipairs({'associate','medic','enforcer'}) do eq(F.assetId({kind=kind}),kind) end
     local m=fixture();C.validate(m,'shieldguard')
     eq(F.sample(m,'idle','N',599),2);eq(F.sample(m,'idle','N',600),1)
     eq(F.sample(m,'death','SE',60000),6);eq(F.sample(m,'attack','S',0,true),3)
@@ -25,7 +44,7 @@ function T.run()
     eq(F.direction(0,0,'NW'),'NW')
     local e={id=1,kind='worker',x=128,y=0,alive=true,order={kind='move'}}
     eq(F.assetId(e),'worker');local state={};local a=F.select(m,e,{x=0,y=0},5,state)
-    e.kind='carrier';eq(F.assetId(e),'worker_loaded');e.kind='worker';local b=F.select(m,e,{x=0,y=0},5,state);eq(a,b)
+    e.carrying=8;eq(F.assetId(e),'worker_loaded');e.carrying=nil;local b=F.select(m,e,{x=0,y=0},5,state);eq(a,b)
     eq(state.moveMs,300);eq(state.direction,'E')
     e.attackTick=6;e.order={kind='attack',target=2}
     local attack,_,clip,d=F.select(m,e,nil,6,state,{entities={{id=3,x=-100,y=-100,alive=true}}})
@@ -68,7 +87,7 @@ function T.run()
     corpse.x=100;corpse.y=0
     renderer:observe(attackEvents,{entities={attacker,corpse}},20)
     eq(renderer.states[1].attackHeading,'N') -- duplicate consumption cannot change the recorded direction
-    eq(F.assetId({kind='carrier'}),'worker_loaded');eq(renderer.states[1].moveMs,300)
+    eq(F.assetId({kind='worker',carrying=8}),'worker_loaded');eq(renderer.states[1].moveMs,300)
     attacker.attackTick=21
     renderer:observe({{kind='attack',source=1,target=2,tick=21}},{entities={attacker}},21)
     local _,_,_,hiddenDirection=F.select(m,attacker,nil,21,renderer.states[1]);eq(hiddenDirection,'N')
@@ -79,6 +98,14 @@ function T.run()
     eq(renderer.states[1].attackFacingTick,20) -- stale events do not relabel a later tick
     renderer:reset();eq(renderer.observedTick,nil);eq(next(renderer.states),nil)
     local _,_,_,noEventDirection=F.select(m,attacker,nil,21,{direction='W'});eq(noEventDirection,'W')
+    -- Hysteresis: a heading is kept until the motion is clearly past the boundary between two,
+    -- so a unit moving close to that line stops flickering between them.
+    eq(F.direction(256,0,nil),'E')
+    local thirty=math.floor(256*math.tan(math.rad(30)))
+    eq(F.direction(256,thirty,nil),'SE') -- with nothing to keep, 30 degrees is already south-east
+    eq(F.direction(256,thirty,'E'),'E') -- but a unit already facing east keeps facing east
+    eq(F.direction(256,math.floor(256*math.tan(math.rad(40))),'E'),'SE') -- until it is clearly past
+    eq(F.direction(-256,0,'E'),'W') -- and a real reversal still turns
     print('PASS asset runtime: metadata, paths, v1 migration, multi-page frames, timing, world headings, cargo phase, visibility')
 end
 return T

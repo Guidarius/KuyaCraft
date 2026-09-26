@@ -2,7 +2,7 @@
 
 A Windows-first LÖVE 11.5 RTS prototype with a deterministic Lua simulation.
 
-Read [ROADMAP.md](ROADMAP.md) for design and [STATUS.md](STATUS.md) for verified progress and limitations. The playable balance profile, unit statistics, economy and timing targets are in [BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md). Twin Marches is the default 1v1 map.
+Read [ROADMAP.md](ROADMAP.md) for design, [GAME_FEEL.md](docs/GAME_FEEL.md) for what "better feel" has to mean here and what is queued and [STATUS.md](STATUS.md) for verified progress and limitations. The playable balance profile, unit statistics, economy and timing targets are in [BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md). Twin Marches is the default 1v1 map, authored in Tiled at `maps/twin_marches.tmx` and exported with `scripts\map.ps1`; the ground is drawn from its terrain types. The fixed camera is still planned, with the rest, in [TERRAIN_AND_CAMERA_PLAN.md](docs/TERRAIN_AND_CAMERA_PLAN.md).
 
 ## Quick start
 
@@ -73,11 +73,12 @@ The game opens a main menu. Choose Skirmish to select your map and factions. All
 - Right click with only production buildings selected sets their rally point; new units walk there, or fall in behind it if the rally point is one of your own units. The flag and its line are drawn while the building is selected.
 - Units moved together as one group travel at the slowest member's pace so a mixed army arrives together. This is `rules.formationPacing` in content and can be turned off.
 - Ctrl+1–9 assigns groups; 1–9 recalls; double tap centers. Number keys never recruit.
-- F1 selects the hero; double tap centers. Q/W/E/R use contextual commands, including hero abilities, which sit in fixed card slots so the button never moves.
-- Heroes have abilities. A key arms the ability and the next click aims it: a circle for an area, a line for a skill shot, a ring showing how far the caster can reach. Out of range is not a refusal -- the caster walks in, like an attack order. Escape or right click cancels. Settings has **Smart cast**, which makes the key cast at the cursor straight away, with Alt casting on yourself. Casting is a queued order, so Shift appends it.
+- F1 selects your headquarters (the hero, in the mechanics fixture); double tap centers. Q/W/E/R use contextual commands, including abilities, which sit in fixed card slots so the button never moves.
+- Some units have abilities (the Battleship's Barrage; the fixture heroes' spells). A key arms the ability and the next click aims it: a circle for an area, a line for a skill shot, a ring showing how far the caster can reach. Out of range is not a refusal -- the caster walks in, like an attack order. Escape or right click cancels. Settings has **Smart cast**, which makes the key cast at the cursor straight away, with Alt casting on yourself. Casting is a queued order, so Shift appends it.
 - Alt+click the minimap to ping. The marker goes through the command stream, so it is in the replay and reaches everyone on your side rather than being a dot only you see.
-- B opens the worker Build card; Q/T/E/R choose war hall, watchtower, outpost and extractor. Workers in a mixed selection can build after Tab selects their subgroup. An extractor goes **on** a gold mine and is the only way to earn gold: it sends carriers walking home to your nearest drop-off on their own. Select the HQ and use T to advance technology, unlocking support and heavy troops. Preview explains invalid footprints. Shift repeats queued placement.
-- Z toggles hero stance. U opens the paired permanent upgrades; preview an upgrade, then click Choose Upgrade. The hero dock also offers stance, revival and upgrades.
+- B opens the worker Build card with the faction's buildings (Orders: Keep, Supply Depot, Barracks, Sanctum). Workers in a mixed selection can build after Tab selects their subgroup; several workers on one site build it faster. G harvests: right-click a substrate patch or a charge geyser with workers selected. Preview explains invalid footprints. Shift repeats queued placement.
+- The Megacorp builds nothing by hand: its Orbital Command card requisitions buildings from orbit (B), lands them inside relay coverage, and loads and launches drop pods (P). Right-click a Bunker or Requisition Office to garrison it.
+- In the mechanics fixture, Z toggles hero stance and U opens the paired permanent upgrades.
 - Minimap left drag pans, right click orders, A-left attack-moves; Alt-left sends a team ping. Space centers an important alert.
 - Middle drag/arrows pan; wheel zooms. Edge scroll is optional in Settings.
 - Escape cancels targeting, closes a panel, then opens the match menu. Use Leave Match to exit. Offline menus pause; multiplayer continues.
@@ -94,11 +95,9 @@ Commands show individual cost shortages and brief feedback; see [command cards](
 
 The simulation contains no randomness at all: no damage variance, no scatter, no rolls. Every outcome follows from orders and content, which is what lets a replay reproduce a match exactly. `src/sim/rng.lua` and its golden-sequence test are kept so randomness can be reintroduced as a deliberate change.
 
-## Gold
+## Substrate and charge
 
-There is one resource and nothing harvests it. You build an **extractor** on a gold mine and it sends a stream of carriers walking to your nearest drop-off — the headquarters, or an outpost — where each one delivers its gold and is gone. Carriers take no orders and cannot be selected. They are ordinary targets, and killing one destroys the gold rather than stealing it.
-
-A mine pays less the further it is from a drop-off, because an extractor holds only so many deliveries in flight at once. An outpost beside a distant mine shortens the route and restores it to full rate, which is what makes expanding a decision about ground you can hold rather than a button you press. The design, the arithmetic and the measured rates are in [docs/RESOURCE_FLOW.md](docs/RESOURCE_FLOW.md).
+Two resources, Brood War style. **The Orders** send Workers to one-cell substrate patches and two-cell charge geysers; one worker loads at a patch at a time, carries 8 home to the nearest Keep, and the field around every base has seven patches and a geyser. Every Keep is a life: the Orders lose only when none stands. **The Megacorp** has no workers. Its Orbital Command is unique, and everything else arrives from orbit inside relay coverage: Rigs that sit on patches and pay by the minute, buildings from a call-down queue, and troops by drop pod. Both factions, with every number, are in [docs/FACTIONS.md](docs/FACTIONS.md); scale, the map and pacing are in [docs/BALANCE_AND_PACING.md](docs/BALANCE_AND_PACING.md).
 
 The movement lab is selectable in Skirmish or with `scripts/run.ps1 -Map movement_lab`. It contains flat chokepoints, a U-shaped obstacle, a concave wall, a corridor, and forest clutter. Its purpose is navigation testing, not a balanced economic match. See [the control and movement verification record](docs/CONTROL_MOVEMENT.md).
 
@@ -146,3 +145,7 @@ The production workflow creates five source-rig-derived Bastion assets: shieldgu
 Experimental art workflow: [Woodland pixel pilot](docs/art/WOODLAND_PIXEL_PILOT.md).
 Build with `scripts/export-assets.ps1 -Roster woodland`; compare with
 `scripts/run.ps1 -WoodlandViewer`. The pilot has its own catalog.
+
+Megacorp rounded models: [pressure-suit infantry](docs/art/MEGACORP_INFANTRY.md)
+and [pressure-hull aircraft](docs/art/MEGACORP_AIRCRAFT.md). Build their sprite sets
+with `-Roster megacorp_infantry` and `-Roster megacorp_aircraft` respectively.

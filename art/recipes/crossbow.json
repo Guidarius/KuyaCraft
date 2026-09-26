@@ -7,11 +7,39 @@
   "slot": "OBArmature",
   "profileId": "bastion_overhead_v1",
   "scale": 1.0,
-  "model": {"type": "crossbow"},
+  "model": {
+    "type": "crossbow",
+    "family": "orders",
+    "cargo": false
+  },
   "clips": {
-    "idle": {"action": "Idle_Loop", "samples": 4, "durationMs": 1000, "loop": true},
-    "move": {"action": "Walk_Loop", "samples": 8, "durationMs": 1000, "loop": true, "removeRootMotion": true},
-    "attack": {"action": "Idle_Loop", "derived": "crossbow_two_hand_v1", "samples": 6, "durationMs": 700, "loop": false, "contactFrame": 3},
-    "death": {"action": "Death01", "samples": 8, "durationMs": 1000, "loop": false}
-  }
+    "idle": {
+      "action": "Idle_Loop",
+      "samples": 4,
+      "durationMs": 1000,
+      "loop": true
+    },
+    "move": {
+      "action": "Walk_Loop",
+      "samples": 8,
+      "durationMs": 1000,
+      "loop": true,
+      "removeRootMotion": true
+    },
+    "attack": {
+      "action": "Idle_Loop",
+      "derived": "crossbow_two_hand_v1",
+      "samples": 6,
+      "durationMs": 700,
+      "loop": false,
+      "contactFrame": 3
+    },
+    "death": {
+      "action": "Death01",
+      "samples": 8,
+      "durationMs": 1000,
+      "loop": false
+    }
+  },
+  "referenceHeight": 3.7
 }

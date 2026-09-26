@@ -19,9 +19,9 @@ function F.resolve(app,event,pending)
  if kind=='rejected' then
   local costs,reason;for _,a in ipairs(require('src.ui.actions').list(app)) do if a.id==pending.action then costs=a.costs;reason=a.reason end end
   F.notify(app,kind,reason or event.reason,pending.action,costs,pending.x,pending.y)
- elseif pending.kind=='upgrade' then F.notify(app,'levelup','Hero ability learned',pending.action,nil,pending.x,pending.y)
- elseif pending.kind=='toggle' then F.notify(app,'stance',nil,pending.action)
- else app.audio:play('accepted') end
+ elseif pending.kind=='upgrade' then F.notify(app,'levelup','Hero ability learned',pending.action,nil,pending.x,pending.y) end
+ -- An accepted order was already answered on the click (Input.acknowledge). Warcraft 3 never
+ -- confirms a second time when the order executes; a cue here would make the input delay audible.
 end
 function F.draw(app)
  local g=love.graphics;g.push('all');g.setLineWidth(1.5)

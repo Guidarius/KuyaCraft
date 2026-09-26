@@ -51,6 +51,10 @@ def pack(stage, output, build_id, game_prefix, raw_root=None):
     stage, output = Path(stage), Path(output)
     spec = json.loads((stage / 'render.json').read_text(encoding='utf8'))
     if spec['directions'] != DIRECTIONS: raise ValueError('Expected canonical eight directions')
+    fixed = spec.get('fixedFacing')
+    if fixed and (fixed != 'S' or spec['profileId'] not in ('building_overhead_v1','prop_overhead_v1')):
+        raise ValueError('Fixed facing requires a fixed-view profile and S direction')
+    render_directions = [fixed] if fixed else DIRECTIONS
     cell = spec['cellSize']
     width, height = (cell, cell) if isinstance(cell, int) else cell
     gutter, maximum = 2, 2048
@@ -66,7 +70,7 @@ def pack(stage, output, build_id, game_prefix, raw_root=None):
     ordered = []
     for name, clip in sorted(spec['clips'].items()):
         if clip['durationMs'] <= 0 or clip['samples'] < 1: raise ValueError('Invalid clip duration/samples')
-        for direction in DIRECTIONS:
+        for direction in render_directions:
             for sample in range(1, clip['samples'] + 1):
                 # Export samples and runtime frame IDs are one based.
                 key = (name, direction, sample)
@@ -77,6 +81,9 @@ def pack(stage, output, build_id, game_prefix, raw_root=None):
     meta = dict(version=2, unitId=spec['unitId'], buildId=build_id, profileId=spec['profileId'], directions=DIRECTIONS,
                 bodyHeightPixels=spec['bodyHeightPixels'], pages=[], frames=[], clips={})
     if 'referenceStride' in spec: meta['referenceStride'] = spec['referenceStride']
+    if fixed:
+        meta['fixedFacing']=fixed
+        if 'footprintCells' in spec: meta['footprintCells']=spec['footprintCells']
     pixel_style=spec.get('pixelStyle')
     if pixel_style:
         import pixel
@@ -117,6 +124,9 @@ def pack(stage, output, build_id, game_prefix, raw_root=None):
         color_name, mask_name = f'color-{page_id:02}.png', f'mask-{page_id:02}.png'
         color_page.save(output / color_name); mask_page.save(output / mask_name)
         meta['pages'].append(dict(color=game_prefix + '/' + color_name, mask=game_prefix + '/' + mask_name, width=page_w, height=page_h))
+    if fixed:
+        for clip in meta['clips'].values():
+            for direction in DIRECTIONS: clip['frames'][direction] = list(clip['frames'][fixed])
     write_pair(output / 'metadata', meta)
     contact = Image.new('RGBA', (8 * (width + 12), math.ceil(len(thumbs)/8) * (height+24)), '#353b43')
     draw = ImageDraw.Draw(contact)
@@ -148,11 +158,18 @@ def validate_unit(root, metadata_path):
     for name, expected in report['files'].items():
         if digest(contained(file.parent, name)) != expected: raise ValueError('Corrupt asset: ' + name)
     if not meta['pages'] or not meta['frames']: raise ValueError('Empty asset')
-    required_clips = {'idle','move','work'} if meta['profileId']=='woodland_pixel_v1' else {'idle','move','attack','death'}
+    required_clips = {'idle','deploy'} if meta['profileId']=='prop_overhead_v1' else {'idle'} if meta['profileId']=='building_overhead_v1' else {'idle','move','work'} if meta['profileId']=='woodland_pixel_v1' else {'idle','move','attack','death'}
     if meta['unitId'] in ('worker','worker_loaded'): required_clips.add('work')
     if not required_clips.issubset(meta['clips']): raise ValueError('Missing required clips')
     def integer(value): return type(value) is int
     def finite(value): return type(value) in (int,float) and math.isfinite(value)
+    if meta['profileId']=='building_overhead_v1':
+        if meta.get('fixedFacing')!='S' or not integer(meta.get('footprintCells')) or not 1<=meta['footprintCells']<=4:
+            raise ValueError('Invalid building footprint/facing')
+    if meta['profileId'] in ('building_overhead_v1','prop_overhead_v1'):
+        if meta.get('fixedFacing')!='S': raise ValueError('Invalid fixed facing')
+        if any(clip['frames'][d]!=clip['frames']['S'] for clip in meta['clips'].values() for d in DIRECTIONS):
+            raise ValueError('Building directions must alias the fixed view')
     if not finite(meta['bodyHeightPixels']) or meta['bodyHeightPixels'] <= 0: raise ValueError('Invalid body height')
     for page in meta['pages']:
         if any(not integer(page[k]) or not 0 < page[k] <= 2048 for k in ('width','height')): raise ValueError('Invalid atlas dimensions')

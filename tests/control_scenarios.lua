@@ -25,7 +25,7 @@ function S.clearance(w)
     local units={}
     for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' then
         assert(G.terrain(w,e.x,e.y,G.radius(w,e)),'terrain clearance unit '..id..' tick '..w.tick)
-        for _,other in ipairs(units) do local r=G.separation(w,e,other)
+        for _,other in ipairs(units) do local r=G.pressedSeparation(w,e,other)
             assert(F.distance2(e.x,e.y,other.x,other.y)>=r*r,'body overlap '..id..'/'..other.id..' tick '..w.tick)
         end
         units[#units+1]=e
@@ -64,6 +64,34 @@ function S.crowd(n,choke,opposing,mixed)
     for _,e in ipairs(units) do local g=reached[e.id];if e.order.kind~='stop' or F.distance2(e.x,e.y,g.x,g.y)>256^2 then pending[#pending+1]=e.id..' at '..math.floor(e.x/256)..','..math.floor(e.y/256)..' goal '..math.floor(g.x/256)..','..math.floor(g.y/256)..' wait '..(e.waitTicks or 0) end end
     error('arrival timeout: '..table.concat(pending,'; '))
 end
+-- Ticks from a group order until each unit has a path it can start walking. A unit that
+-- cannot walk a straight line waits for its A* search, and every search in the world shares
+-- one per-tick expansion budget, so a large group ordered around an obstacle can stand still
+-- long after its order landed -- which a player feels as a click that did nothing.
+-- Returns p50, p95 and maximum over the group.
+-- n workers packed west of a wall with its only gap at the far end, given one group move east.
+function S.wallGroup(n)
+    local w=S.world(64);S.wall(w,32,0,55)
+    local units,commands={},{}
+    for i=1,n do
+        local e=S.unit(w,'worker',1,8+(i-1)%6,8+math.floor((i-1)/6));units[i]=e
+        commands[i]=S.command(w,e,'move',{x=F.center(52),y=F.center(10),group=1},i)
+    end
+    Sim.step(w,commands)
+    return w,units
+end
+function S.firstSteps(n)
+    local w,units=S.wallGroup(n)
+    local first={}
+    for tick=1,1200 do
+        Sim.step(w,{})
+        for i,e in ipairs(units) do
+            if not first[i] and not w.searches[e.id] and #e.path>0 then first[i]=tick end
+        end
+    end
+    local ticks={};for i=1,n do ticks[i]=first[i] or 1201 end;table.sort(ticks)
+    return ticks[math.ceil(n*.5)],ticks[math.ceil(n*.95)],ticks[n],w
+end
 -- How far a unit actually walks, divided by the straight-line distance it needed to
 -- cover. Before path smoothing this was never measured, so a route could have regressed
 -- into a staircase of 45-degree hops and every crowd test would still have passed: they
@@ -83,6 +111,52 @@ function S.travel(w,e,goalX,goalY)
     return walked,direct,last
 end
 function S.register(test)
+    test('simulation','formation slots belong to each command, not the entity',function()
+        for _,append in ipairs({true,false}) do
+            local w=S.world(64)
+            local a=S.unit(w,'worker',1,10,10);local b=S.unit(w,'worker',1,12,10)
+            Sim.step(w,{
+                S.command(w,a,'move',{x=F.center(25),y=F.center(25),group=1},1),
+                S.command(w,b,'move',{x=F.center(25),y=F.center(25),group=1},2),
+                S.command(w,a,'move',{x=F.center(45),y=F.center(45),group=2,append=append},3),
+                S.command(w,b,'move',{x=F.center(45),y=F.center(45),group=2,append=append},4)})
+            for _,e in ipairs({a,b}) do
+                if append then assert(e.order.x<30 and e.order.y<30,'first move borrowed the second formation') end
+                local order=append and e.orders[1] or e.order
+                assert(order and order.x>40 and order.y>40,'second move borrowed the first formation')
+            end
+            local clone=Sim.restore(Sim.snapshot(w))
+            for _=1,600 do Sim.step(w,{});Sim.step(clone,{}) end
+            assert(Sim.serializeCanonical(w)==Sim.serializeCanonical(clone),'formation queue did not survive restore')
+        end
+    end)
+    test('simulation','rejected commands cannot shift an accepted formation',function()
+        local cases={
+            function(c) c.sequence=1 end,
+            function(c) c.tick=c.tick+1 end,
+            function(c) c.args.x=64*256 end,
+            function(c) c.args.append='bad' end,
+            function(c) c.args.group='7' end,
+        }
+        for _,invalidate in ipairs(cases) do
+            local w=S.world(64)
+            local a=S.unit(w,'worker',1,10,10);local b=S.unit(w,'worker',1,20,10)
+            w.players[1].sequence=1
+            local bad=S.command(w,b,'move',{x=F.center(30),y=F.center(30),group=7},2)
+            invalidate(bad)
+            Sim.step(w,{bad,S.command(w,a,'move',{x=F.center(30),y=F.center(30),group=7},3)})
+            assert(a.order.x==30 and a.order.y==30,'rejected command shifted the destination')
+            assert(b.order.kind=='stop','invalid command was accepted')
+        end
+        -- Even a rejected ownership command consumes its sequence. A later duplicate must
+        -- not join the formation just because its envelope and entity are otherwise valid.
+        local w=S.world(64);local a=S.unit(w,'worker',1,10,10);local b=S.unit(w,'worker',1,20,10)
+        Sim.step(w,{
+            {tick=1,player=1,sequence=1,kind='move',args={entity=99999,x=0,y=0}},
+            S.command(w,b,'move',{x=F.center(30),y=F.center(30),group=7},1),
+            S.command(w,a,'move',{x=F.center(30),y=F.center(30),group=7},2)})
+        assert(a.order.x==30 and a.order.y==30,'duplicate sequence shifted formation')
+    end)
     for _,n in ipairs({1,10,50,100}) do test('crowd','open destination '..n,function() S.crowd(n,false) end) end
     -- Open ground: one unit, nothing in the way, a diagonal that A* has to express as a
     -- staircase of cell steps. Walking that staircase literally costs about 8% over the
@@ -136,6 +210,73 @@ function S.register(test)
     for _,n in ipairs({5,20,100}) do test('crowd','chokepoint '..n,function() S.crowd(n,true) end) end
     test('crowd','20 mixed sizes and speeds',function() S.crowd(20,true,false,true) end)
     test('crowd','50 versus 50 counterflow',function() S.crowd(50,true,true) end)
+    -- Every route ready on the first tick, so each side reaches the gap as one body. Allies whose
+    -- next steps each pass through the other used to wait for ever (38 units never arrived);
+    -- a unit blocked for a moment now squeezes past a moving ally and the push pass eases them
+    -- apart. S.crowd's clearance check still holds every pair to the pressed floor.
+    test('crowd','crowds that start together still pass each other in a gap',function()
+        local rules=C.rules;local budget=rules.pathBudget;rules.pathBudget=100000
+        local ok,err=pcall(function() S.crowd(50,true,true);S.crowd(20,true,false,true) end)
+        rules.pathBudget=budget
+        assert(ok,err)
+    end)
+    -- Behind a jam, dozens of congested units reroute at once and share one expansion budget. Each
+    -- used to restart its search every twenty ticks with its path emptied, so no search finished
+    -- and every unit waiting on one stood frozen. A running search must be left to finish, and the
+    -- unit must keep the path it was walking until the new one arrives.
+    test('crowd','a jam does not restart detour searches or empty the paths of units waiting on them',function()
+        local w=S.world(64);S.wall(w,31,0,29);S.wall(w,31,32,63)
+        local units,commands,seq={}, {}, {0,0}
+        for side=1,2 do for i=1,50 do
+            local e=S.unit(w,'worker',side,side==1 and 12+(i-1)%10 or 42+(i-1)%10,24+math.floor((i-1)/10))
+            units[#units+1]=e;seq[side]=seq[side]+1
+            commands[#commands+1]=S.command(w,e,'move',{x=F.center(side==1 and 48 or 16),y=F.center(30),group=1},seq[side])
+        end end
+        Sim.step(w,commands)
+        local reroutes=0
+        for _=1,1500 do
+            local before={}
+            for _,e in ipairs(units) do before[e.id]={search=w.searches[e.id],path=e.path,walking=e.path[e.pathIndex]~=nil} end
+            Sim.step(w,{})
+            for _,e in ipairs(units) do local b=before[e.id];local search=w.searches[e.id]
+                -- A search that finished this tick hands over a new path, and the unit may then
+                -- start its next reroute at once. Only a search replaced without finishing is a restart.
+                if b.search and search and search~=b.search and (e.path==b.path or not e.path[e.pathIndex]) then error('unit '..e.id..' restarted a running search at tick '..w.tick) end
+                if search and search~=b.search then
+                    reroutes=reroutes+1
+                    assert(not b.walking or e.path[e.pathIndex],'unit '..e.id..' lost its path while waiting on a detour at tick '..w.tick)
+                end
+            end
+        end
+        assert(reroutes>0,'the jam never made anyone reroute, so this proves nothing')
+    end)
+    -- Reported, not asserted. A group ordered around an obstacle waits for one search per unit,
+    -- so its wait grows with its size (12 units: ~600 ticks under the fixture budget). Sharing
+    -- one search per group removed the wait but deadlocked the chokepoint and counterflow
+    -- crowds, which only resolve when units start at staggered times. See docs/ITERATION_LOG.md.
+    test('crowd','first step after a group order around a wall (reported)',function()
+        for _,n in ipairs({1,12,24,48}) do
+            local p50,p95,max=S.firstSteps(n)
+            print(string.format('FIRSTSTEP %d units: p50 %d ticks, p95 %d, max %d',n,p50,p95,max))
+        end
+    end)
+    test('crowd','a group move survives a snapshot and a unit dying mid-search',function()
+        local w=S.wallGroup(12)
+        for _=1,5 do Sim.step(w,{}) end
+        local clone=Sim.restore(Codec.decode(Codec.encode(Sim.snapshot(w))))
+        for _=1,300 do Sim.step(w,{});Sim.step(clone,{}) end
+        assert(Sim.serializeCanonical(w)==Sim.serializeCanonical(clone),'a group move in progress did not survive a snapshot')
+        -- Kill the first unit mid-search: every other unit must still find its route and cross.
+        local v,group=S.wallGroup(12)
+        for _=1,3 do Sim.step(v,{}) end
+        group[1].alive=false;group[1].hp=0
+        for tick=1,3000 do Sim.step(v,{});if tick%100==0 then S.clearance(v) end end
+        for i=2,#group do
+            local e=group[i]
+            assert(not e.lastOrderFailure,'unit '..i..' gave up after the group leader died: '..tostring(e.lastOrderFailure))
+            assert(e.x>F.center(32),'unit '..i..' never crossed the wall after the group leader died')
+        end
+    end)
     test('crowd','Hold blocker preserves pending order and death releases passage',function()
         local w=S.world(64);S.wall(w,31,0,29);S.wall(w,31,31,63)
         local e=S.unit(w,'worker',1,28,30);local blocker=S.unit(w,'worker',1,31,30);blocker.order={kind='hold'}
@@ -159,6 +300,24 @@ function S.register(test)
         end
         assert(turned and e.x==F.center(25) and e.order.kind=='stop')
         assert(F.distance2(blocker.x,blocker.y,F.center(31),F.center(31))<=256^2)
+    end)
+    -- A unit that cannot move is not asked to step aside. A rooted or stunned idle ally used
+    -- to be shoved out of the road by an ally walking through, moving a unit its own status
+    -- says is held in place.
+    test('crowd','a rooted or stunned ally is never shoved aside by a passing ally',function()
+        local Abilities=require('src.sim.abilities')
+        for _,status in ipairs({'root','stun'}) do
+            local w=S.world(64)
+            local mover=S.unit(w,'worker',1,20,30);local held=S.unit(w,'worker',1,24,30)
+            Abilities.applyStatus(w,held,{status=status,ticks=200,source=mover.id},{emit=function() end})
+            local hx,hy=held.x,held.y
+            Sim.step(w,{S.command(w,mover,'move',{x=F.center(28),y=F.center(30)})})
+            for _=1,150 do
+                Sim.step(w,{});S.clearance(w)
+                assert(held.x==hx and held.y==hy,'a '..status..'ed ally was pushed aside at tick '..w.tick)
+            end
+            assert(not mover.lastOrderFailure,status..': the passing unit gave up: '..tostring(mover.lastOrderFailure))
+        end
     end)
     test('crowd','navigation lab U, concavity, forest, doorway and corridor',function()
         local routes={{32,10,32,20},{47,12,51,20},{8,40,29,52},{8,20,8,27},{26,30,47,30}}

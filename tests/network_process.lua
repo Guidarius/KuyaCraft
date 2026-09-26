@@ -1,7 +1,8 @@
 local N=require('src.net.session')
 local Sim=require('src.sim')
 local Maps=require('src.maps')
-local Content=require('src.content')
+-- The proof toggles a hero's stance, so it plays the mechanics fixture.
+local Content=require('tests.fixture_content')
 local Hash=require('src.hash')
 local T={}
 function T.run(options)

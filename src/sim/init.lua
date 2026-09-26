@@ -7,8 +7,10 @@ local Movement=require('src.sim.movement')
 local Stats=require('src.sim.stats')
 local Abilities=require('src.sim.abilities')
 local Projectiles=require('src.sim.projectiles')
-local Carriers=require('src.sim.carriers')
 local Vision=require('src.sim.vision')
+local Control=require('src.sim.control')
+local Harvest=require('src.sim.harvest')
+local Coverage=require('src.sim.coverage')
 -- Version 5: replay/network checkpoints hash authoritative state only. Older
 -- replays store whole-world hashes and are rejected rather than misreported as
 -- divergence. See Sim.serializeAuthoritative.
@@ -27,9 +29,138 @@ local Vision=require('src.sim.vision')
 -- Version 7: write-only entity state removed (reversals, maxWaitTicks, blockedTicks,
 -- harvestStatus, lastMove) along with the unused PRNG, so checkpoints stop hashing
 -- fields nothing reads. No rule changes.
-local Sim = { VERSION = 10 }
+-- Version 11: maps may carry `unbuildable`, a set of road cells that stay walkable but
+-- refuse every building except an extractor on its own mine. Twin Marches is rebuilt at
+-- 192x192 with roads joining every mine to the others and to both headquarters.
+-- Version 12: control points. A map may name points; a player who owns every one of them
+-- for rules.control.holdTicks without a break wins, recorded as result.reason 'control'.
+-- Adds w.control, public in views and covered by authoritative checkpoints.
+-- Version 13: a unit that cannot move (rooted, stunned) is never asked to step aside for a
+-- passing ally. Movement results change where a held unit stood in someone's path.
+-- Version 14: a unit blocked for 10 ticks may squeeze past a moving ally that is not heading
+-- the same way, down to 65% of their combined radii, and allies closer than their usual spacing
+-- are pushed apart by 8 subunits a tick. A congested unit no longer restarts a detour search
+-- that is still running, and keeps walking its old path meanwhile. Fixes crowds deadlocking in
+-- narrow gaps; crowd results change.
+-- Version 15: a site records that it has stopped (no builder assigned) and emits build_stalled
+-- once when it does; taking a site over releases the previous builder instead of leaving it
+-- standing on a build order for ever.
+-- Version 16: a carrier whose extractor is gone is retired where it stands and its load is lost,
+-- instead of standing alive for the rest of the match holding gold nobody can collect.
+-- Version 17: replaces that rule. A carrier whose extractor is gone keeps walking its cached
+-- route and is paid on arrival, because the gold is already out of the ground and on the road.
+-- Version 18: a group ordered somewhere keeps its shape. Each unit searches for its destination
+-- from the ordered point offset by where it stands relative to the middle of its group, instead
+-- of everyone searching outward from the same cell, so units stop crossing to reach equivalent
+-- cells. Destinations are still distinct; which unit gets which cell changes. A unit blocked for
+-- 30 ticks also proposes a move every fourth tick instead of every tick, staggered by id, so a
+-- jammed crowd stops costing a steering pass per unit per tick; it still takes an opening within
+-- a fifth of a second and ends up in the same place.
+-- Version 19: formation slots belong to validated commands, and queued construction takes
+-- a site over only when its order starts. Changes command-batch and builder handoff results.
+-- Version 20: faction schema v2. A faction declares its headquarters kind, worker kind,
+-- build list, starting resources and units, and how it is defeated ('all_hq': nothing of
+-- its headquarters kind standing or under construction; 'unique_hq': the starting one
+-- dies). Buildings declare what they produce, what they require, the supply they provide
+-- and their armour. The ledger is keyed by rules.resources, and a carrier records which
+-- resource it carries. Every new field defaults to the old behaviour when absent.
+-- Version 21: worker harvesting. A `harvest` command and order: a worker with a `harvest`
+-- table walks to a node, loads at a patch nobody else is loading at (hopping to a free one
+-- nearby or waiting), carries the load to its nearest completed drop-off and repeats;
+-- `deliver` returns what it holds. Adds `carrying`, `carryResource` and `harvestUntil` on
+-- units and `occupant` on nodes; rallying a producer onto a harvestable node harvests it.
+-- Version 22: the extractor and carrier economy is deleted (workers harvest instead), a site
+-- is built by every worker holding a build order on it with diminishing returns
+-- (rules.coBuild; `builders` and `work` on the site replace `builder`), a map may spawn
+-- only camps its content defines, and a player without a hero neither earns experience
+-- nor revives anyone.
+-- Version 23: the air layer. A `flying` unit routes straight to its destination through
+-- terrain and units, is in no collision bin and blocks nothing; it may be attacked only by
+-- a `canAttackAir` weapon, which uses its `airDamage` when it has one; a `splash` weapon
+-- also hits every enemy on the ground within its radius of the target.
+-- Version 24: relay coverage and orbital logistics. A faction with `coverage` keeps a
+-- per-player set of covered cells (rebuilt each tick from its `coverage` sources) that gates
+-- where its buildings may land and whether a rig earns its online or offline rate; buildings
+-- are `requisition`ed into a per-player call-down queue, produced in orbit, `land`ed on a
+-- site after a descent and arrive complete, or return to the queue if the site is blocked.
+-- Version 25: drop pods and garrisons. Pod units are `pod_load`ed into the open pod (cost
+-- and supply paid then), `pod_launch`ed onto a covered cell, land after the descent on a
+-- ring of free cells; pods in flight are limited by tier. A unit may `garrison` a building
+-- with `garrison` slots: it is untargetable and unseen by the enemy, takes half splash,
+-- fights from inside a `garrisonFights` building, and is `unload`ed or ejected on death.
+-- Version 26: target stacks and channelled abilities. A hit from an `applyStacks` unit
+-- adds a stack to its target (`stackFixed`, 200 per stack); at the target's threshold the
+-- stacks burst for `rules.stacks.burst` armour-piercing damage, and they decay after a
+-- grace period. An ability with `channel` keeps firing from its cast point every `period`
+-- for `ticks`; the caster holds and any new order breaks it. `filter.air` / `filter.ground`.
+-- Version 27: `cancel{pod=true,seat=i}` refunds one unit out of the open pod and closes the
+-- gap; without `seat` it still refunds the whole pod. The owner's view gains `player.orbit`,
+-- a derived summary (orbit slots, queue size, pods unlocked) the interface used to work out
+-- from the world. No state is added.
+-- Version 28: player-isolated groups, individual shipping movement speeds and
+-- responsive navigation. Earlier replays/snapshots require their original build.
+-- Version 29 integrates shared precise routes with vehicle clearance offsets.
+-- Version 30: explicit garrison orders do not acquire or chase enemies en route.
+local Sim = { VERSION = 30 }
 local function ids(w) return w.order end
 local function def(w,e) return w.content.units[e.kind] or w.content.buildings[e.kind] end
+-- Airborne: a unit whose definition flies. Buildings and nodes never do.
+local function airborne(w,e) if e.category~='unit' then return false end;local d=w.content.units[e.kind];return d~=nil and d.flying==true end
+-- Faction schema v2. Every accessor here has a default that reproduces what content
+-- relied on before the schema existed, so a definition naming none of the new fields
+-- plays exactly as it did.
+function Sim.factionOf(w,p) return w.content.factions[w.players[p].faction] end
+function Sim.hqKind(faction) return faction.hq or 'hq' end
+-- The unit that builds and harvests for this faction: named, defaulted to 'worker' when
+-- the content has one, or false for a faction that has none.
+function Sim.workerKind(content,faction)
+    if faction.worker~=nil then return faction.worker or nil end
+    return content.units.worker and 'worker' or nil
+end
+-- What a building of this kind trains for this faction.
+function Sim.producesFor(content,faction,kind)
+    local d=content.buildings[kind]
+    if d and d.produces then return d.produces end
+    if kind==Sim.hqKind(faction) then local worker=Sim.workerKind(content,faction);return worker and {worker} or {} end
+    if kind=='barracks' then return faction.roster or {} end
+    return {}
+end
+function Sim.produces(w,e) return Sim.producesFor(w.content,Sim.factionOf(w,e.owner),e.kind) end
+function Sim.primaryResource(content) return (content.rules.resources or {'gold'})[1] end
+-- The tier a player has reached: how many of its completed buildings carry `tier`.
+-- How many pods a player may have in flight: the base plus one per tier, capped.
+function Sim.podsUnlocked(w,p)
+    local rules=w.content.rules
+    return math.min(rules.podsMax or 3,(rules.podsBase or 1)+Sim.tier(w,p))
+end
+-- Stacks needed to burst a target: a base, more for armour, more for size. Fixed at 200
+-- per stack so the decay can be fractional without a float.
+function Sim.stackThreshold(w,target)
+    local rules=w.content.rules.stacks or {}
+    local armor=Stats.armor(w,target)
+    return math.max(1,(rules.base or 5)+math.floor((rules.armorPercent or 150)*armor/100)+math.floor((rules.perHundredHp or 2)*(target.maxHp or 0)/100))
+end
+function Sim.tier(w,p)
+    local n=0
+    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.owner==p and e.category=='building' and e.remaining==0 then local d=w.content.buildings[e.kind];if d and d.tier then n=n+1 end end end
+    return n
+end
+-- The first named requirement the player has not completed, or nil. Works on a world
+-- (entities by id, walked in w.order) and on a view (an array), so the HUD and the bot
+-- give the same answer the command will.
+function Sim.missingRequirement(source,owner,requires)
+    if not requires then return nil end
+    local function has(kind)
+        if source.order then
+            for _,id in ipairs(source.order) do local e=source.entities[id];if e.alive and e.owner==owner and e.kind==kind and (e.remaining or 0)==0 then return true end end
+        else
+            for _,e in ipairs(source.entities) do if e.alive and e.owner==owner and e.kind==kind and (e.remaining or 0)==0 then return true end end
+        end
+        return false
+    end
+    for _,kind in ipairs(requires) do if type(kind)=='string' and not has(kind) then return kind end end
+    return nil
+end
 -- emit takes ownership of its payload: every caller builds a fresh table for the
 -- call, so copying it defensively duplicated one table per event per tick for no
 -- observable difference. Events live only for the tick that produced them and are
@@ -66,7 +197,7 @@ end
 local function occupied(w,x,y,except)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
-        if e.alive and e.category=='unit' and e.id~=except and G.rectangleDistance2(e.x,e.y,x*256,y*256,(x+1)*256,(y+1)*256)<F.sq(G.radius(w,e)) then return true end
+        if e.alive and e.category=='unit' and e.id~=except and not airborne(w,e) and not e.garrisoned and G.rectangleDistance2(e.x,e.y,x*256,y*256,(x+1)*256,(y+1)*256)<F.sq(G.radius(w,e)) then return true end
     end
     return false
 end
@@ -85,9 +216,11 @@ local function lessCandidate(a,b)
     if candDistance[a]~=candDistance[b] then return candDistance[a]<candDistance[b] end
     return candKey[a]<candKey[b]
 end
-local function nearest(w,x,y,except,claimed,radius)
+local function nearest(w,x,y,except,claimed,radius,extraClaims)
     radius=radius or (except and G.radius(w,w.entities[except])) or 112
     local unit=except and w.entities[except]
+    -- A flyer may be sent to any cell: it needs no walkable ground and no free body room.
+    local aloft=unit and airborne(w,unit)
     local map=w.map;local width,height=map.width,map.height
     local ux,uy=0,0;if unit then ux,uy=unit.x,unit.y end
     -- Not re-entrant: the scratch arrays are shared. Nothing reachable from G.free or
@@ -96,7 +229,7 @@ local function nearest(w,x,y,except,claimed,radius)
     local function consider(cx,cy)
         if cx<0 or cy<0 or cx>=width or cy>=height then return end
         local key=Path.key(map,cx,cy)
-        if (claimed and claimed[key]) or not Path.walkable(w,cx,cy) then return end
+        if (claimed and claimed[key]) or (extraClaims and extraClaims[key]) or (not aloft and not Path.walkable(w,cx,cy)) then return end
         count=count+1
         candX[count]=cx;candY[count]=cy;candKey[count]=key
         candDistance[count]=unit and F.distance2Bounded(ux,uy,F.center(cx),F.center(cy)) or 0
@@ -114,7 +247,9 @@ local function nearest(w,x,y,except,claimed,radius)
             table.sort(candOrder,lessCandidate)
             for i=1,count do
                 local c=candOrder[i]
-                if G.free(w,F.center(candX[c]),F.center(candY[c]),radius,except) then return candX[c],candY[c] end
+                local px,py=F.center(candX[c]),F.center(candY[c])
+                if not aloft and radius>127 then px,py=Path.point(w,candX[c],candY[c],radius) end
+                if aloft or px and G.free(w,px,py,radius,except) then return candX[c],candY[c] end
             end
         end
     end
@@ -123,6 +258,13 @@ end
 -- Single definition of how w.blocked derives from the map and standing buildings,
 -- shared with the regression test that proves the derivation (see Sim.recomputeBlocked).
 local function rebuild(w) w.blocked=Sim.recomputeBlocked(w) end
+local function standAt(w,e,x,y)
+    e.x,e.y=F.center(x),F.center(y)
+    local d=w.content.units[e.kind]
+    if not d.flying and d.radius>127 then
+        local px,py=Path.point(w,x,y,d.radius);assert(px,'spawn lacks body clearance');e.x,e.y=px,py
+    end
+end
 local function spawn(w,kind,owner,x,y,category)
     G.invalidate(w)
     local d=w.content.units[kind] or w.content.buildings[kind]
@@ -130,6 +272,7 @@ local function spawn(w,kind,owner,x,y,category)
     local e={id=id,kind=kind,owner=owner,x=F.center(x),y=F.center(y),category=category or 'unit',
         alive=true,hp=d and d.hp or 1,maxHp=d and d.hp or 1,size=d and d.size or 1,cooldown=0,
         path={},pathIndex=1,order={kind='stop'},orders={},lastCombat=-1000}
+    if e.category=='unit' then standAt(w,e,x,y) end
     if d and d.hero then e.xp=0; e.upgrades={}; e.stance=1 end
     -- A caster starts full. Mana is authoritative like every other integer here.
     if d and d.mana then e.mana=d.mana;e.maxMana=d.mana end
@@ -149,7 +292,14 @@ local function halt(w,e)
     if #e.path>0 then e.path={} end;e.pathIndex=1;e.goal=nil;e.waitTicks=0;e.bestWaypointDistance=nil;w.searches[e.id]=nil
 end
 local function route(w,e,x,y)
-    if not e.goal or e.goal.x~=x or e.goal.y~=y then Path.request(w,e,x,y) end
+    if e.goal and e.goal.x==x and e.goal.y==y then return end
+    -- A flyer's route is the straight line: one waypoint, no search, nothing to re-validate.
+    if airborne(w,e) then
+        local o=e.order;local exact=o.x==x and o.y==y
+        local px,py=exact and o.px or F.center(x),exact and o.py or F.center(y)
+        e.path={{x=x,y=y,px=px,py=py}};e.pathIndex=1;e.goal={x=x,y=y,px=px,py=py};e.pathVersion=w.navVersion;e.blockedReason=nil;w.searches[e.id]=nil;return
+    end
+    Path.request(w,e,x,y)
 end
 local function approachTarget(w,e,t,range)
     if inRange(e,t,range) then halt(w,e); return true end
@@ -159,8 +309,11 @@ local function approachTarget(w,e,t,range)
             local score;local r=math.ceil(range/256)
             for cy=math.max(0,F.cell(t.y)-r),math.min(w.map.height-1,F.cell(t.y)+t.size+r-1) do
                 for cx=math.max(0,F.cell(t.x)-r),math.min(w.map.width-1,F.cell(t.x)+t.size+r-1) do
-                    local px,py=F.center(cx),F.center(cy);local dist=F.distance2Bounded(e.x,e.y,px,py)
-                    if (not score or dist<score) and inRange({x=px,y=py},t,range) and G.free(w,px,py,G.radius(w,e),e.id) then x,y,score=cx,cy,dist end
+                    local px,py=Path.point(w,cx,cy,G.radius(w,e))
+                    if px then
+                        local dist=F.distance2Bounded(e.x,e.y,px,py)
+                        if (not score or dist<score) and inRange({x=px,y=py},t,range) and G.free(w,px,py,G.radius(w,e),e.id) then x,y,score=cx,cy,dist end
+                    end
                 end
             end
         else x,y=nearest(w,F.cell(t.x),F.cell(t.y),e.id) end
@@ -239,6 +392,7 @@ local function visibility(w)
         Sim.knownResources(w,p,player)
         end
     end
+    Coverage.update(w)
 end
 -- Resource nodes never move, so a remembered entry stays correct for as long as it
 -- exists; rebuilding one per visible node per tick allocated thousands of identical
@@ -279,12 +433,16 @@ end
 local VIEW_FIELDS={'id','kind','owner','x','y','category','alive','hp','maxHp','size','cooldown',
     'deathTick','navigation','blockedReason','lastOrderFailure','waitTicks','pathIndex','combatTarget',
     'nextCommitTick','attackTick','remaining','produced','researchRemaining',
-    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','payload','mine',
+    'reviveRemaining','resource','amount','campTier','stance','xp','healthCapacity','kills','mine','stalled',
     'mana','maxMana',
+    -- Stacks are public: the pips on a target are the tell that a burst is coming.
+    'stackFixed',
+    -- A worker's load and its loading are public: an enemy sees a laden worker walking home.
+    'carrying','carryResource','harvestUntil','garrisoned','occupants',
     -- A shot in flight carries its heading so the renderer can point it the right way.
     'dx','dy','ability'}
 -- Fields an observer may only see on entities it owns.
-local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','payload','mine'}
+local OWNER_FIELDS={'researchRemaining','reviveRemaining','xp','mine','stalled','garrisoned','occupants'}
 local ownerOnly={};for _,name in ipairs(OWNER_FIELDS) do ownerOnly[name]=true end
 local function shallow(t) local out={};for key,value in pairs(t) do out[key]=value end;return out end
 local function shallowArray(t) local out={};for i=1,#t do out[i]=shallow(t[i]) end;return out end
@@ -322,6 +480,9 @@ local function viewEntity(w,e,own)
     local cast=e.cast
     if cast then copy.cast={start=cast.start,point=cast.point,finish=cast.finish,dx=cast.dx,dy=cast.dy,
         ability=own and cast.ability or nil,target=own and cast.target or nil,x=own and cast.x or nil,y=own and cast.y or nil} end
+    -- A channel is public like a cast: the barrage is falling where everyone can see it.
+    local channel=e.channel
+    if channel then copy.channel={start=channel.start,finish=channel.finish,x=channel.x,y=channel.y,ability=own and channel.ability or nil} end
     -- Statuses are public in both directions. A stunned enemy has to read as stunned, or
     -- the player cannot tell why their focus target stopped swinging.
     if e.statuses then
@@ -333,15 +494,24 @@ local function viewEntity(w,e,own)
 end
 function Sim.view(w,player)
     local p=w.players[player]
-    local out={tick=w.tick,result=w.result,
-        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked},
+    -- Control state is public: both players see who owns each point and the countdown.
+    -- Orbital logistics at a glance, for a faction that has them: derived every time, never stored.
+    local rules=w.content.rules;local faction=Sim.factionOf(w,player);local orbit
+    if faction and faction.coverage then
+        orbit={slots=1+(Sim.tier(w,player)>=2 and 1 or 0),queueMax=rules.callDownQueue or 5,podsUnlocked=Sim.podsUnlocked(w,player),
+            podsMax=rules.podsMax or 3,podCapacity=rules.podCapacity or 4,podCooldown=rules.podCooldown or 300,descentTicks=rules.descentTicks or 200}
+    end
+    local out={tick=w.tick,result=w.result,control=w.control and Codec.copy(w.control),
+        map={width=w.map.width,height=w.map.height,starts=w.map.starts,anchors=w.map.anchors,blocked=w.map.blocked,unbuildable=w.map.unbuildable,terrain=w.map.terrain},
         entities={},byId={},
-        player={faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,
+        player={id=player,faction=p.faction,hq=p.hq,hero=p.hero,sequence=p.sequence,defeated=p.defeated,tech=p.tech,supplyCap=Sim.supplyCap(w,player),
             kills=p.kills,unitsLost=p.unitsLost,buildingsLost=p.buildingsLost,
-            resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources}}
+            resources=Codec.copy(p.resources),visible=p.visible,explored=p.explored,knownResources=p.knownResources,
+            coverage=p.coverage,orbit=orbit,callDown=p.callDown and Codec.copy(p.callDown),landings=p.landings and Codec.copy(p.landings),pods=p.pods and Codec.copy(p.pods)}}
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
-        if (e.alive or e.owner==player or (e.deathTick and w.tick-e.deathTick<40)) and Sim.visible(w,player,e) then
+        -- A unit inside a building is its owner's knowledge alone.
+        if (e.alive or e.owner==player or (e.deathTick and w.tick-e.deathTick<40)) and Sim.visible(w,player,e) and not (e.garrisoned and e.owner~=player) then
             local copy=viewEntity(w,e,e.owner==player)
             out.entities[#out.entities+1]=copy;out.byId[id]=copy
         end
@@ -350,6 +520,8 @@ function Sim.view(w,player)
 end
 function Sim.create(config,content,map)
     F.check(map.width,8,256); F.check(map.height,8,256)
+    -- Checked, not ordered: an out-of-range road key is a broken map, whatever order it is found in.
+    for key in pairs(map.unbuildable or {}) do F.check(key,1,map.width*map.height) end
     assert(#config.players>=2 and #config.players<=4,'two to four players required')
     -- Content is a shared, immutable definition table: nothing in the simulation
     -- writes to it, and 'content references and definition isolation' fails if that
@@ -362,11 +534,13 @@ function Sim.create(config,content,map)
     -- test are kept so randomness can be reintroduced as a considered change rather
     -- than rebuilt from nothing; config.seed is retained as part of match identity.
     local w={version=Sim.VERSION,tick=0,config=Codec.copy(config),content=Codec.copy(content),map=Codec.copy(map),
-        players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0,smoothChecks=0}}
+        players={},entities={},order={},nextId=1,searches={},pathCursor=0,navVersion=0,blocked={},events={},metrics={pathExpansions=0,directChecks=0,smoothChecks=0,bodyChecks=0}}
     for p=1,#config.players do
         local faction=config.players[p].faction or 'bastion'
-        assert(content.factions[faction],'unknown faction')
-        w.players[p]={faction=faction,resources=Codec.copy(content.rules.startingResources or {gold=650}),sequence=0,visible={},explored={},defeated=false,
+        local definition=content.factions[faction]
+        assert(definition,'unknown faction')
+        local starting=definition.starting and definition.starting.resources or content.rules.startingResources or {gold=650}
+        w.players[p]={faction=faction,resources=Codec.copy(starting),sequence=0,visible={},explored={},defeated=false,
             kills=0,unitsLost=0,buildingsLost=0}
     end
     for _,node in ipairs(map.resources or {}) do
@@ -375,13 +549,15 @@ function Sim.create(config,content,map)
     end
     for p=1,#w.players do
         local start=map.starts[p]
-        local hq=spawn(w,'hq',p,start.x,start.y,'building'); w.players[p].hq=hq.id
+        local hq=spawn(w,Sim.hqKind(content.factions[w.players[p].faction]),p,start.x,start.y,'building'); w.players[p].hq=hq.id
     end
     rebuild(w)
     for p=1,#w.players do
         local start=map.starts[p]; local faction=content.factions[w.players[p].faction]
-        local initial={faction.hero,'worker','worker',faction.roster[1],faction.roster[2]}
-        if content.rules.startingWorkers then initial={faction.hero};for _=1,content.rules.startingWorkers do initial[#initial+1]='worker' end end
+        local initial
+        if faction.starting and faction.starting.units then initial={};for i,kind in ipairs(faction.starting.units) do initial[i]=kind end
+        elseif content.rules.startingWorkers then initial={faction.hero};for _=1,content.rules.startingWorkers do initial[#initial+1]='worker' end
+        else initial={faction.hero,'worker','worker',faction.roster[1],faction.roster[2]} end
         for slot,kind in ipairs(initial) do
             local x,y=nearest(w,start.x+3,start.y+3,nil,nil,content.units[kind].radius)
             if content.rules.profile and map.unitStarts and map.unitStarts[p] and map.unitStarts[p][slot] then x=map.unitStarts[p][slot].x;y=map.unitStarts[p][slot].y;assert(G.free(w,F.center(x),F.center(y),content.units[kind].radius),'invalid authored spawn') end
@@ -391,8 +567,11 @@ function Sim.create(config,content,map)
         end
     end
     for _,camp in ipairs(map.camps or {}) do
-        local e=spawn(w,camp.kind or 'neutral',0,camp.x,camp.y); e.home={x=e.x,y=e.y};e.campTier=camp.tier
+        local kind=camp.kind or 'neutral'
+        assert(content.units[kind],'the map places a camp of the unknown unit kind '..tostring(kind))
+        local e=spawn(w,kind,0,camp.x,camp.y); e.home={x=e.x,y=e.y};e.campTier=camp.tier
     end
+    Control.create(w,map)
     visibility(w)
     return w
 end
@@ -412,7 +591,40 @@ function Sim.population(w,p)
             if e.alive and e.queue then for _,q in ipairs(e.queue) do n=n+(w.content.units[q.kind].food or 1) end end
         end
     end
+    local pods=w.players[p].pods
+    if pods then
+        for _,kind in ipairs(pods.open.kinds) do n=n+(w.content.units[kind].food or 1) end
+        for _,pod in ipairs(pods.inFlight) do for _,kind in ipairs(pod.kinds) do n=n+(w.content.units[kind].food or 1) end end
+    end
     return n
+end
+-- The supply cap. A flat rule by default; with rules.supplyFromBuildings it is the sum of
+-- what the player's completed buildings provide, clamped at the faction's ceiling, so
+-- losing a depot really does cost the supply it gave.
+function Sim.supplyCap(w,p)
+    local rules=w.content.rules
+    if not rules.supplyFromBuildings then return rules.population end
+    local cap=0
+    for _,id in ipairs(ids(w)) do
+        local e=w.entities[id]
+        if e.alive and e.owner==p and e.category=='building' and e.remaining==0 then cap=cap+(def(w,e).supply or 0) end
+    end
+    local ceiling=Sim.factionOf(w,p).supplyCap or rules.supplyCap or 200
+    if cap>ceiling then cap=ceiling end
+    return cap
+end
+-- Defeat, by the faction's rule. 'unique_hq' is the old rule: the headquarters the match
+-- started with is the only one there is. 'all_hq' counts every standing headquarters of
+-- the faction's kind, sites included, so an expansion is a life.
+function Sim.defeated(w,p)
+    local faction=Sim.factionOf(w,p)
+    if (faction.defeat or 'all_hq')=='unique_hq' then return not w.entities[w.players[p].hq].alive end
+    local kind=Sim.hqKind(faction)
+    for _,id in ipairs(ids(w)) do
+        local e=w.entities[id]
+        if e.alive and e.owner==p and e.kind==kind then return false end
+    end
+    return true
 end
 function Sim.unitCount(w,p)
     local count=0;for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.owner==p and e.category=='unit' then count=count+1 end end;return count
@@ -421,22 +633,33 @@ function Sim.revival(content,hero)
     local tiers=0;for _,threshold in ipairs(content.rules.xpThresholds) do if (hero.xp or 0)>=threshold then tiers=tiers+1 end end
     return content.rules.reviveCost+tiers*(content.rules.reviveTierCost or 0),content.rules.reviveTicks+tiers*(content.rules.reviveTierTicks or 0)
 end
--- The gold mine whose footprint exactly matches this one, if there is such a mine.
--- An extractor may only be built on a mine, and only squarely on it.
-function Sim.mineAt(view,x,y,size)
+-- The resource node whose footprint exactly matches this one, if there is such a node,
+-- optionally of one resource. A building that stands on a node stands squarely on it.
+function Sim.mineAt(view,x,y,size,resource)
     for _,e in ipairs(view.entities) do
-        if e.alive and e.category=='node' and e.resource=='gold'
+        if e.alive and e.category=='node' and (resource==nil or e.resource==resource)
             and F.cell(e.x)==x and F.cell(e.y)==y and e.size==size then return e end
     end
 end
-function Sim.placement(view,content,kind,x,y)
+function Sim.placement(view,content,kind,x,y,prepaid)
     local d=content.buildings[kind]
-    if not d or kind=='hq' or not F.integer(x,0,view.map.width-d.size) or not F.integer(y,0,view.map.height-d.size) then return false,'Outside map' end
-    if not afford(view.player,d.cost) then return false,'Insufficient resources' end
+    local faction=content.factions[view.player.faction]
+    if not d or not F.integer(x,0,view.map.width-d.size) or not F.integer(y,0,view.map.height-d.size) then return false,'Outside map' end
+    -- The headquarters is buildable only by a faction that lists it and does not lose on
+    -- its unique one; a faction with no build list keeps the old rule of never.
+    if kind==Sim.hqKind(faction) and (not faction.buildings or faction.defeat=='unique_hq') then return false,'Cannot be built' end
+    if faction.buildings then
+        local listed=false;for _,id in ipairs(faction.buildings) do if id==kind then listed=true end end
+        if not listed then return false,'Not available to your faction' end
+    end
+    if not prepaid and not afford(view.player,d.cost) then return false,'Insufficient resources' end
+    local missing=Sim.missingRequirement(view,view.player.id,d.requires)
+    if missing then return false,'Requires '..((content.buildings[missing] or content.units[missing] or {}).label or missing) end
     local mine
-    if d.extractor then
-        local found=Sim.mineAt(view,x,y,d.size)
-        if not found then return false,'Extractors go on a gold mine' end
+    local onNode=d.onNode or (d.extractor and 'gold') or nil
+    if onNode then
+        local found=Sim.mineAt(view,x,y,d.size,onNode)
+        if not found then return false,'Must be built on a '..onNode..' node' end
         if found.amount and found.amount<=0 then return false,'Mine is exhausted' end
         mine=found.id
     end
@@ -446,13 +669,19 @@ function Sim.placement(view,content,kind,x,y)
         -- of what you need to know to put a building on it, and mines sit against
         -- terrain that hides a cell or two of their own footprint often enough that the
         -- per-cell rule would arbitrarily rule out some of them.
+        -- Territory first: a coverage faction lands only where its relays reach, and that is
+        -- the answer a player needs before whether the ground is seen.
+        if faction.coverage and view.player.coverage and not view.player.coverage[key] then return false,'Outside relay coverage' end
         if not mine and not view.player.visible[key] then return false,'Unseen footprint' end
         if not mine and view.map.blocked[key] then return false,'Impassable terrain' end
+        -- Roads keep every mine's way to the bases open, so nothing stands on one. The
+        -- build command revalidates through here, which makes this authoritative.
+        if not mine and view.map.unbuildable and view.map.unbuildable[key] then return false,'Cannot build on a road' end
         for _,other in ipairs(view.entities) do
-            if other.alive and other.category=='unit' and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
-            -- An extractor is placed on its mine, so the mine it covers is not in its way.
-            -- Carriers never obstruct anything.
-            if other.alive and other.category~='unit' and other.category~='carrier' and other.id~=mine
+            -- A flyer occupies no ground, so a site may go up beneath it.
+            if other.alive and other.category=='unit' and not content.units[other.kind].flying and G.rectangleDistance2(other.x,other.y,cx*256,cy*256,(cx+1)*256,(cy+1)*256)<F.sq(content.units[other.kind].radius) then return false,'Occupied footprint' end
+            -- A building placed on its node is not obstructed by that node.
+            if other.alive and other.category~='unit' and other.id~=mine
                 and cx>=F.cell(other.x) and cx<F.cell(other.x)+other.size and cy>=F.cell(other.y) and cy<F.cell(other.y)+other.size then return false,'Occupied footprint' end
         end
     end end
@@ -463,8 +692,10 @@ local function clearCombat(e)
     -- A new order cancels a cast. Before the cast point nothing has been spent, so the
     -- mana and the cooldown are still there; after it, only the backswing is thrown
     -- away, which is the same bargain the attack phase offers for a committed swing.
-    e.cast=nil
+    -- A channel is broken outright; its cooldown was charged at the cast point.
+    e.cast=nil;e.channel=nil
 end
+local claimBuild
 local function setOrder(w,e,order,append)
     if append and e.order.kind~='stop' then
         if #e.orders>=32 then return false end
@@ -472,34 +703,176 @@ local function setOrder(w,e,order,append)
     else
         local old=e.order
         e.rally=e.rally
-        local same=old.kind==order.kind and old.target==order.target and old.x==order.x and old.y==order.y
+        local same=old.kind==order.kind and old.target==order.target and old.x==order.x and old.y==order.y and old.px==order.px and old.py==order.py
         e.orders={}
         if same and (order.kind=='move' or order.kind=='attack_move' or order.kind=='attack') then return true end
-        halt(w,e);clearCombat(e);e.order=order;e.reroutes=0;e.blockedReason=nil;e.lastOrderFailure=nil;e.restAnchor=nil;e.navigation='idle';e.detour=nil;e.rerouteAt=nil
+        halt(w,e);clearCombat(e);Harvest.release(w,e);e.order=order;e.reroutes=0;e.blockedReason=nil;e.lastOrderFailure=nil;e.restAnchor=nil;e.navigation='idle';e.detour=nil;e.rerouteAt=nil
         e.suppressAcquireUntil=w.tick
         if order.x then route(w,e,order.x,order.y) end
+        claimBuild(w,e)
     end
     return true
 end
 Sim.setOrder=setOrder
 local function nextOrder(w,e)
     local blocked=e.blockedReason
-    local rest=e.order.x and {x=F.center(e.order.x),y=F.center(e.order.y)} or nil
-    halt(w,e);clearCombat(e);e.order=table.remove(e.orders,1) or {kind='stop'};e.reroutes=0;e.blockedReason=nil
+    local rest=e.order.x and {x=e.order.px or F.center(e.order.x),y=e.order.py or F.center(e.order.y)} or nil
+    halt(w,e);clearCombat(e);Harvest.release(w,e);e.order=table.remove(e.orders,1) or {kind='stop'};e.reroutes=0;e.blockedReason=nil
     e.navigation=blocked and 'failed' or 'idle';e.lastOrderFailure=blocked;e.restAnchor=e.order.kind=='stop' and not blocked and rest or nil
     if e.order.x then route(w,e,e.order.x,e.order.y) end
+    claimBuild(w,e)
+end
+-- Claim on activation, both for immediate orders and when a queued order starts. Merely
+-- queuing work must not evict the current builder. Claim first, then release the previous
+-- worker, whose own queue may start another construction job in turn.
+claimBuild=function(w,e)
+    if e.order.kind~='build' then return end
+    local site=w.entities[e.order.target]
+    if not site or not site.alive or site.owner~=e.owner or site.category~='building' or site.remaining<=0 then return end
+    -- Joining, not taking over: a site is built by everyone holding a build order on it.
+    local builders=site.builders or {}
+    for _,id in ipairs(builders) do if id==e.id then return end end
+    builders[#builders+1]=e.id;site.builders=builders
 end
 local function reject(w,c,reason) emit(w,'rejected',{player=c.player or 0,sequence=c.sequence or 0,reason=reason}) end
+-- What cancelling gives back: a whole-percent share of every resource paid, floored.
+local function refundOf(w,cost)
+    local percent=w.content.rules.cancelRefundPercent or 50
+    local out={};for _,key in ipairs(Codec.keys(cost)) do out[key]=math.floor(cost[key]*percent/100) end
+    return out
+end
 local commandKinds={move=true,attack=true,attack_move=true,stop=true,hold=true,build=true,recruit=true,toggle=true,upgrade=true,revive=true,cancel=true,research=true,
-    rally=true,patrol=true,follow=true,cast=true,ping=true}
+    rally=true,patrol=true,follow=true,cast=true,ping=true,harvest=true,requisition=true,land=true,pod_load=true,pod_launch=true,garrison=true,unload=true}
 -- Orders that take a destination slot and are reserved against other units' slots.
 local destinationKinds={move=true,attack_move=true,patrol=true}
-local function apply(w,c)
-    if type(c)~='table' or not F.integer(c.player,1,#w.players) or not F.integer(c.sequence,1,2147483646) or c.tick~=w.tick or not commandKinds[c.kind] or type(c.args)~='table' then
-        reject(w,type(c)=='table' and c or {},'malformed command'); return
-    end
+local function envelopeError(w,c,sequence)
+    if type(c)~='table' or not F.integer(c.player,1,#w.players) or not F.integer(c.sequence,1,2147483646) or c.tick~=w.tick or not commandKinds[c.kind] or type(c.args)~='table' then return 'malformed command' end
     local p=w.players[c.player]
-    if p.defeated or c.sequence<=p.sequence then reject(w,c,'duplicate, stale, or defeated'); return end
+    if p.defeated or c.sequence<=(sequence or p.sequence) then return 'duplicate, stale, or defeated' end
+end
+local function commandEntity(w,c)
+    local a=c.args
+    local e=F.integer(a.entity,1) and w.entities[a.entity] or nil
+    if not e or e.owner~=c.player then return nil,'invalid ownership' end
+    if a.append~=nil and type(a.append)~='boolean' then return nil,'invalid queue flag' end
+    if a.group~=nil and not F.integer(a.group,1,2147483646) then return nil,'invalid command group' end
+    if a.append and c.kind~='stop' and c.kind~='hold' and #e.orders>=32 then return nil,'order queue full' end
+    return e
+end
+local function validPosition(w,a)
+    return F.integer(a.x,0,w.map.width*256-1) and F.integer(a.y,0,w.map.height*256-1)
+end
+-- Formation. A group ordered somewhere keeps its shape: each unit aims for the destination
+-- offset by where it stands relative to the middle of its group, so a line arrives as a line and
+-- units stop crossing each other to reach cells that are interchangeable anyway. Claimed cells
+-- still guarantee distinct destinations; this only decides where each unit starts looking, and a
+-- unit whose formation cell is unusable falls back to searching from the point that was clicked.
+-- Offsets are clamped so that selecting units from opposite corners of the map still forms them
+-- up around the destination rather than scattering them across it.
+-- Scratch for the tick, like the claim set: derived from the commands, never stored.
+local function planFormations(w,ordered)
+    local groups,keys=nil,nil
+    local sequences={}
+    for _,c in ipairs(ordered) do
+        local sequence=type(c)=='table' and sequences[c.player] or nil
+        if not envelopeError(w,c,sequence) then
+            -- apply consumes the sequence even when entity/argument validation rejects it.
+            sequences[c.player]=c.sequence
+            local e=destinationKinds[c.kind] and commandEntity(w,c)
+            if e and e.alive and e.category=='unit' and c.args.group and not c.args.append and validPosition(w,c.args) then
+                local key=c.player..':'..tostring(c.args.group)
+                groups=groups or {};keys=keys or {}
+                local list=groups[key]
+                if not list then list={};groups[key]=list;keys[#keys+1]=key end
+                list[#list+1]={e=e,command=c,x=F.cell(c.args.x),y=F.cell(c.args.y)}
+            end
+        end
+    end
+    if not keys then return end
+    local slots={}
+    for _,key in ipairs(keys) do
+        local list=groups[key]
+        if #list>1 then
+            local sx,sy=0,0
+            for _,item in ipairs(list) do sx=sx+F.cell(item.e.x);sy=sy+F.cell(item.e.y) end
+            local cx,cy=math.floor(sx/#list),math.floor(sy/#list)
+            local limit=math.ceil(math.sqrt(#list))+2
+            for _,item in ipairs(list) do
+                local dx=math.max(-limit,math.min(limit,F.cell(item.e.x)-cx))
+                local dy=math.max(-limit,math.min(limit,F.cell(item.e.y)-cy))
+                slots[item.command]={x=item.x+dx,y=item.y+dy}
+            end
+        end
+    end
+    w.groupSlots=slots
+end
+-- Counts keep overlapping queued reservations intact when this entity's old orders
+-- are temporarily excluded. Rebuilt only after a non-movement command can change
+-- another entity's orders; otherwise each accepted destination updates its own counts.
+local function reserveOrder(w,o,counts,delta)
+    if o.x then
+        local key=Path.key(w.map,o.x,o.y)
+        local n=(counts[key] or 0)+delta
+        counts[key]=n>0 and n or nil
+    end
+end
+local function reserveOrders(w,e,counts,delta)
+    reserveOrder(w,e.order,counts,delta)
+    for i=1,#e.orders do reserveOrder(w,e.orders[i],counts,delta) end
+end
+local function destination(w,c,e,a,claims)
+    if not validPosition(w,a) then reject(w,c,'invalid position'); return end
+    local rx,ry=F.cell(a.x),F.cell(a.y)
+    -- Equivalent orders preserve their slot even after occupying it. Patrol is
+    -- excluded: reissuing it must be able to reset the beat to the current position.
+    if c.kind~='patrol' and not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry and
+        (not w.content.rules.preciseMovement or e.order.requestPX==a.x and e.order.requestPY==a.y) then
+        e.orders={};w.commandClaims[Path.key(w.map,e.order.x,e.order.y)]=true;return
+    end
+    -- Its place in the formation first, then the point that was clicked.
+    local slot=w.groupSlots and w.groupSlots[c]
+    local x,y
+    if slot then x,y=nearest(w,slot.x,slot.y,e.id,claims,nil,w.commandClaims) end
+    if not x then x,y=nearest(w,rx,ry,e.id,claims,nil,w.commandClaims) end
+    if not x then reject(w,c,'no destination');return end
+    local order={kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group}
+    if w.content.rules.preciseMovement then
+        order.requestPX,order.requestPY=a.x,a.y
+        local px,py=x*256+a.x%256,y*256+a.y%256
+        -- Keep the click's offset in each assigned slot, provided the whole body
+        -- fits. The coarse cell path remains unchanged. Unsafe edges use its centre.
+        if airborne(w,e) or G.free(w,px,py,G.radius(w,e),e.id) then order.px,order.py=px,py end
+    end
+    -- A patrol beat runs between where the unit was standing when ordered and the
+    -- point clicked. Both ends are stored on the order so the route survives
+    -- snapshots and replays without any extra per-entity state.
+    if c.kind=='patrol' then
+        order.originX,order.originY=F.cell(e.x),F.cell(e.y)
+        if w.content.rules.preciseMovement then order.originPX,order.originPY=e.x,e.y end
+    end
+    setOrder(w,e,order,a.append)
+    w.commandClaims[Path.key(w.map,x,y)]=true;return
+end
+local function applyDestination(w,c,e,a)
+    local owners=w.destinationClaims
+    if not owners then owners={};w.destinationClaims=owners end
+    local claims=owners[e.owner]
+    if not claims then
+        claims={};owners[e.owner]=claims
+        for _,id in ipairs(w.order) do
+            local other=w.entities[id]
+            if other.alive and other.owner==e.owner then reserveOrders(w,other,claims,1) end
+        end
+    end
+    reserveOrders(w,e,claims,-1)
+    destination(w,c,e,a,claims)
+    reserveOrders(w,e,claims,1)
+end
+local function apply(w,c)
+    local reason=envelopeError(w,c)
+    if reason then reject(w,type(c)=='table' and c or {},reason);return end
+    if not destinationKinds[c.kind] then w.destinationClaims=nil end
+    local p=w.players[c.player]
     p.sequence=c.sequence
     local a=c.args
     -- A ping is a message, not an order: it names no entity, changes no state, and is
@@ -514,17 +887,16 @@ local function apply(w,c)
         -- must never become everyone, or a ping would hand the enemy your attention.
         emit(w,'ping',{player=c.player,pingX=a.x,pingY=a.y});return
     end
-    local e=F.integer(a.entity,1) and w.entities[a.entity] or nil
-    if not e or e.owner~=c.player then reject(w,c,'invalid ownership'); return end
+    local e,entityError=commandEntity(w,c)
+    if not e then reject(w,c,entityError);return end
     local d=def(w,e)
-    if a.append~=nil and type(a.append)~='boolean' then reject(w,c,'invalid queue flag');return end
-    if a.group~=nil and not F.integer(a.group,1,2147483646) then reject(w,c,'invalid command group');return end
-    if a.append and c.kind~='stop' and c.kind~='hold' and #e.orders>=32 then reject(w,c,'order queue full');return end
     if c.kind=='revive' then
         local hq=w.entities[p.hq]
+        if not d.hero or not w.content.rules.xpThresholds then reject(w,c,'cannot revive'); return end
         local cost,ticks=Sim.revival(w.content,e)
-        if not d.hero or e.alive or e.reviveRemaining or not hq.alive or not afford(p,{gold=cost}) then reject(w,c,'cannot revive'); return end
-        spend(p,{gold=cost}); e.reviveRemaining=ticks; return
+        local price={[Sim.primaryResource(w.content)]=cost}
+        if e.alive or e.reviveRemaining or not hq.alive or not afford(p,price) then reject(w,c,'cannot revive'); return end
+        spend(p,price); e.reviveRemaining=ticks; return
     end
     if not e.alive then reject(w,c,'entity is dead'); return end
     if c.kind=='toggle' then
@@ -541,20 +913,36 @@ local function apply(w,c)
         spend(p,tech.cost);e.researchRemaining=tech.ticks;return
     elseif c.kind=='recruit' then
         local ud=w.content.units[a.unit]
-        local allowed=a.unit=='worker' and e.kind=='hq'
-        if e.kind=='barracks' then
-            for _,kind in ipairs(w.content.factions[p.faction].roster) do if kind==a.unit then allowed=true end end
-        end
-        if not ud or not allowed or e.remaining>0 or #e.queue>=5 or (ud.tech and not p.tech) or Sim.population(w,c.player)+(ud.food or 1)>w.content.rules.population or not afford(p,ud.cost) then reject(w,c,'cannot recruit'); return end
+        local allowed=false
+        for _,kind in ipairs(Sim.produces(w,e)) do if kind==a.unit then allowed=true end end
+        if ud and allowed and Sim.missingRequirement(w,c.player,ud.requires) then reject(w,c,'requirement missing'); return end
+        if not ud or not allowed or e.remaining>0 or #e.queue>=5 or (ud.tech and not p.tech) or Sim.population(w,c.player)+(ud.food or 1)>Sim.supplyCap(w,c.player) or not afford(p,ud.cost) then reject(w,c,'cannot recruit'); return end
         spend(p,ud.cost); e.queue[#e.queue+1]={kind=a.unit,remaining=ud.buildTicks}; return
     elseif c.kind=='cancel' then
         if e.category~='building' then reject(w,c,'cannot cancel'); return end
+        if a.pod then
+            local pods=p.pods
+            if e.id~=p.hq or not pods or #pods.open.kinds==0 then reject(w,c,'nothing to cancel');return end
+            -- One seat: that unit is refunded in full (it was never trained) and those behind it move up.
+            if a.seat~=nil then
+                if not F.integer(a.seat,1,#pods.open.kinds) then reject(w,c,'nothing to cancel');return end
+                local kind=table.remove(pods.open.kinds,a.seat);spend(p,w.content.units[kind].cost,-1);return
+            end
+            for _,kind in ipairs(pods.open.kinds) do spend(p,w.content.units[kind].cost,-1) end
+            pods.open={kinds={}};return
+        end
+        if a.callDown then
+            local queue=p.callDown or {}
+            if e.id~=p.hq or not F.integer(a.callDown,1,#queue) then reject(w,c,'nothing to cancel');return end
+            local item=table.remove(queue,a.callDown)
+            spend(p,refundOf(w,w.content.buildings[item.kind].cost),-1);return
+        end
         if a.research then
             if not e.researchRemaining then reject(w,c,'no research');return end
-            local refund={};for _,key in ipairs(Codec.keys(w.content.rules.tech.cost)) do refund[key]=math.floor(w.content.rules.tech.cost[key]/2) end;spend(p,refund,-1);e.researchRemaining=nil;return
+            spend(p,refundOf(w,w.content.rules.tech.cost),-1);e.researchRemaining=nil;return
         end
-        if e.remaining>0 then local refund={}; for _,key in ipairs(Codec.keys(d.cost)) do refund[key]=math.floor(d.cost[key]/2) end; spend(p,refund,-1); e.alive=false; w.navVersion=w.navVersion+1; rebuild(w)
-        elseif #e.queue>0 then local index=a.index or #e.queue;if not F.integer(index,1,#e.queue) then reject(w,c,'invalid queue slot');return end;local item=table.remove(e.queue,index);local cost=w.content.units[item.kind].cost;if w.content.rules.profile and item.remaining<w.content.units[item.kind].buildTicks then local refund={};for _,key in ipairs(Codec.keys(cost)) do refund[key]=math.floor(cost[key]/2) end;cost=refund end;spend(p,cost,-1)
+        if e.remaining>0 then spend(p,refundOf(w,d.cost),-1); e.alive=false; w.navVersion=w.navVersion+1; rebuild(w)
+        elseif #e.queue>0 then local index=a.index or #e.queue;if not F.integer(index,1,#e.queue) then reject(w,c,'invalid queue slot');return end;local item=table.remove(e.queue,index);local cost=w.content.units[item.kind].cost;if w.content.rules.profile and item.remaining<w.content.units[item.kind].buildTicks then cost=refundOf(w,cost) end;spend(p,cost,-1)
         else reject(w,c,'nothing to cancel') end
         return
     elseif c.kind=='build' then
@@ -563,7 +951,7 @@ local function apply(w,c)
         if a.target then
             local site=w.entities[a.target]
             if not site or not site.alive or site.owner~=e.owner or site.category~='building' or site.remaining<=0 then reject(w,c,'invalid site'); return end
-            site.builder=e.id;setOrder(w,e,{kind='build',target=site.id},a.append);return
+            setOrder(w,e,{kind='build',target=site.id},a.append);return
         end
         local view=Sim.view(w,c.player)
         local valid,reason=Sim.placement(view,w.content,a.building,a.x,a.y)
@@ -571,13 +959,14 @@ local function apply(w,c)
         -- An extractor stands on its mine, and a mine is a blocked, occupied footprint by
         -- construction. Those two checks are therefore skipped for it; Sim.placement has
         -- already established that the footprint is exactly a live mine.
-        local mine=bd.extractor and Sim.mineAt(view,a.x,a.y,bd.size) or nil
+        local onNode=bd.onNode or (bd.extractor and 'gold') or nil
+        local mine=onNode and Sim.mineAt(view,a.x,a.y,bd.size,onNode) or nil
         for y=a.y,a.y+bd.size-1 do for x=a.x,a.x+bd.size-1 do
             if not mine and not p.visible[Path.key(w.map,x,y)] then reject(w,c,'blocked or unseen footprint'); return end
             if not mine and (not Path.walkable(w,x,y) or occupied(w,x,y)) then reject(w,c,'blocked or unseen footprint'); return end
         end end
         spend(p,bd.cost)
-        local site=spawn(w,a.building,c.player,a.x,a.y,'building'); site.remaining=bd.buildTicks; site.builder=e.id;if w.content.rules.constructionHealth then site.hp=math.ceil(bd.hp/10);site.healthCapacity=site.hp end
+        local site=spawn(w,a.building,c.player,a.x,a.y,'building'); site.remaining=bd.buildTicks;if w.content.rules.constructionHealth then site.hp=math.ceil(bd.hp/10);site.healthCapacity=site.hp end
         if mine then site.mine=mine.id end
         w.navVersion=w.navVersion+1; rebuild(w);setOrder(w,e,{kind='build',target=site.id},a.append);return
     elseif c.kind=='rally' then
@@ -594,8 +983,77 @@ local function apply(w,c)
         end
         return
     end
+    if c.kind=='requisition' then
+        -- Orbital logistics: the price is paid now, the building is produced in orbit and
+        -- lands later, complete, wherever the player then chooses inside coverage.
+        local faction=Sim.factionOf(w,c.player);local bd=w.content.buildings[a.building]
+        local listed=false;for _,id in ipairs(faction.buildings or {}) do if id==a.building then listed=true end end
+        if not faction.coverage or e.id~=p.hq or not bd or not listed or a.building==Sim.hqKind(faction) then reject(w,c,'cannot requisition');return end
+        if Sim.missingRequirement(w,c.player,bd.requires) then reject(w,c,'requirement missing');return end
+        p.callDown=p.callDown or {}
+        if #p.callDown>=(w.content.rules.callDownQueue or 5) then reject(w,c,'call-down queue full');return end
+        if not afford(p,bd.cost) then reject(w,c,'cannot requisition');return end
+        spend(p,bd.cost);p.callDown[#p.callDown+1]={kind=a.building,remaining=bd.buildTicks}
+        emit(w,'requisitioned',{player=c.player,building=a.building});return
+    elseif c.kind=='land' then
+        local queue=p.callDown or {}
+        local item=F.integer(a.index,1,#queue) and queue[a.index] or nil
+        if e.id~=p.hq or not item or item.remaining>0 then reject(w,c,'nothing ready to land');return end
+        local valid,reason=Sim.placement(Sim.view(w,c.player),w.content,item.kind,a.x,a.y,true)
+        if not valid then reject(w,c,reason);return end
+        table.remove(queue,a.index)
+        p.landings=p.landings or {}
+        p.landings[#p.landings+1]={kind=item.kind,x=a.x,y=a.y,at=w.tick+(w.content.rules.descentTicks or 200)}
+        emit(w,'landing',{player=c.player,building=item.kind,landX=a.x,landY=a.y});return
+    end
+    if c.kind=='pod_load' then
+        -- Cost and supply are paid at loading; the unit exists only when the pod lands.
+        local faction=Sim.factionOf(w,c.player);local ud=w.content.units[a.unit];local rules=w.content.rules
+        if not faction.coverage or e.id~=p.hq or not ud or not ud.pod then reject(w,c,'cannot load');return end
+        if Sim.missingRequirement(w,c.player,ud.requires) then reject(w,c,'requirement missing');return end
+        p.pods=p.pods or {open={kinds={}},inFlight={},cooldownUntil=0}
+        if #p.pods.open.kinds>=(rules.podCapacity or 4) then reject(w,c,'pod is full');return end
+        if Sim.population(w,c.player)+(ud.food or 1)>Sim.supplyCap(w,c.player) or not afford(p,ud.cost) then reject(w,c,'cannot load');return end
+        spend(p,ud.cost);p.pods.open.kinds[#p.pods.open.kinds+1]=a.unit
+        emit(w,'pod_loaded',{player=c.player,unit=a.unit});return
+    elseif c.kind=='pod_launch' then
+        local pods=p.pods;local rules=w.content.rules
+        if e.id~=p.hq or not pods or #pods.open.kinds==0 then reject(w,c,'nothing to launch');return end
+        if not F.integer(a.x,0,w.map.width-1) or not F.integer(a.y,0,w.map.height-1) then reject(w,c,'invalid position');return end
+        if not Coverage.covers(w,c.player,a.x,a.y) then reject(w,c,'Outside relay coverage');return end
+        if w.tick<(pods.cooldownUntil or 0) then reject(w,c,'pod on cooldown');return end
+        if #pods.inFlight>=Sim.podsUnlocked(w,c.player) then reject(w,c,'no pod available');return end
+        pods.inFlight[#pods.inFlight+1]={x=a.x,y=a.y,at=w.tick+(rules.descentTicks or 200),kinds=pods.open.kinds}
+        pods.open={kinds={}};pods.cooldownUntil=w.tick+(rules.podCooldown or 300)
+        emit(w,'pod_launched',{player=c.player,podX=a.x,podY=a.y});return
+    elseif c.kind=='unload' then
+        if e.category~='building' or not e.occupants or #e.occupants==0 then reject(w,c,'nothing to unload');return end
+        local claimed={}
+        for _,id in ipairs(e.occupants) do local o=w.entities[id]
+            local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,claimed,G.radius(w,o))
+            if x then claimed[Path.key(w.map,x,y)]=true;standAt(w,o,x,y) end
+            o.garrisoned=nil;G.invalidate(w);emit(w,'unloaded',{entity=o.id})
+        end
+        e.occupants=nil;G.invalidate(w);return
+    end
     if e.category~='unit' then reject(w,c,'unit required'); return end
+    if c.kind=='garrison' then
+        local t=F.integer(a.target,1) and w.entities[a.target] or nil
+        local bd=t and w.content.buildings[t.kind]
+        if not t or not t.alive or t.owner~=e.owner or t.category~='building' or t.remaining>0 or not bd or not bd.garrison then reject(w,c,'cannot garrison there');return end
+        if airborne(w,e) or e.garrisoned then reject(w,c,'cannot garrison');return end
+        setOrder(w,e,{kind='garrison',target=t.id},a.append);return
+    end
     if c.kind=='stop' or c.kind=='hold' then setOrder(w,e,{kind=c.kind},false);e.suppressAcquireUntil=w.tick;return end
+    if c.kind=='harvest' then
+        if not d.harvest then reject(w,c,'cannot harvest');return end
+        -- No target: bring back what is carried, then stop.
+        if a.deliver and a.target==nil then setOrder(w,e,{kind='harvest',deliver=true},a.append);return end
+        local node=F.integer(a.target,1) and w.entities[a.target] or nil
+        if not node or not node.alive or not Harvest.canHarvest(d,node) then reject(w,c,'cannot harvest that');return end
+        if not Sim.visible(w,c.player,node) then reject(w,c,'target not visible');return end
+        setOrder(w,e,{kind='harvest',target=node.id,resource=node.resource},a.append);return
+    end
     if c.kind=='cast' then
         if e.category~='unit' then reject(w,c,'not a caster');return end
         local ability=Abilities.definition(w,a.ability)
@@ -619,45 +1077,11 @@ local function apply(w,c)
         -- far away walks into range first, exactly as an attack order does.
         setOrder(w,e,order,a.append);return
     end
-    if destinationKinds[c.kind] then
-        if not F.integer(a.x,0,w.map.width*256-1) or not F.integer(a.y,0,w.map.height*256-1) then reject(w,c,'invalid position'); return end
-        local rx,ry=F.cell(a.x),F.cell(a.y)
-        -- Equivalent orders preserve their slot even after occupying it. Patrol is
-        -- excluded: reissuing it must be able to reset the beat to the current position.
-        if c.kind~='patrol' and not a.append and e.order.kind==c.kind and e.order.requestX==rx and e.order.requestY==ry then
-            e.orders={};w.commandClaims[Path.key(w.map,e.order.x,e.order.y)]=true;return
-        end
-        -- A 240-unit group move applies 240 of these commands in one tick. Allocating
-        -- a fresh claims table per command, and a `reserve` closure per entity inside
-        -- the scan, meant tens of thousands of short-lived objects for one order. The
-        -- table is a per-tick scratch that is cleared and refilled, and the closure is
-        -- inlined; the scan itself still runs per command because each unit must not
-        -- see its own reservations, and the set changes as earlier commands are applied.
-        local claims=w.claimScratch
-        for key in pairs(claims) do claims[key]=nil end
-        for key in pairs(w.commandClaims) do claims[key]=true end
-        local map=w.map
-        for _,id in ipairs(w.order) do local other=w.entities[id]
-            if other.alive and other.owner==e.owner and id~=e.id then
-                local active=other.order
-                if active.x then claims[Path.key(map,active.x,active.y)]=true end
-                local queued=other.orders
-                for i=1,#queued do local o=queued[i];if o.x then claims[Path.key(map,o.x,o.y)]=true end end
-            end
-        end
-        local x,y=nearest(w,rx,ry,e.id,claims)
-        if not x then reject(w,c,'no destination');return end
-        local order={kind=c.kind,x=x,y=y,requestX=rx,requestY=ry,group=a.group}
-        -- A patrol beat runs between where the unit was standing when ordered and the
-        -- point clicked. Both ends are stored on the order so the route survives
-        -- snapshots and replays without any extra per-entity state.
-        if c.kind=='patrol' then order.originX,order.originY=F.cell(e.x),F.cell(e.y) end
-        setOrder(w,e,order,a.append)
-        w.commandClaims[Path.key(w.map,x,y)]=true;return
-    end
+    if destinationKinds[c.kind] then return applyDestination(w,c,e,a) end
     local target=F.integer(a.target,1) and w.entities[a.target] or nil
-    if not target or not target.alive or not Sim.visible(w,c.player,target) then reject(w,c,'target unavailable'); return end
+    if not target or not target.alive or target.garrisoned or not Sim.visible(w,c.player,target) then reject(w,c,'target unavailable'); return end
     if c.kind=='attack' and (target.owner==e.owner or target.category=='node') then reject(w,c,'invalid enemy'); return end
+    if c.kind=='attack' and airborne(w,target) and not d.canAttackAir then reject(w,c,'cannot attack air'); return end
     -- Follow keeps station on another of your own units and never picks a fight of its
     -- own; a unit cannot be ordered to follow itself.
     if c.kind=='follow' and (target.owner~=e.owner or target.category~='unit' or target.id==e.id) then reject(w,c,'invalid follow target'); return end
@@ -674,6 +1098,9 @@ function Sim.applyRally(w,e,unit)
         if not t or not t.alive then e.rally=nil;return end
         if t.category=='unit' and t.owner==unit.owner and t.id~=unit.id then
             Sim.setOrder(w,unit,{kind='follow',target=t.id},false)
+        elseif t.category=='node' and Harvest.canHarvest(def(w,unit),t) then
+            -- A producer rallied onto a patch its units can work sends them to work it.
+            Sim.setOrder(w,unit,{kind='harvest',target=t.id,resource=t.resource},false)
         else
             -- A mine or a building occupies its own cells, so walk to a free one beside
             -- it rather than to a cell nothing can stand on.
@@ -688,71 +1115,98 @@ function Sim.applyRally(w,e,unit)
     if x then Sim.setOrder(w,unit,{kind='move',x=x,y=y,requestX=rally.x,requestY=rally.y},false) end
 end
 local function hq(w,p) return w.entities[w.players[p].hq] end
--- A carrier reaching its drop-off is credited and recycled. It leaves no corpse: it
--- walked into the base. Recycling rather than accumulating dead entities is what keeps
--- w.order bounded -- a twenty minute match emits thousands of deliveries.
-local function deliver(w,carrier)
-    local ledger=w.players[carrier.owner].resources
-    local amount=carrier.payload or 0
-    ledger.gold=(ledger.gold or 0)+amount
-    carrier.alive=false;carrier.spent=true;carrier.deathTick=nil;carrier.payload=0
-    emit(w,'delivered',{entity=carrier.id,amount=amount,resource='gold'})
-end
--- Extractors emit. Income is bounded two ways: never more often than carrierEmitTicks,
--- and never more than carrierSlots deliveries in flight, which is what makes a distant
--- mine pay less and also caps how many carrier entities can exist.
-local function extraction(w)
-    local rules=w.content.rules
-    local slots=rules.carrierSlots or 9
-    -- One pass for both halves. This runs every tick in every match, including the many
-    -- that never build an extractor, so it censuses and collects sites together and
-    -- returns immediately when there is nothing emitting.
-    local inFlight,idle,sites={},{},nil
-    for _,id in ipairs(w.order) do
-        local e=w.entities[id]
-        if e.category=='carrier' then
-            if e.alive then inFlight[e.source]=(inFlight[e.source] or 0)+1
-            elseif not e.deathTick or w.tick-e.deathTick>=(rules.carrierCorpseTicks or 40) then
-                local pool=idle[e.source];if not pool then pool={};idle[e.source]=pool end
-                pool[#pool+1]=e
-            end
-        elseif e.alive and e.category=='building' and e.remaining==0 then
-            local d=def(w,e)
-            if d and d.extractor then sites=sites or {};sites[#sites+1]=e end
-        end
+local harvestApi={emit=emit,nextOrder=nextOrder,approachTarget=approachTarget,rebuild=rebuild,radius=G.radius,def=def}
+-- The node whose footprint exactly matches this one, from the world rather than a view.
+local function nodeAt(w,x,y,size,resource)
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.alive and e.category=='node' and e.resource==resource and F.cell(e.x)==x and F.cell(e.y)==y and e.size==size then return e end
     end
-    if not sites then return end
-    do
-        for _,e in ipairs(sites) do
-            local id=e.id
-            local mine=w.entities[e.mine]
-            if mine and mine.alive and mine.amount>0 and Carriers.route(w,e,route) then
-                if w.tick>=(e.nextEmit or 0) and (inFlight[id] or 0)<slots then
-                    local payload=math.min(rules.carrierPayload or 8,mine.amount)
-                    local pool=idle[id]
-                    local carrier=pool and table.remove(pool)
-                    if not carrier then carrier=spawn(w,'carrier',e.owner,F.cell(e.x),F.cell(e.y),'carrier') end
-                    carrier.alive=true;carrier.spent=nil;carrier.deathTick=nil
-                    carrier.hp=carrier.maxHp;carrier.source=id;carrier.payload=payload
-                    carrier.leg=1;carrier.routeSerial=e.routeSerial
-                    carrier.x=e.x+((e.size or 1)-1)*128;carrier.y=e.y+((e.size or 1)-1)*128
-                    mine.amount=mine.amount-payload
-                    e.nextEmit=w.tick+(rules.carrierEmitTicks or 16)
-                    inFlight[id]=(inFlight[id] or 0)+1
-                    if mine.amount<=0 then mine.alive=false;w.navVersion=w.navVersion+1;rebuild(w);emit(w,'depleted',{entity=mine.id}) end
+end
+-- Orbital logistics, per player: items in the queue are produced in orbit, one at a time
+-- (two from the second Requisition Office), and a landing that reaches the ground on a
+-- free site arrives complete; on a blocked site it goes back to the head of the queue, ready.
+local function orbit(w)
+    for pi=1,#w.players do local p=w.players[pi]
+        if p.callDown then
+            local slots=1+(Sim.tier(w,pi)>=2 and 1 or 0)
+            for i,item in ipairs(p.callDown) do
+                if i<=slots and item.remaining>0 then
+                    item.remaining=item.remaining-1
+                    if item.remaining==0 then emit(w,'call_down_ready',{player=pi,building=item.kind}) end
                 end
             end
         end
+        if p.pods then
+            local i=1
+            while p.pods.inFlight[i] do
+                local pod=p.pods.inFlight[i]
+                if w.tick>=pod.at then
+                    -- The payload dispenses onto a ring of free cells around the point, in load
+                    -- order, each on the nearest cell not yet taken.
+                    table.remove(p.pods.inFlight,i);local claimed={}
+                    for _,kind in ipairs(pod.kinds) do
+                        local x,y=nearest(w,pod.x,pod.y,nil,claimed,w.content.units[kind].radius)
+                        if x then claimed[Path.key(w.map,x,y)]=true;spawn(w,kind,pi,x,y) end
+                    end
+                    emit(w,'pod_landed',{player=pi,podX=pod.x,podY=pod.y})
+                else i=i+1 end
+            end
+        end
+        if p.landings then
+            local i=1
+            while p.landings[i] do
+                local landing=p.landings[i]
+                if w.tick>=landing.at then
+                    table.remove(p.landings,i)
+                    local bd=w.content.buildings[landing.kind];local free=true;local mine
+                    if bd.onNode then mine=nodeAt(w,landing.x,landing.y,bd.size,bd.onNode);if not mine or mine.amount<=0 then free=false end
+                    else
+                        for y=landing.y,landing.y+bd.size-1 do for x=landing.x,landing.x+bd.size-1 do
+                            if not Path.walkable(w,x,y) or occupied(w,x,y) then free=false end
+                        end end
+                    end
+                    if free then
+                        local site=spawn(w,landing.kind,pi,landing.x,landing.y,'building');site.remaining=0
+                        if mine then site.mine=mine.id end
+                        w.navVersion=w.navVersion+1;rebuild(w)
+                        emit(w,'landed',{entity=site.id});emit(w,'constructed',{entity=site.id})
+                    else
+                        p.callDown=p.callDown or {};table.insert(p.callDown,1,{kind=landing.kind,remaining=0})
+                        emit(w,'landing_blocked',{player=pi,building=landing.kind})
+                    end
+                else i=i+1 end
+            end
+        end
     end
 end
+-- A rig on a node earns its per-minute rate in 1/1200ths a tick, whole units only, at the
+-- online figure while its own cell is covered and the offline one otherwise, and drains
+-- the node by what it pays out. Exact per minute, integers throughout.
+local function rigIncome(w,e,d)
+    local mine=w.entities[e.mine or 0]
+    if not (mine and mine.alive and mine.amount>0) then return end
+    local player=w.players[e.owner]
+    local covered=not player.coverage or player.coverage[Path.key(w.map,F.cell(e.x),F.cell(e.y))]==true
+    local rate=covered and d.income or d.incomeOffline or d.income
+    e.income=e.income or {}
+    for _,key in ipairs(Codec.keys(rate)) do
+        local acc=(e.income[key] or 0)+rate[key]
+        local whole=math.floor(acc/1200);acc=acc-whole*1200
+        if whole>mine.amount then whole=mine.amount end
+        if whole>0 then player.resources[key]=(player.resources[key] or 0)+whole;mine.amount=mine.amount-whole end
+        e.income[key]=acc
+    end
+    if mine.amount<=0 then mine.alive=false;w.navVersion=w.navVersion+1;rebuild(w);emit(w,'depleted',{entity=mine.id}) end
+end
 local function economy(w)
+    orbit(w)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         if e.reviveRemaining then
             e.reviveRemaining=math.max(0,e.reviveRemaining-1)
             if e.reviveRemaining==0 and hq(w,e.owner).alive then
                 local home=hq(w,e.owner); local x,y=nearest(w,F.cell(home.x)+3,F.cell(home.y)+3,e.id)
-                if x then e.alive=true;e.hp=e.maxHp;e.x=F.center(x);e.y=F.center(y);e.reviveRemaining=nil;G.invalidate(w);e.order={kind='stop'};e.cooldown=0;e.nextCommitTick=nil;clearCombat(e); emit(w,'revived',{entity=e.id}) end
+                if x then e.alive=true;e.hp=e.maxHp;standAt(w,e,x,y);e.reviveRemaining=nil;G.invalidate(w);e.order={kind='stop'};e.cooldown=0;e.nextCommitTick=nil;clearCombat(e); emit(w,'revived',{entity=e.id}) end
             end
         end
         if e.alive then
@@ -765,12 +1219,56 @@ local function economy(w)
                 if not lead or not lead.alive then nextOrder(w,e)
                 else approachTarget(w,e,lead,G.radius(w,e)+G.radius(w,lead)+96) end
             end
+            if e.order.kind=='harvest' then Harvest.step(w,e,harvestApi) end
+            if e.order.kind=='garrison' then
+                local b=w.entities[e.order.target]
+                if not b or not b.alive or b.remaining>0 then nextOrder(w,e)
+                elseif approachTarget(w,e,b,G.radius(w,e)+128) then
+                    local bd=w.content.buildings[b.kind];local used=0
+                    for _,id in ipairs(b.occupants or {}) do local o=w.entities[id];used=used+(w.content.units[o.kind].garrisonSlots or 1) end
+                    if used+(def(w,e).garrisonSlots or 1)<=bd.garrison then
+                        b.occupants=b.occupants or {};b.occupants[#b.occupants+1]=e.id
+                        e.garrisoned=b.id;e.x=b.x+((b.size or 1)-1)*128;e.y=b.y+((b.size or 1)-1)*128
+                        halt(w,e);clearCombat(e);e.order={kind='stop'};e.orders={};G.invalidate(w)
+                        emit(w,'garrisoned',{entity=e.id,target=b.id})
+                    else emit(w,'garrison_full',{entity=e.id,target=b.id});nextOrder(w,e) end
+                end
+            end
             local d=def(w,e)
             if e.category=='building' then
+                if e.remaining==0 and d.income then rigIncome(w,e,d) end
                 if e.researchRemaining then e.researchRemaining=e.researchRemaining-1;if e.researchRemaining==0 then e.researchRemaining=nil;w.players[e.owner].tech=true;emit(w,'researched',{entity=e.id}) end end
                 if e.remaining>0 then
-                    local builder=w.entities[e.builder]
-                    if builder and builder.alive and builder.order.kind=='build' and builder.order.target==e.id and approachTarget(w,builder,e,400) then e.remaining=e.remaining-1;if e.healthCapacity then local capacity=math.ceil(d.hp/10)+math.floor((d.hp-math.ceil(d.hp/10))*(d.buildTicks-e.remaining)/d.buildTicks);e.hp=e.hp+capacity-e.healthCapacity;e.healthCapacity=capacity end; if e.remaining==0 then nextOrder(w,builder);emit(w,'constructed',{entity=e.id}) end end
+                    -- Every worker holding a build order on the site builds it. Assigned is not
+                    -- the same as at work: one still walking is on its way. Several at work
+                    -- build faster with diminishing returns (rules.coBuild, percent of a tick's
+                    -- progress per tick by count). A site nobody is assigned to has stopped, and
+                    -- says so once, so the player can be told and the bot can send someone back.
+                    local kept,working={},0
+                    for _,id in ipairs(e.builders or {}) do local b=w.entities[id]
+                        if b and b.alive and b.order.kind=='build' and b.order.target==e.id then
+                            kept[#kept+1]=id
+                            if approachTarget(w,b,e,400) then working=working+1 end
+                        end
+                    end
+                    e.builders=#kept>0 and kept or nil
+                    if #kept==0 and not e.stalled then e.stalled=true;emit(w,'build_stalled',{entity=e.id})
+                    elseif #kept>0 and e.stalled then e.stalled=nil end
+                    if working>0 then
+                        local steps=w.content.rules.coBuild
+                        local rate=steps and steps[math.min(working,#steps)] or 100
+                        e.work=(e.work or 0)+rate
+                        while e.work>=100 and e.remaining>0 do
+                            e.work=e.work-100;e.remaining=e.remaining-1
+                            if e.healthCapacity then local capacity=math.ceil(d.hp/10)+math.floor((d.hp-math.ceil(d.hp/10))*(d.buildTicks-e.remaining)/d.buildTicks);e.hp=e.hp+capacity-e.healthCapacity;e.healthCapacity=capacity end
+                        end
+                        if e.work==0 then e.work=nil end
+                        if e.remaining==0 then
+                            e.work=nil;e.stalled=nil;e.builders=nil
+                            for _,id in ipairs(kept) do nextOrder(w,w.entities[id]) end
+                            emit(w,'constructed',{entity=e.id})
+                        end
+                    end
                 elseif #e.queue>0 then
                     local q=e.queue[1]; q.remaining=math.max(0,q.remaining-1)
                     if q.remaining==0 then
@@ -782,12 +1280,9 @@ local function economy(w)
                         elseif not e.productionBlocked then e.productionBlocked=true;emit(w,'production_blocked',{entity=e.id}) end
                     end
                 end
-            elseif e.category=='carrier' and e.alive then
-                Carriers.advance(w,e,deliver)
             end
         end
     end
-    extraction(w)
 end
 -- Formation pacing. A group move arrives together only if its members travel together,
 -- so every unit under a shared group id walks at the slowest member's speed while that
@@ -806,8 +1301,9 @@ local function formation(w)
             local group=order.group
             if group and destinationKinds[order.kind] then
                 local pace=Stats.baseSpeed(w,e)
-                local slowest=groupPace[group]
-                if not slowest or pace<slowest then groupPace[group]=pace end
+                local key=e.owner..':'..group
+                local slowest=groupPace[key]
+                if not slowest or pace<slowest then groupPace[key]=pace end
             end
         end
     end
@@ -815,7 +1311,7 @@ local function formation(w)
         if e.alive and e.category=='unit' then
             local order=e.order
             local group=order.group
-            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[group] or nil
+            e.groupSpeed=(group and destinationKinds[order.kind]) and groupPace[e.owner..':'..group] or nil
         end
     end
 end
@@ -826,9 +1322,13 @@ local function movement(w) formation(w);Movement.step(w,halt,route) end
 local function reversePatrol(w,e)
     local o=e.order
     local x,y=o.originX,o.originY
+    local px,py=o.originPX,o.originPY
     o.originX,o.originY=o.x,o.y
+    o.originPX,o.originPY=o.px,o.py
     o.x,o.y=x,y
+    o.px,o.py=px,py
     o.requestX,o.requestY=x,y
+    o.requestPX,o.requestPY=px,py
     halt(w,e);e.navigation='idle';e.blockedReason=nil
     route(w,e,o.x,o.y)
 end
@@ -836,7 +1336,8 @@ local function finishOrders(w)
     for _,id in ipairs(ids(w)) do local e=w.entities[id]
         local kind=e.order.kind
         if e.alive and (kind=='move' or kind=='attack_move' or kind=='patrol') and not e.goal and not w.searches[id] and not e.combatTarget then
-            local arrived=e.x==F.center(e.order.x) and e.y==F.center(e.order.y) or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,F.center(e.order.x),F.center(e.order.y))<=F.sq(G.radius(w,e)+32)
+            local tx,ty=e.order.px or F.center(e.order.x),e.order.py or F.center(e.order.y)
+            local arrived=e.x==tx and e.y==ty or e.navigation=='arrived' and F.distance2Bounded(e.x,e.y,tx,ty)<=F.sq(G.radius(w,e)+32)
             if kind=='patrol' then
                 -- A patrol that cannot reach one end turns around rather than stopping:
                 -- the point of the order is that it does not need attention.
@@ -862,12 +1363,16 @@ local BLOCK=2048
 local function blockKey(x,y) return math.floor(y/BLOCK)*512+math.floor(x/BLOCK) end
 local function enemyTarget(w,e,blocks)
     local best,distance;local sight=Stats.sight(w,e)*256;local ex,ey=e.x,e.y
+    -- A building looks out from the middle of its footprint, as its sight does, so a wide
+    -- building does not lose reach on the side away from its origin cell.
+    if e.category=='building' then ex=ex+((e.size or 1)-1)*128;ey=ey+((e.size or 1)-1)*128 end
     local x0,x1=math.floor((ex-sight)/BLOCK),math.floor((ex+sight)/BLOCK)
     local y0,y1=math.floor((ey-sight)/BLOCK),math.floor((ey+sight)/BLOCK)
     if x0<0 then x0=0 end
     if y0<0 then y0=0 end
     local acquire=F.sq(w.content.rules.acquireRange or 768)
     local chaseable=e.order.kind~='hold'
+    local canAir=def(w,e).canAttackAir==true
     local engagement=e.engagement
     for by=y0,y1 do
         local row=by*512
@@ -878,7 +1383,7 @@ local function enemyTarget(w,e,blocks)
                     local target=bin[i]
                     if math.abs(ex-target.x)<=sight and math.abs(ey-target.y)<=sight then
                         local dist=F.distance2Bounded(ex,ey,target.x,target.y)
-                        if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
+                        if dist<=sight*sight and (not best or dist<distance or dist==distance and target.id<best.id) and (canAir or not airborne(w,target)) and (e.owner==0 or Sim.visible(w,e.owner,target)) then
                             local shooting=G.weaponRange(w,e,target)
                             local chasing=chaseable and (engagement and F.distance2Bounded(target.x,target.y,engagement.x,engagement.y)<=acquire or not engagement and dist<=acquire)
                             if shooting or chasing then best=target;distance=dist end
@@ -891,7 +1396,10 @@ local function enemyTarget(w,e,blocks)
     return best
 end
 local function validTarget(w,e,t)
-    return t and t.alive and t.owner~=e.owner and t.category~='node' and (e.owner==0 or Sim.visible(w,e.owner,t))
+    if not (t and t.alive and t.owner~=e.owner and t.category~='node' and not t.garrisoned and (e.owner==0 or Sim.visible(w,e.owner,t))) then return false end
+    -- Only a weapon that can reach the air may be aimed at a flyer.
+    if airborne(w,t) then local d=def(w,e);return d~=nil and d.canAttackAir==true end
+    return true
 end
 local function approachWeapon(w,e,t)
     if G.weaponRange(w,e,t) then halt(w,e);return end
@@ -914,19 +1422,31 @@ local function approachWeapon(w,e,t)
     for y=math.max(0,F.cell(t.y)-radius),math.min(w.map.height-1,F.cell(t.y)+radius+(t.size or 1)) do
         for x=math.max(0,F.cell(t.x)-radius),math.min(w.map.width-1,F.cell(t.x)+radius+(t.size or 1)) do
             if Path.walkable(w,x,y) then
-                local px,py=F.center(x),F.center(y);local distance=F.distance2Bounded(e.x,e.y,px,py)
-                if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                local px,py=Path.point(w,x,y,G.radius(w,e))
+                if px then
+                    local distance=F.distance2Bounded(e.x,e.y,px,py)
+                    if (not score or distance<score) and G.weaponRangeAt(w,e,px,py,t,contact and 256 or w.content.rules.profile and reach<256 and t.category=='building' and 0 or -32) and G.free(w,px,py,G.radius(w,e),e.id) then best={x=x,y=y};score=distance end
+                end
             end
         end
     end
     if best then route(w,e,best.x,best.y) end
     e.retryAt=w.tick+20+e.id%7
 end
+-- The candidate bins are rebuilt every tick of every match: a table per owner, plus one per
+-- occupied block, thousands of times a second, all of it garbage by the next tick. The tables
+-- are kept and emptied instead. They are scratch: never read outside this function, never part
+-- of the world, and refilled from w.order, so the order they are built in does not change.
+local candidateScratch={}
 local function combatOrders(w)
-    local candidates={}
-    for owner=0,#w.players do candidates[owner]={} end
+    local candidates=candidateScratch
+    for owner=0,#w.players do
+        local map=candidates[owner]
+        if not map then map={};candidates[owner]=map
+        else for _,bin in pairs(map) do for i=#bin,1,-1 do bin[i]=nil end end end
+    end
     for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.category~='node' and e.category~='projectile' then
+        if e.alive and e.category~='node' and e.category~='projectile' and not e.garrisoned then
             local key=blockKey(e.x,e.y)
             for owner=0,#w.players do
                 if owner~=e.owner then
@@ -939,12 +1459,15 @@ local function combatOrders(w)
         end
     end
     for _,id in ipairs(w.order) do local e=w.entities[id];local d=def(w,e)
-        if e.alive and d and d.damage then
+        local inside=e.garrisoned and w.entities[e.garrisoned]
+        local mayFight=not inside or (w.content.buildings[inside.kind] or {}).garrisonFights==true
+        -- A channelling caster is busy: it neither acquires nor chases until the channel ends.
+        if e.alive and d and d.damage and mayFight and not e.channel then
             local kind=e.order.kind;local target
             if kind=='attack' then
                 target=w.entities[e.order.target]
                 if not validTarget(w,e,target) then nextOrder(w,e);target=nil end
-            elseif kind~='move' and kind~='build' and kind~='follow' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
+            elseif kind~='move' and kind~='build' and kind~='follow' and kind~='garrison' and not d.worker and w.tick>(e.suppressAcquireUntil or -1) then
                 target=w.entities[e.combatTarget]
                 if not validTarget(w,e,target) or (kind=='hold' and not G.weaponRange(w,e,target)) or (e.engagement and not G.weaponRange(w,e,target) and (F.distance2Bounded(target.x,target.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768) or F.distance2Bounded(e.x,e.y,e.engagement.x,e.engagement.y)>F.sq(w.content.rules.acquireRange or 768))) then target=nil end
                 if not target then target=enemyTarget(w,e,candidates[e.owner]) end
@@ -962,7 +1485,7 @@ local function combatOrders(w)
             if target then
                 if G.weaponRange(w,e,target) then halt(w,e);e.retryAt=nil;e.rangeLatch=target.id;e.rangeLostAt=nil
                 elseif e.rangeLatch==target.id and G.weaponRange(w,e,target,32) and w.tick-(e.rangeLostAt or w.tick)<2 then e.rangeLostAt=e.rangeLostAt or w.tick;halt(w,e)
-                elseif e.category=='unit' and kind~='hold' then e.rangeLatch=nil;e.rangeLostAt=nil;approachWeapon(w,e,target) end
+                elseif e.category=='unit' and kind~='hold' and not e.garrisoned then e.rangeLatch=nil;e.rangeLostAt=nil;approachWeapon(w,e,target) end
             elseif (kind=='attack_move' or kind=='patrol') and not e.returning then
                 if not e.goal and not w.searches[id] then route(w,e,e.order.x,e.order.y) end
                 -- Keep the leash until the unit has advanced a cell along its order.
@@ -1022,6 +1545,18 @@ local function applyEffects(w,list,killers,killerSource)
             if fx.kind=='damage' then
                 if not Stats.invulnerable(w,target) then
                     target.hp=target.hp-fx.damage
+                    -- Target stacks: one per hit from a stacking unit; at the threshold
+                    -- they burst as one armour-piercing blow, appended to this same list
+                    -- so it lands this tick and takes kill credit like any other hit.
+                    if fx.stacks and target.hp>0 then
+                        local rules=w.content.rules.stacks or {}
+                        target.stackFixed=(target.stackFixed or 0)+(rules.perHit or 200);target.stackHit=w.tick
+                        if target.stackFixed>=Sim.stackThreshold(w,target)*(rules.perHit or 200) then
+                            target.stackFixed=nil;target.stackHit=nil
+                            list[#list+1]={kind='damage',source=fx.source,target=target.id,damage=rules.burst or 45,pierce=true}
+                            emit(w,'stack_burst',{entity=target.id,source=fx.source,damage=rules.burst or 45})
+                        end
+                    end
                     if target.kind=='beastkeeper' and target.upgrades[1]==2 and w.tick-target.lastCombat>outOfCombat then target.sprintUntil=w.tick+40 end
                     target.lastCombat=w.tick
                     -- First attacker to land a blow this tick takes credit, matching the
@@ -1047,6 +1582,17 @@ local function combat(w,pending)
         local e=w.entities[id]; local d=def(w,e)
         if e.alive and d then
             e.cooldown=math.max(0,(e.nextCommitTick or 0)-w.tick)
+            -- Stacks fade once the hits stop: after the grace, a fixed amount a tick,
+            -- faster on armour. Zero is nil so an unstacked unit serializes as before.
+            if e.stackFixed then
+                local rules=w.content.rules.stacks or {}
+                if w.tick-(e.stackHit or 0)>(rules.grace or 15) then
+                    e.stackFixed=e.stackFixed-((rules.decay or 30)+(rules.decayPerArmor or 6)*Stats.armor(w,e))
+                    if e.stackFixed<=0 then e.stackFixed=nil;e.stackHit=nil end
+                end
+            end
+            -- A channelling caster neither swings nor acquires; its weapon is the channel.
+            if e.channel then e.attack=nil end
             if e.attack then
                 local phase=e.attack
                 if w.tick==phase.impact then
@@ -1054,8 +1600,20 @@ local function combat(w,pending)
                     if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                         phase.committed=true;e.nextCommitTick=w.tick+phase.period;e.cooldown=phase.period
                         if e.kind=='beastkeeper' and e.upgrades[1]==2 and w.tick-e.lastCombat>(w.content.rules.outOfCombatTicks or 60) then e.sprintUntil=w.tick+40 end
-                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e)-Stats.armor(w,target,protectors))}
+                        hits[#hits+1]={kind='damage',source=e.id,target=target.id,damage=math.max(1,Stats.damage(w,e,target)-Stats.armor(w,target,protectors)),stacks=d.applyStacks or nil}
                         e.lastCombat=w.tick;e.attackTick=w.tick;emit(w,'attack',{source=e.id,target=target.id})
+                        -- Splash: every enemy on the ground within the radius of the target is hit
+                        -- too, each against its own armour, in world order. Never allies, never air.
+                        if d.splash and not airborne(w,target) then
+                            for _,otherId in ipairs(ids(w)) do local other=w.entities[otherId]
+                                if other.id~=target.id and other.alive and other.owner~=e.owner and other.category~='node' and other.category~='projectile' and not airborne(w,other) and inRange(target,other,d.splash) then
+                                    local amount=math.max(1,Stats.damage(w,e,other)-Stats.armor(w,other,protectors))
+                                    -- Inside a building, half of it gets through.
+                                    if other.garrisoned then amount=math.max(1,math.floor(amount*(w.content.rules.garrisonDamagePercent or 50)/100)) end
+                                    hits[#hits+1]={kind='damage',source=e.id,target=other.id,damage=amount}
+                                end
+                            end
+                        end
                     end
                 end
                 if w.tick>=phase.finish then e.attack=nil end
@@ -1069,7 +1627,7 @@ local function combat(w,pending)
             if d.heal and not w.content.rules.profile and w.tick%20==0 then
                 for _,allyId in ipairs(ids(w)) do local ally=w.entities[allyId]; if ally.alive and ally.owner==e.owner and inRange(e,ally,768) then local old=ally.hp;ally.hp=math.min(ally.maxHp,ally.hp+d.heal);if ally.hp>old then emit(w,'healed',{entity=ally.id}) end end end
             end
-            if d.damage and (e.category~='building' or e.remaining==0) and Stats.canAttack(w,e) then
+            if d.damage and (e.category~='building' or e.remaining==0) and Stats.canAttack(w,e) and not e.channel then
                 local target=w.entities[e.combatTarget]
                 if validTarget(w,e,target) and G.weaponRange(w,e,target) then
                     halt(w,e)
@@ -1090,17 +1648,24 @@ local function combat(w,pending)
     for _,id in ipairs(ids(w)) do
         local e=w.entities[id]
         if e.alive and e.hp<=0 then
-            e.alive=false;e.hp=0;halt(w,e);e.orders={};e.attack=nil;e.deathTick=w.tick;deathChanged=true
+            e.alive=false;e.hp=0;halt(w,e);Harvest.release(w,e);e.orders={};e.attack=nil;e.deathTick=w.tick;deathChanged=true
+            if e.garrisoned then local b=w.entities[e.garrisoned];if b and b.occupants then for i=#b.occupants,1,-1 do if b.occupants[i]==id then table.remove(b.occupants,i) end end end;e.garrisoned=nil end
+            if e.occupants then
+                local claimed={}
+                for _,oid in ipairs(e.occupants) do local o=w.entities[oid]
+                    local x,y=nearest(w,F.cell(e.x)+e.size,F.cell(e.y)+e.size,nil,claimed,G.radius(w,o))
+                    if x then claimed[Path.key(w.map,x,y)]=true;standAt(w,o,x,y) end
+                    o.garrisoned=nil;G.invalidate(w);emit(w,'unloaded',{entity=o.id})
+                end
+                e.occupants=nil;G.invalidate(w)
+            end
             emit(w,'death',{entity=id})
             if e.category=='building' then navChanged=true end
             local killer=killers[id]
             -- Authoritative tallies. The interface previously counted these from the
             -- events it happened to observe, which under-reports a kill made out of
             -- sight; these are part of the world and agree between peers.
-            -- A killed carrier destroys its gold rather than handing it over: denial
-            -- punishes without compounding a lead the way stealing would.
-            if e.category=='carrier' then e.payload=0 end
-            if e.owner>0 and e.category~='carrier' then
+            if e.owner>0 then
                 local owner=w.players[e.owner]
                 if e.category=='unit' then owner.unitsLost=(owner.unitsLost or 0)+1
                 else owner.buildingsLost=(owner.buildingsLost or 0)+1 end
@@ -1111,23 +1676,23 @@ local function combat(w,pending)
                 if source then source.kills=(source.kills or 0)+1 end
             end
             if e.category=='unit' and not def(w,e).worker and killer and killer>0 and killer~=e.owner then
-                local bounty=def(w,e).bounty;if bounty then w.players[killer].resources.gold=w.players[killer].resources.gold+bounty end
-                local hero=w.entities[w.players[killer].hero]
-                if hero.alive and inRange(hero,e,w.content.rules.xpRange) then local ed=def(w,e);hero.xp=hero.xp+(ed.xp or (ed.hero and (w.content.rules.heroXp or 80) or w.content.rules.combatXpPerFood and ed.food*w.content.rules.combatXpPerFood or 30)) end
+                local bounty=def(w,e).bounty;if bounty then local key=Sim.primaryResource(w.content);w.players[killer].resources[key]=(w.players[killer].resources[key] or 0)+bounty end
+                local hero=w.entities[w.players[killer].hero or 0]
+                if hero and hero.alive and inRange(hero,e,w.content.rules.xpRange) then local ed=def(w,e);hero.xp=hero.xp+(ed.xp or (ed.hero and (w.content.rules.heroXp or 80) or w.content.rules.combatXpPerFood and ed.food*w.content.rules.combatXpPerFood or 30)) end
             end
         end
     end
     if navChanged then w.navVersion=w.navVersion+1;rebuild(w) end;if w.content.rules.profile then require('src.sim.healing').step(w,emit) end; return deathChanged
 end
 function Sim.step(w,commands)
-    w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0;w.metrics.smoothChecks=0
+    w.tick=w.tick+1;w.events={};w.metrics.pathExpansions=0;w.metrics.directChecks=0;w.metrics.smoothChecks=0;w.metrics.bodyChecks=0
     -- Statuses are swept before commands, so nothing in the tick -- not a command, not
     -- a phase, not a view -- can observe one on a tick it is no longer active for.
     Abilities.expire(w,abilityApi)
     if w.result then return w.events end
     -- Both live only for the command-application part of the step and are removed
     -- before it returns, so neither reaches snapshots or canonical serialization.
-    w.commandClaims={};w.claimScratch={};G.beginStep(w)
+    w.commandClaims={};w.destinationClaims=nil;G.beginStep(w)
     local ordered={}
     for i=1,#commands do ordered[i]=commands[i] end
     table.sort(ordered,function(a,b)
@@ -1138,8 +1703,9 @@ function Sim.step(w,commands)
         if as~=bs then return as<bs end
         return Codec.byteLess(Codec.encode(a),Codec.encode(b))
     end)
+    planFormations(w,ordered)
     for _,c in ipairs(ordered) do local before=#w.events;apply(w,c);local rejected=false;for i=before+1,#w.events do if w.events[i].kind=='rejected' then rejected=true end end;if not rejected then emit(w,'accepted',{player=c.player,sequence=c.sequence,entity=c.args.entity}) end end
-    w.commandClaims=nil;w.claimScratch=nil
+    w.commandClaims=nil;w.destinationClaims=nil;w.groupSlots=nil
     -- Casts resolve after orders finish and before combat, so a stun landing this tick
     -- is already in force when the combat phase asks whether its victim may swing. The
     -- effects they produce join the tick's attack hits and are applied together, which
@@ -1152,11 +1718,15 @@ function Sim.step(w,commands)
     if combat(w,pendingEffects) then visibility(w) end
     local survivors={}
     for p=1,#w.players do
-        w.players[p].defeated=not hq(w,p).alive
+        w.players[p].defeated=Sim.defeated(w,p)
         if not w.players[p].defeated then survivors[#survivors+1]=p end
     end
     -- w.result is retained world state; emit owns what it is given, so hand it a copy.
-    if #survivors<=1 then w.result={winner=survivors[1] or 0,tick=w.tick};emit(w,'victory',{winner=w.result.winner,tick=w.tick}) end
+    -- Headquarters are decided first, so destroying the last enemy one wins even on the
+    -- tick a control hold would have run out.
+    local controller=Control.step(w,emit)
+    if #survivors<=1 then w.result={winner=survivors[1] or 0,tick=w.tick};emit(w,'victory',{winner=w.result.winner,tick=w.tick})
+    elseif controller then w.result={winner=controller,tick=w.tick,reason='control'};emit(w,'victory',{winner=controller,tick=w.tick,reason='control'}) end
     G.endStep(w);return w.events
 end
 function Sim.snapshot(w)
@@ -1196,11 +1766,12 @@ function Sim.serializeAuthoritative(w)
         players[p]={faction=player.faction,resources=player.resources,sequence=player.sequence,
             defeated=player.defeated,hq=player.hq,hero=player.hero,tech=player.tech,
             kills=player.kills,unitsLost=player.unitsLost,buildingsLost=player.buildingsLost,
-            visible=player.visible,knownResources=player.knownResources}
+            visible=player.visible,knownResources=player.knownResources,
+            coverage=player.coverage,callDown=player.callDown,landings=player.landings,pods=player.pods}
     end
     local ok,bytes=pcall(Codec.encode,{version=w.version,tick=w.tick,config=w.config,
         players=players,entities=w.entities,order=w.order,nextId=w.nextId,result=w.result,
-        searches=w.searches,pathCursor=w.pathCursor,navVersion=w.navVersion})
+        searches=w.searches,pathCursor=w.pathCursor,navVersion=w.navVersion,control=w.control})
     assert(ok,bytes);return bytes
 end
 -- Exposed so a regression test can prove w.blocked is recomputable, which is what
@@ -1209,8 +1780,7 @@ function Sim.recomputeBlocked(w)
     local blocked=Codec.copy(w.map.blocked)
     for _,id in ipairs(w.order) do
         local e=w.entities[id]
-        -- Carriers are not obstructions: they walk through everything but terrain.
-        if e.alive and e.category~='unit' and e.category~='carrier' and e.category~='projectile' then
+        if e.alive and e.category~='unit' and e.category~='projectile' then
             local size=e.size or 1
             for y=F.cell(e.y),F.cell(e.y)+size-1 do
                 for x=F.cell(e.x),F.cell(e.x)+size-1 do blocked[Path.key(w.map,x,y)]=true end

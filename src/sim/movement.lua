@@ -8,9 +8,10 @@ local function scale(v) local n=math.floor(math.abs(v)/256);return v<0 and -n or
 local function direction(e) return e.laneX==1 and 0 or e.laneX==-1 and 1 or e.laneY==1 and 2 or 3 end
 local function binKey(x,y) return F.cell(y)*256+F.cell(x) end
 local function bins(w)
-    local out={directions={}}
-    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' then
+    local out={directions={},maxRadius=0}
+    for _,id in ipairs(w.order) do local e=w.entities[id];if e.alive and e.category=='unit' and not e.garrisoned and not w.content.units[e.kind].flying then
         local key=binKey(e.x,e.y);out[key]=out[key] or {};out[key][#out[key]+1]=id
+        out.maxRadius=math.max(out.maxRadius,w.content.units[e.kind].radius)
         if e.goal then out.directions[key*4+direction(e)]=true end
     end end
     return out
@@ -29,6 +30,7 @@ end
 local scratch={}
 local function nearby(w,b,x,y,r,out)
     r=r or 1
+    if b.maxRadius>127 then r=math.max(r,2) end
     out=out or scratch
     local n=0
     local entities=w.entities
@@ -39,14 +41,60 @@ local function nearby(w,b,x,y,r,out)
     for i=#out,n+1,-1 do out[i]=nil end
     return out,n
 end
-local function clear(w,e,x,y,neighbors)
+-- A unit blocked for a few ticks may squeeze past allies: step inside their usual spacing,
+-- down to G.pressedSeparation, while enemies and terrain stay solid. Two allies whose next
+-- steps each pass through the other otherwise wait for ever. Pressed allies are then eased
+-- apart a little each tick by the push pass at the end of M.step.
+M.tuning={squeezeWait=10,push=8,backoffWait=30,backoff=4}
+local function inLane(w,e,x,y,r)
+    if r>127 then return true end -- A vehicle cannot reserve half a two-cell passage.
+    if e.opposed then return Path.lanePosition(w,x,y,r,e.laneX or 0,e.laneY or 0) end
+    return Path.laneAllowed(w,F.cell(x),F.cell(y),e.laneX or 0,e.laneY or 0)
+end
+-- Keep right: a unit on its way somewhere may not leave its lane in a two-cell passage.
+local function leavesLane(w,e,x,y,r)
+    return e.goal and (F.cell(x)~=e.goal.x or F.cell(y)~=e.goal.y) and not inLane(w,e,x,y,r) and inLane(w,e,e.x,e.y,r)
+end
+local function clear(w,e,x,y,neighbors,squeezing)
     local r=G.radius(w,e)
-    local cx,cy=F.cell(x),F.cell(y)
-    if e.goal and (cx~=e.goal.x or cy~=e.goal.y) and not (e.opposed and Path.lanePosition(w,x,y,r,e.laneX or 0,e.laneY or 0) or not e.opposed and Path.laneAllowed(w,cx,cy,e.laneX or 0,e.laneY or 0)) and (e.opposed and Path.lanePosition(w,e.x,e.y,r,e.laneX or 0,e.laneY or 0) or not e.opposed and Path.laneAllowed(w,F.cell(e.x),F.cell(e.y),e.laneX or 0,e.laneY or 0)) then return false end
+    if leavesLane(w,e,x,y,r) then return false end
     if not G.terrain(w,x,y,r) or not G.terrain(w,math.floor((e.x+x)/2),math.floor((e.y+y)/2),r) then return false end
     for _,other in ipairs(neighbors) do if other.id~=e.id then
         local gap=G.separation(w,e,other)
-        if math.abs(x-other.x)<gap and math.abs(y-other.y)<gap and F.distance2Bounded(x,y,other.x,other.y)<gap*gap then return false,other end
+        if math.abs(x-other.x)<gap and math.abs(y-other.y)<gap and F.distance2Bounded(x,y,other.x,other.y)<gap*gap then
+            -- Only past an ally that is itself on the move: an idle one is asked to step aside
+            -- instead, and a crowd settling at its destination should not compress.
+            if not squeezing or other.owner~=e.owner or not other.goal then return false,other end
+            -- Past, never into: an ally heading the same way is the queue in front, and pressing
+            -- into it only packs the whole queue down to the floor until nothing can move. An ally
+            -- crossing, coming the other way, or between paths is what squeezing is for.
+            local node=other.path[other.pathIndex]
+            if node and (x-e.x)*((node.px or F.center(node.x))-other.x)+(y-e.y)*((node.py or F.center(node.y))-other.y)>0 then return false,other end
+            local floor=G.pressedSeparation(w,e,other)
+            if F.distance2Bounded(x,y,other.x,other.y)<floor*floor then return false,other end
+        end
+    end end
+    return true
+end
+-- Who the push pass may ease apart: any unit free to move that is not holding, building or
+-- mid-swing. Unlike yielding this includes units that are going somewhere, which is the point.
+local function pushable(w,e)
+    if not Stats.canMove(w,e) or e.attack or e.harvestUntil then return false end
+    local kind=e.order.kind
+    return kind~='hold' and kind~='build'
+end
+-- A push may not press into anyone: every neighbour ends at its usual spacing or no closer
+-- than it already was, never below the pressed floor, and enemies keep full separation.
+local function pushClear(w,e,x,y,neighbors)
+    local r=G.radius(w,e)
+    if not G.terrain(w,x,y,r) or leavesLane(w,e,x,y,r) then return false end
+    for _,other in ipairs(neighbors) do if other.id~=e.id then
+        local gap=G.separation(w,e,other);local after=F.distance2Bounded(x,y,other.x,other.y)
+        if after<gap*gap then
+            if other.owner~=e.owner then return false end
+            local floor=G.pressedSeparation(w,e,other)
+            if after<floor*floor or after<F.distance2Bounded(e.x,e.y,other.x,other.y) then return false end
+        end
     end end
     return true
 end
@@ -73,10 +121,14 @@ end
 -- Who may be asked to step aside. A unit that is going somewhere is not a bystander and
 -- is left alone; so is one holding position, one in the middle of a swing, one that has
 -- a target it is fighting, and a worker on a building site, which must stay in work
--- range or construction stalls. Everything else is scenery that can shuffle.
+-- range or construction stalls. A unit that cannot move -- rooted, stunned -- is not
+-- asked either: shoving it aside would move a unit its own status holds in place.
+-- Everything else is scenery that can shuffle.
 local function yieldable(w,e,other,yields)
     if other.id==e.id or other.owner~=e.owner then return false end
-    if other.goal or other.attack or other.combatTarget then return false end
+    if not Stats.canMove(w,other) then return false end
+    -- A worker loading at a patch stays at its patch, like a builder at its site.
+    if other.goal or other.attack or other.combatTarget or other.harvestUntil then return false end
     local kind=other.order.kind
     if kind=='hold' or kind=='build' then return false end
     if (other.suppressAcquireUntil or -1)>=w.tick then return false end
@@ -97,6 +149,38 @@ end
 -- The move loop holds its neighbour list across several clear() calls, so it uses a
 -- buffer of its own rather than the one the proposal scan reuses.
 local moveScratch={}
+-- Push bookkeeping, keyed by entity id and emptied at the end of every tick. `pushed` lists the
+-- ids that were touched, so clearing costs what was used rather than a walk over every unit.
+local pushed,pushX,pushY={},{},{}
+local pushTouched=0
+-- The four bins that complete the ring when every bin is visited: east, south-west, south and
+-- south-east. Keys are cy*256+cx, so they are offsets on that key.
+local NEIGHBOUR_BINS={1,255,256,257}
+local VEHICLE_BINS={1,2,254,255,256,257,258,510,511,512,513,514}
+local function accumulate(a,b,push,definitions)
+    if not b.alive or b.owner~=a.owner or b.id==a.id then return end
+    local dx,dy=a.x-b.x,a.y-b.y
+    local gap=G.alliedGap(definitions[a.kind].radius,definitions[b.kind].radius)
+    if dx<gap and dx>-gap and dy<gap and dy>-gap and dx*dx+dy*dy<gap*gap then
+        -- Two bodies exactly on top of each other have no direction to part in; id order gives
+        -- them one, and gives both sides the same one.
+        if dx==0 and dy==0 then dx=a.id<b.id and -1 or 1 end
+        local vx,vy=F.vector(dx*256,dy*256,push)
+        local ai,bi=a.id,b.id
+        if not pushX[ai] then pushTouched=pushTouched+1;pushed[pushTouched]=ai;pushX[ai]=0;pushY[ai]=0 end
+        pushX[ai]=pushX[ai]+vx;pushY[ai]=pushY[ai]+vy
+        if not pushX[bi] then pushTouched=pushTouched+1;pushed[pushTouched]=bi;pushX[bi]=0;pushY[bi]=0 end
+        pushX[bi]=pushX[bi]-vx;pushY[bi]=pushY[bi]-vy
+    end
+end
+-- Moves an entity's id between reservation bins after its position changed.
+local function rebin(live,e,oldX,oldY)
+    local oldKey,newKey=binKey(oldX,oldY),binKey(e.x,e.y)
+    if oldKey~=newKey then
+        local old=live[oldKey];for i,id in ipairs(old) do if id==e.id then table.remove(old,i);break end end
+        live[newKey]=live[newKey] or {};live[newKey][#live[newKey]+1]=e.id
+    end
+end
 -- Longest wait first, entity id as the tiebreaker: a total order, defined once rather
 -- than as a fresh closure on every tick.
 local function byWaitThenId(a,b)
@@ -106,9 +190,22 @@ local function byWaitThenId(a,b)
 end
 function M.step(w,halt,route)
     Path.step(w)
+    -- Air first: a flyer goes straight for its waypoint through anything, with no lanes, no
+    -- crowd and no re-validation, and is in no bin, so the ground pass never sees it.
+    for _,id in ipairs(w.order) do local e=w.entities[id]
+        if e.alive and e.category=='unit' and not e.garrisoned and w.content.units[e.kind].flying and e.order.kind~='hold' and Stats.canMove(w,e) then
+            local node=e.path[e.pathIndex]
+            if node then
+                local tx,ty=node.px or F.center(node.x),node.py or F.center(node.y)
+                local dx,dy=F.vector(tx-e.x,ty-e.y,speed(w,e))
+                e.x,e.y=e.x+dx,e.y+dy;e.navigation='moving'
+                if e.x==tx and e.y==ty then e.pathIndex=e.pathIndex+1;if not e.path[e.pathIndex] then halt(w,e);e.navigation='arrived' end end
+            end
+        end
+    end
     local before=bins(w);local proposals={};local yields={}
     for _,id in ipairs(w.order) do local e=w.entities[id]
-        if e.alive and e.category=='unit' and e.order.kind~='hold' and Stats.canMove(w,e) then
+        if e.alive and e.category=='unit' and not e.garrisoned and not w.content.units[e.kind].flying and e.order.kind~='hold' and Stats.canMove(w,e) then
             local cx,cy=F.cell(e.x),F.cell(e.y);local lx,ly=e.laneX or 0,e.laneY or 0
             local laneArea=e.goal and (not Path.laneAllowed(w,cx,cy,lx,ly) or not Path.laneAllowed(w,cx+ly,cy-lx,lx,ly) or not Path.laneAllowed(w,cx-ly,cy+lx,lx,ly))
             e.opposed=laneArea and opposed(before,e) or nil
@@ -121,7 +218,13 @@ function M.step(w,halt,route)
                     local goal=e.goal;halt(w,e);route(w,e,goal.x,goal.y)
                 end
             end
-            local node=e.path[e.pathIndex]
+            -- A unit that has been blocked a long time is almost always blocked again the next
+            -- tick, and proposing a move is the expensive part of a crowded tick. Past the
+            -- threshold it tries every fourth tick instead, staggered by id so the load is spread
+            -- and no two units are locked in step; it still reacts to an opening within a fifth of
+            -- a second, and nothing about where it ends up changes.
+            local waiting=e.waitTicks or 0
+            local node=(waiting<M.tuning.backoffWait or (w.tick+id)%M.tuning.backoff==0) and e.path[e.pathIndex] or nil
             if node then
                 if not Path.walkable(w,node.x,node.y) then
                     local goal=e.goal;halt(w,e);if goal then route(w,e,goal.x,goal.y) end
@@ -169,21 +272,18 @@ function M.step(w,halt,route)
     local live=before
     for _,p in ipairs(proposals) do
         local e=p.e;local oldX,oldY=e.x,e.y;local neighbors=nearby(w,live,e.x,e.y,1,moveScratch);local ax,ay
-        if not p.choices and clear(w,e,p.fx,p.fy,neighbors) then ax,ay=p.fx,p.fy
+        local squeezing=not p.yielding and (e.waitTicks or 0)>=M.tuning.squeezeWait
+        if not p.choices and clear(w,e,p.fx,p.fy,neighbors,squeezing) then ax,ay=p.fx,p.fy
         else
             local candidates=p.choices or choices(w,e,p.tx,p.ty)
             for i=1,#candidates,3 do
                 local x,y=candidates[i],candidates[i+1]
-                if (not p.yielding or F.distance2Bounded(x,y,e.yieldOrigin.x,e.yieldOrigin.y)<=256*256) and clear(w,e,x,y,neighbors) then ax,ay=x,y;break end
+                if (not p.yielding or F.distance2Bounded(x,y,e.yieldOrigin.x,e.yieldOrigin.y)<=256*256) and clear(w,e,x,y,neighbors,squeezing) then ax,ay=x,y;break end
             end
         end
         if ax then
             e.x,e.y=ax,ay
-            local oldKey,newKey=binKey(oldX,oldY),binKey(e.x,e.y)
-            if oldKey~=newKey then
-                local old=live[oldKey];for i,id in ipairs(old) do if id==e.id then table.remove(old,i);break end end
-                live[newKey]=live[newKey] or {};live[newKey][#live[newKey]+1]=e.id
-            end
+            rebin(live,e,oldX,oldY)
             if not p.yielding then
                 local dist=F.distance2Bounded(e.x,e.y,p.tx,p.ty)
                 if not e.bestWaypointDistance or dist<e.bestWaypointDistance then e.waitTicks=0;e.bestWaypointDistance=dist else e.waitTicks=(e.waitTicks or 0)+1 end
@@ -193,19 +293,71 @@ function M.step(w,halt,route)
                 end
             end
         elseif not p.yielding then e.waitTicks=(e.waitTicks or 0)+1 end
-        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,F.center(e.goal.x),F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
+        if not p.yielding and (e.waitTicks or 0)>=10 and not e.path[e.pathIndex+1] and e.goal and F.distance2Bounded(e.x,e.y,e.goal.px or F.center(e.goal.x),e.goal.py or F.center(e.goal.y))<=F.sq(G.radius(w,e)+32) then
             halt(w,e);e.navigation='arrived'
         end
         if not p.yielding and (e.waitTicks or 0)>=10 then
             e.navigation='congested'
-            if w.tick>=(e.rerouteAt or 0) and e.goal then
+            -- A detour search already under way is left to finish, and the unit keeps walking its
+            -- old path while it runs. Restarting every twenty ticks, with the path emptied each
+            -- time, starved every search behind a jam: dozens of units shared one expansion budget,
+            -- none finished before its next restart, and a unit with no path stood frozen for good.
+            if w.tick>=(e.rerouteAt or 0) and e.goal and not w.searches[e.id] then
                 local cells={}
                 for _,other in ipairs(neighbors) do if other.id~=e.id then cells[Path.key(w.map,F.cell(other.x),F.cell(other.y))]=true end end
                 e.detour={cells=cells,untilTick=w.tick+40};e.rerouteAt=w.tick+20
-                local goal=e.goal;Path.request(w,e,goal.x,goal.y);e.bestWaypointDistance=nil
+                local goal,path,index=e.goal,e.path,e.pathIndex
+                Path.request(w,e,goal.x,goal.y);e.bestWaypointDistance=nil
+                if w.searches[e.id] and path[index] then e.path,e.pathIndex=path,index end
             end
         elseif not p.yielding and e.goal then e.navigation='moving' end
         if e.detour and e.detour.untilTick<=w.tick then e.detour=nil end
     end
+    -- Push pass. Allies closer than their usual spacing are eased apart by a few subunits a
+    -- tick, so a squeeze reads as bodies jostling past and then settling, not as a stack.
+    -- Every push is decided from the same positions before any is applied, then applied in
+    -- world order against live positions, so the result does not depend on who is first.
+    -- This runs every tick and almost never finds anything, so it is written for the miss: the
+    -- bins are walked once and each pair of neighbours is tested a single time, rather than
+    -- gathering the nine bins around every unit. Radii come straight from content, a box test
+    -- comes before any multiplication, and whether a unit may be pushed is asked only once an
+    -- overlap has actually been found. Addition is commutative, so the unordered walk over the
+    -- bins cannot affect the totals, and the pushes themselves are applied in world order.
+    local push=M.tuning.push;local definitions=w.content.units;local entities=w.entities
+    pushTouched=0
+    if push>0 then
+        for key,bin in pairs(live) do
+            if type(key)=='number' then
+                for i=1,#bin do
+                    local a=entities[bin[i]]
+                    if a.alive then
+                        for j=i+1,#bin do accumulate(a,entities[bin[j]],push,definitions) end
+                        -- Half the ring, so every adjacent pair is seen exactly once.
+                        local offsets=live.maxRadius>127 and VEHICLE_BINS or NEIGHBOUR_BINS
+                        for n=1,#offsets do
+                            local neighbour=live[key+offsets[n]]
+                            if neighbour then for j=1,#neighbour do accumulate(a,entities[neighbour[j]],push,definitions) end end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for _,id in ipairs(w.order) do
+        local sx=pushX[id]
+        if sx then
+            local sy=pushY[id];local e=entities[id]
+            if (sx~=0 or sy~=0) and e.alive and pushable(w,e) then
+                local dx,dy=F.vector(sx,sy,push)
+                local x,y=e.x+dx,e.y+dy
+                -- An idle unit is not pushed more than a cell from where it was left standing.
+                local anchor=not e.goal and (e.yieldOrigin or e.restAnchor)
+                if (not anchor or F.distance2Bounded(x,y,anchor.x,anchor.y)<=256*256) and pushClear(w,e,x,y,nearby(w,live,e.x,e.y)) then
+                    local oldX,oldY=e.x,e.y;e.x,e.y=x,y;rebin(live,e,oldX,oldY)
+                end
+            end
+        end
+    end
+    for i=1,pushTouched do local id=pushed[i];pushX[id]=nil;pushY[id]=nil;pushed[i]=nil end
 end
 return M

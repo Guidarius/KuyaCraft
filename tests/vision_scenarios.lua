@@ -13,7 +13,7 @@ local function eq(a,b,message) assert(a==b,(message or 'values differ')..': '..t
 local function arena(size)
     local map=Maps.create('vision',size or 40)
     map.resources={};map.camps={};map.blocked={}
-    return Sim.create({seed=7,players={{faction='bastion'},{faction='wild'}}},C,map)
+    return Sim.create({seed=7,players={{faction='orders'},{faction='orders'}}},C,map)
 end
 local function sees(w,player,x,y) return w.players[player].visible[P.key(w.map,x,y)]==true end
 local function wall(w,x,y0,y1)
@@ -104,7 +104,7 @@ function M.hidesEnemies()
     local w=arena()
     wall(w,15,10,30)
     S.unit(w,'crossbow',1,12,20)
-    local hidden=S.unit(w,'stalker',2,18,20)
+    local hidden=S.unit(w,'footman',2,18,20)
     Sim.step(w,{})
     assert(not Sim.visible(w,1,hidden),'an enemy behind a wall was visible')
     local view=Sim.view(w,1)

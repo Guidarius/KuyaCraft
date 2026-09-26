@@ -74,7 +74,7 @@ function T.register(test)
     test('unit','integer vector lengths and content bounds',function()
         for n=0,1000 do local r=F.isqrt(n);assert(r*r<=n and (r+1)^2>n) end
         for dx=-100,100,7 do for dy=-100,100,7 do local x,y=F.vector(dx,dy,32);assert(x*x+y*y<=32^2) end end
-        local c=Codec.copy(require('src.content'));c.units.worker.radius=128;assert(not pcall(require('src.content_validate'),c))
+        local c=Codec.copy(require('src.content'));c.units.worker.radius=193;assert(not pcall(require('src.content_validate'),c))
     end)
     test('simulation','explicit target beats closer enemy and automatic targets persist',function()
         local w,a,b=duel();local closer=S.unit(w,'worker',2,17,16);closer.order={kind='hold'}

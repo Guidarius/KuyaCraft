@@ -1,4 +1,3 @@
-local C=require('src.content')
 local Sim=require('src.sim')
 local Selection=require('src.ui.selection')
 local Input
@@ -33,6 +32,7 @@ local function missing(costs)
  for _,cost in ipairs(costs) do if cost.short then return 'Insufficient '..cost.label end end
 end
 function A.upgradeReason(app,hero,milestone)
+ local C=app.content
  if not hero or not hero.alive then return 'Hero is dead' end
  if hero.upgrades[milestone] then return 'Already learned' end
  if milestone>1 and not hero.upgrades[milestone-1] then return 'Learn the previous tier first' end
@@ -41,6 +41,17 @@ end
 function A.openAbilities(app)
  app.selected={app.view.player.hero};A.context(app);app.cardPage='abilities';app.overlay=nil
 end
+-- An order issued from the card, a hotkey or the HUD is answered exactly like a right-click: the
+-- ordered units flash and their acknowledgement plays, on the click, once.
+function A.order(app,units,kind)
+ Input=Input or require('src.ui.input')
+ local ordered={}
+ for _,unit in ipairs(units) do
+  if app:command(kind,unit.id)~=false then ordered[#ordered+1]={id=unit.id,kind=unit.kind,command=kind} end
+ end
+ if #ordered>0 then Input.acknowledge(app,ordered) end
+ return #ordered>0
+end
 function A.activate(app,action)
  local current;for _,candidate in ipairs(A.list(app)) do if candidate.id==action.id then current=candidate;break end end
  if not current then require('src.ui.command_feedback').notify(app,'rejected','Selection changed',action.id);return false end
@@ -48,21 +59,67 @@ function A.activate(app,action)
  if action.reason then require('src.ui.command_feedback').notify(app,'rejected',action.reason,action.id,action.costs);return false end
  if not action.run then return false end
  app.activeAction=action.id;action.run();app.activeAction=nil
- require('src.ui.command_feedback').notify(app,action.menu and 'menu' or 'click',nil,action.id)
+ -- An order has already been acknowledged by the units that received it; a UI click on top would
+ -- be a second cue for one command.
+ if action.acknowledges then app.uiNotice={kind='click',time=app.clock,action=action.id}
+ else require('src.ui.command_feedback').notify(app,action.menu and 'menu' or 'click',nil,action.id) end
  return true
 end
 function A.list(app)
- local ctx=A.context(app);local e=app:entity(Selection.primary(app));local list={}
+ local C=app.content;local ctx=A.context(app);local e=app:entity(Selection.primary(app));local list={}
  Input=Input or require('src.ui.input')
  local locked=app.playback and 'Replay is read-only' or app.world.result and 'Match has ended' or app.network and not app.network.ready and 'Waiting for match to start' or nil
  local function add(id,label,key,fn,reason,tip,costs,menu)
   list[#list+1]={id=id,label=label,key=key or '',run=fn,reason=(not menu and locked) or reason,tip=tip,costs=costs,menu=menu}
  end
  local function back() add('back-card','Back','escape',function() app.cardPage=nil;app.building=nil;app.targeting=nil end,nil,'Return to commands.',nil,true);list[#list].slot=9 end
- if app.cardPage=='build' then
-  for i,kind in ipairs({'barracks','tower','outpost','extractor'}) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
-   add(kind,d.label,({'q',app.settings.bindings.tower or 't','e','r'})[i],function() app.building=kind;app.targeting=nil end,missing(costs),
+ local faction=C.factions[app.view.player.faction]
+ -- The name of the first unmet requirement, for a card's reason line.
+ local function requirement(d)
+  local kind=Sim.missingRequirement(app.view,app.player,d.requires)
+  if kind then return 'Requires '..((C.buildings[kind] or C.units[kind] or {}).label or kind) end
+ end
+  if app.cardPage=='pod' then
+  -- The open pod: load, launch onto covered ground, or cancel. Cost and supply are paid at
+  -- loading; the troops exist when the pod lands.
+  local hq=app:entity(app.view.player.hq);local pods=app.view.player.pods or {open={kinds={}},inFlight={},cooldownUntil=0}
+  local kinds={};for id,d in pairs(C.units) do if d.pod then kinds[#kinds+1]=id end end;table.sort(kinds)
+  local dead=(not hq or not hq.alive) and 'Orbital Command lost' or nil
+  local cap=app.view.player.supplyCap or C.rules.population
+  for i,kind in ipairs(kinds) do local d=C.units[kind]
+   local costs=A.costs(app,d.cost,hq,{{key='food',label='food',amount=d.food or 1,available=cap-Sim.population(app.world,app.player)}})
+   local reason=dead or #pods.open.kinds>=(C.rules.podCapacity or 4) and 'Pod is full' or requirement(d) or missing(costs)
+   add('load-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('pod_load',hq.id,{unit=kind}) end,reason,'Load a '..d.label..' into the open pod. Paid now; it arrives when the pod lands.',costs)
+   list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit')
+  end
+  -- The same model the sidebar draws, so the card and the dial never disagree about why.
+  local model=require('src.ui.orbital').model(app.view,C);local launch=model and model.launch or {state='empty',reason='Load a unit first'}
+  add('launch','Launch ('..#pods.open.kinds..'/'..(C.rules.podCapacity or 4)..')'..(launch.state=='cooling' and ' '..launch.seconds..'s' or ''),'t',function() require('src.ui.orbital').launch(app) end,
+   dead or launch.state~='ready' and launch.reason or nil,'Click covered ground. The pod lands there ten seconds later and the troops step out around it.')
+  if #pods.open.kinds>0 then add('cancel-pod','Unload pod','delete',function() app:command('cancel',hq.id,{pod=true}) end,dead,'Refund everything loaded into the open pod.') end
+  back();return list
+ elseif app.cardPage=='requisition' then
+  -- The Megacorp's build card: nothing is built on the ground, every building is ordered
+  -- from orbit and lands later, so the reasons here are the queue's and the requirements'.
+  local hq=app:entity(app.view.player.hq);local queue=app.view.player.callDown or {}
+  for i,kind in ipairs(faction.buildings or {}) do local d=C.buildings[kind]
+   if kind~=Sim.hqKind(faction) then local costs=A.costs(app,d.cost)
+    local reason=(not hq or not hq.alive) and 'Orbital Command lost' or #queue>=(C.rules.callDownQueue or 5) and 'Call-down queue full' or requirement(d) or missing(costs)
+    add('requisition-'..kind,d.label,({'q','w','e','r','a','s','d','f'})[i],function() app:command('requisition',hq.id,{building=kind}) end,reason,
+     'Requisition '..d.label..': '..(d.buildTicks/C.rules.tickRate)..' seconds in orbit, then land it anywhere your relays cover.',costs)
+    list[#list].stats=require('src.ui.tooltip').statsFor(d,'building');list[#list].lines=require('src.ui.tooltip').purpose(kind,d)
+   end
+  end
+  back();return list
+ elseif app.cardPage=='build' then
+  -- Without a build list, every building but the faction's headquarters, in id order.
+  local kinds=faction.buildings
+  if not kinds then kinds={};for id in pairs(C.buildings) do if id~=Sim.hqKind(faction) then kinds[#kinds+1]=id end end;table.sort(kinds) end
+  for i,kind in ipairs(kinds) do local d=C.buildings[kind];local costs=A.costs(app,d.cost)
+   local key=kind=='tower' and (app.settings.bindings.tower or 't') or ({'q','w','e','r','a','s','d','f'})[i]
+   add(kind,d.label,key,function() app.building=kind;app.targeting=nil end,requirement(d) or missing(costs),
     'Place '..d.label..'. '..(d.buildTicks/C.rules.tickRate)..' seconds. Shift queues another site. One selected worker builds each site.',costs)
+   list[#list].stats=require('src.ui.tooltip').statsFor(d,'building');list[#list].lines=require('src.ui.tooltip').purpose(kind,d)
   end
   back();return list
  elseif app.cardPage=='abilities' then
@@ -72,7 +129,7 @@ function A.list(app)
    local learned=hero.upgrades[tier];local reason=learned and (learned==choice and 'Learned' or 'Other choice learned') or A.upgradeReason(app,hero,tier)
    add('ability-'..tier..'-'..choice,label,({'q','w','e','r','t','y'})[(tier-1)*2+choice],function()
     app.overlay='upgrade';app.upgradeMilestone=tier;app.upgradeChoice=choice
-   end,reason,'Tier '..tier..': '..A.upgrades[app.view.player.faction][tier][choice]..' Choose one per tier; permanent. XP is a threshold, not spent.',costs)
+   end,reason,'Tier '..tier..': '..((A.upgrades[app.view.player.faction] or {})[tier] or {})[choice]..' Choose one per tier; permanent. XP is a threshold, not spent.',costs)
    list[#list].slot=(tier-1)*3+choice;list[#list].badge='T'..tier;list[#list].status=learned and (learned==choice and 'Learned' or 'Excluded') or nil
   end end
   back();return list
@@ -80,23 +137,42 @@ function A.list(app)
  if #ctx.units>0 then
   add('move','Move','m',function() Input.arm(app,'move') end,nil,'Click a destination. Shift appends.')
   add('attack','Attack move',app.settings.bindings.attack,function() Input.arm(app,'attack_move') end,nil,'Engage enemies on the way.')
-  add('stop','Stop',app.settings.bindings.stop,function() for _,unit in ipairs(ctx.units) do app:command('stop',unit.id) end end,nil,'Stop and clear orders for selected units.')
-  add('hold','Hold',app.settings.bindings.hold,function() for _,unit in ipairs(ctx.units) do app:command('hold',unit.id) end end,nil,'Stand still and fire. Never chase or yield.')
+  add('stop','Stop',app.settings.bindings.stop,function() A.order(app,ctx.units,'stop') end,nil,'Stop and clear orders for selected units.');list[#list].acknowledges=true
+  add('hold','Hold',app.settings.bindings.hold,function() A.order(app,ctx.units,'hold') end,nil,'Stand still and fire. Never chase or yield.');list[#list].acknowledges=true
  end
  if ctx.canBuild then
   add('build-menu','Build',app.settings.bindings.build,function() app.cardPage='build' end,nil,'Choose a building. Costs and requirements appear on each card.',nil,true)
+  -- Harvest arms a patch target, the way move arms a destination; a laden worker can also be
+  -- told to bring its load back, then stop.
+  if ctx.workers[1] and (C.units[ctx.workers[1].kind] or {}).harvest then
+   add('harvest','Harvest','g',function() Input.arm(app,'harvest') end,nil,'Click a patch or geyser to harvest it. Workers keep going until it is empty.')
+   local laden={};for _,u in ipairs(ctx.workers) do if (u.carrying or 0)>0 then laden[#laden+1]=u end end
+   if #laden>0 then add('return-cargo','Return cargo','c',function() for _,u in ipairs(laden) do app:command('harvest',u.id,{deliver=true}) end;Input.acknowledge(app,{{id=laden[1].id,kind=laden[1].kind,command='harvest'}}) end,nil,'Bring the load to a drop-off, then stop.');list[#list].acknowledges=true end
+  end
  end
  if #ctx.units>0 then add('patrol','Patrol','p',function() Input.arm(app,'patrol') end,nil,'Patrol to a point and engage enemies along the way.') end
  if e and e.owner==app.player and e.category=='building' then
   local dead=not e.alive and 'Building destroyed' or nil
-  local roster=e.kind=='hq' and {'worker'} or e.kind=='barracks' and C.factions[app.view.player.faction].roster or {}
+  local roster=Sim.producesFor(C,faction,e.kind)
+  local cap=app.view.player.supplyCap or C.rules.population
   for i,kind in ipairs(roster) do local d=C.units[kind]
-   local costs=A.costs(app,d.cost,e,{{key='food',label='food',amount=d.food,available=C.rules.population-Sim.population(app.world,app.player)}})
-   local reason=dead or e.remaining>0 and 'Building unfinished' or #e.queue>=5 and 'Production queue full' or d.tech and not app.view.player.tech and 'Requires HQ advancement' or missing(costs)
+   local costs=A.costs(app,d.cost,e,{{key='food',label='food',amount=d.food or 1,available=cap-Sim.population(app.world,app.player)}})
+   local reason=dead or e.remaining>0 and 'Building unfinished' or #e.queue>=5 and 'Production queue full' or d.tech and not app.view.player.tech and 'Requires HQ advancement' or requirement(d) or missing(costs)
    add('recruit-'..kind,d.label,({'q','w','e','r'})[i],function() app:command('recruit',e.id,{unit=kind}) end,reason,
     'Train '..d.label..'; '..(d.buildTicks/C.rules.tickRate)..' seconds.'..(d.tech and ' Requires HQ advancement.' or ''),costs)
+   list[#list].stats=require('src.ui.tooltip').statsFor(d,'unit');list[#list].lines=d.tech and {'Requires HQ advancement.'} or {}
   end
-  if e.kind=='hq' then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
+  if faction.coverage and e.kind==Sim.hqKind(faction) then
+   -- The call-down queue lives on the Command's card: order from orbit, land what is ready.
+   add('requisition-menu','Requisition','b',function() app.cardPage='requisition' end,dead,'Order a building from orbit. It lands complete inside relay coverage.',nil,true)
+   -- The queue itself lives in the sidebar (src/ui/orbital.lua), always on screen: frames with
+   -- progress, READY to click, right-click to cancel. The card keeps the way in and one key.
+   local model=require('src.ui.orbital').model(app.view,C)
+   if model and model.ready>0 then add('land-next','Land next ('..model.ready..')','z',function() require('src.ui.orbital').armNext(app) end,dead,'Arm the landing of the next building ready in orbit. F9 does the same from anywhere.') end
+  add('pod-menu','Drop pod','p',function() app.cardPage='pod' end,dead,'Load troops into the open pod and drop them anywhere your relays cover.',nil,true)
+  end
+  if e.occupants and #e.occupants>0 then add('unload','Unload all','u',function() app:command('unload',e.id) end,dead,'Everyone inside steps out beside the building.') end
+  if e.kind==Sim.hqKind(faction) and C.rules.tech then local tech=C.rules.tech;local costs=A.costs(app,tech.cost,e)
    add('research',e.researchRemaining and ('Advancing '..math.ceil(e.researchRemaining/20)..'s') or app.view.player.tech and 'Advanced HQ' or 'Advance HQ','t',function() app:command('research',e.id) end,
     dead or e.remaining>0 and 'Building unfinished' or app.view.player.tech and 'Already researched' or e.researchRemaining and 'Research in progress' or missing(costs),
     'Unlock support and heavy troops; '..(tech.ticks/C.rules.tickRate)..' seconds. Worker production continues.',costs)
@@ -106,7 +182,7 @@ function A.list(app)
  end
  if ctx.hero then local hero=ctx.hero;local dead=not hero.alive and 'Hero is dead' or nil
   if hero.alive then
-   add('stance','Stance '..hero.stance,'z',function() app:command('toggle',hero.id) end,nil,'Switch defensive/recovery and offensive/pursuit stance.')
+   add('stance','Stance '..hero.stance,'z',function() A.order(app,{hero},'toggle') end,nil,'Switch defensive/recovery and offensive/pursuit stance.');list[#list].acknowledges=true
   else local gold,ticks=Sim.revival(C,hero);local costs=A.costs(app,{gold=gold},hero);local hq=app:entity(app.view.player.hq)
    add('revive','Revive','v',function() app:command('revive',hero.id) end,hero.reviveRemaining and 'Revival in progress' or (not hq or not hq.alive) and 'Requires living headquarters' or missing(costs),'Return at headquarters in '..ticks/C.rules.tickRate..' seconds.',costs)
   end
@@ -129,12 +205,12 @@ function A.list(app)
     if not reason and cost>0 and (e.mana or 0)<cost then reason='Needs '..cost..' mana' end
     local label=spec.label
     if remaining>0 then label=label..' '..math.ceil(remaining/20)..'s' end
-    local tip=(spec.tip or '')..(cost>0 and ('  Costs '..cost..' mana.') or '')
-    if spec.target=='none' then tip=tip..'  Cast where you stand.'
-    elseif spec.target=='unit' then tip=tip..'  Click a target.'
-    elseif spec.target=='direction' then tip=tip..'  Click to aim the line.'
-    else tip=tip..'  Click the ground.' end
+    local how=spec.target=='none' and 'Cast where you stand.' or spec.target=='unit' and 'Click a target.'
+     or spec.target=='direction' and 'Click to aim the line.' or 'Click the ground.'
+    local tip=(spec.tip or '')..'  '..how
     add('ability-'..id,label,spec.hotkey or '',function() Input.arm(app,'cast',id) end,reason,tip,A.costs(app,spec.cost,e));list[#list].slot=spec.slot
+    list[#list].title=spec.label;list[#list].lines={spec.tip or '',{how,{.62,.66,.62}}}
+    list[#list].stats={'Cooldown '..string.format('%g',(spec.cooldown or 0)/20)..'s',(spec.range or 0)>0 and ('Range '..string.format('%g',spec.range/256)) or nil}
    end
   end
  end

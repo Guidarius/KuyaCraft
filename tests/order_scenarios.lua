@@ -71,15 +71,15 @@ function M.rally()
     assert(math.abs(F.cell(rallied.x)-11)<=3 and math.abs(F.cell(rallied.y)-11)<=3,
         'rallied unit stopped at '..F.cell(rallied.x)..','..F.cell(rallied.y))
 
-    -- Nothing harvests any more, so rallying onto a mine is simply a walk to it.
+    -- Workers harvest, so rallying onto a patch its units can work sends them to work it.
     local mine=node(w)
     Sim.step(w,{command(w,1,'rally',base.id,{target=mine.id})});accepted(w,'rally to node')
     mark=w.nextId
     Sim.step(w,{command(w,1,'recruit',base.id,{unit='worker'})});accepted(w,'recruit')
     local sent=producedNow(w,mark)
     assert(sent,'no worker was produced for the node rally')
-    eq(sent.order.kind,'move','rally to a node did not order a walk')
-    eq(sent.order.requestX,F.cell(mine.x))
+    eq(sent.order.kind,'harvest','rally to a patch did not order a harvest')
+    eq(sent.order.target,mine.id)
 
     -- Rallying onto one of your own units follows it, which is the useful target case
     -- that survives the loss of harvesting.
@@ -165,8 +165,8 @@ end
 function M.tallies()
     local w=world()
     local worker=find(w,1,'worker');local mine=node(w)
-    Sim.step(w,{command(w,1,'build',worker.id,{building='extractor',x=mine.x and F.cell(mine.x),y=F.cell(mine.y)})})
-    accepted(w,'build an extractor on the mine')
+    Sim.step(w,{command(w,1,'harvest',worker.id,{target=mine.id})})
+    accepted(w,'harvest the mine')
     local delivery
     for _=1,4000 do
         local events=Sim.step(w,{})
@@ -176,8 +176,7 @@ function M.tallies()
     assert(delivery,'no delivered event was emitted')
     assert(delivery.amount>0,'delivered event carried no amount')
     assert(delivery.resource=='gold','delivered event named '..tostring(delivery.resource))
-    local carrier=w.entities[delivery.entity]
-    assert(carrier and carrier.category=='carrier','delivered event named '..tostring(delivery.entity))
+    eq(delivery.entity,worker.id,'delivered event named someone other than the worker')
 
     -- Kills and losses are counted by the simulation, on both sides and on the killer.
     local u=world()

@@ -124,8 +124,8 @@ Controls
 - Chat for multiplayer. There is none.
 
 Information
-- World hover tooltip after ~0.4 s: name, health, owner (`src/ui/widgets.lua:18-23` is HUD-only).
-- Structured tooltips: cost line, hotkey highlight, icon; the current fixed 300×62 box overflows on long text.
+- **Done (2026-09-16).** World hover tooltip after 0.35 s: name, owner, health, what an own unit is doing (`src/ui/tooltip.lua`).
+- **Done (2026-09-16), except the icon.** Structured tooltips: hotkey in the title, reason, description, stats, cost row; the panel is measured, so long text grows it rather than overflowing.
 - Alerts for any own unit or building under attack off screen, not only hero and HQ (`src/ui/alerts.lua:13-18`), with viewport-edge arrows.
 - Aura and buff visibility: the Warden aura has no ring, no recipient marker, nothing (`src/sim/init.lua:865-875`). Section 6 makes auras statuses, which gives them icons for free.
 - Damage and experience floating text as a setting, off by default to stay in Warcraft 3's idiom.

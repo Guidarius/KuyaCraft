@@ -1,17 +1,38 @@
 -- Pure presentation frame selection; simulation state is never modified.
 local F={directions={'N','NE','E','SE','S','SW','W','NW'}}
-local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden'}
+local assetIds={shield='shieldguard',crossbow='crossbow',warden='warden',footman='footman',gryphon='gryphon',reliquary='reliquary',command_blimp='command_blimp',battleship='battleship',associate='associate',medic='medic',enforcer='enforcer'}
+local buildingIds={orbital_command=true,mc_barracks=true,requisition_office=true,med_bay=true,armory=true,
+                  orbital_relay=true,substrate_rig=true,charge_rig=true,bunker=true,keep=true,depot=true,barracks=true,sanctum=true}
+-- Optional fixed-facing construction poses. Completion uses the normal idle path.
+function F.construction(m,remaining,buildTicks)
+    local clip=m.clips.construction
+    if not clip or not remaining or remaining<=0 or not buildTicks or buildTicks<=0 then return nil end
+    local ids=clip.frames.S
+    local progress=math.max(0,math.min(1,1-remaining/buildTicks))
+    local index=math.min(#ids,math.floor(progress*#ids)+1)
+    return ids[index],index
+end
 function F.assetId(e)
-    -- The loaded worker recipe is the gold carrier: same body, same clips, a bundle on
-    -- its back. A carrier is only ever alive while it is holding gold, so it has no
-    -- unloaded state and the workers themselves no longer carry anything.
-    if e.kind=='carrier' then return 'worker_loaded' end
-    if e.kind=='worker' then return 'worker' end
+    if e.category=='building' then return buildingIds[e.kind] and e.kind or nil end
+    -- A worker with a load on its back is the loaded recipe: same body, same clips, a
+    -- bundle on its back. Empty, it is the plain one.
+    if e.kind=='worker' then return (e.carrying or 0)>0 and 'worker_loaded' or 'worker' end
     return assetIds[e.kind]
 end
+-- A unit moving close to the line between two of its eight headings used to flip between them
+-- every tick, which reads as flicker, most of all in a shuffling crowd. The current heading is
+-- kept until the motion is clearly past the boundary: 15 degrees beyond it.
+local HYSTERESIS=math.pi/12
+local centres={}
+for i,name in ipairs(F.directions) do centres[name]=(i-1)*math.pi/4-math.pi/2 end
 function F.direction(dx,dy,last)
     if dx==0 and dy==0 then return last or 'S' end
     local angle=math.atan2 and math.atan2(dy,dx) or math.atan(dy,dx)
+    local centre=last and centres[last]
+    if centre then
+        local off=(angle-centre+math.pi)%(2*math.pi)-math.pi
+        if math.abs(off)<=math.pi/8+HYSTERESIS then return last end
+    end
     return F.directions[(math.floor((angle+math.pi/2)/(math.pi/4)+0.5)%8)+1]
 end
 function F.sample(m,name,direction,elapsedMs,contactFirst)
@@ -28,11 +49,16 @@ function F.sample(m,name,direction,elapsedMs,contactFirst)
 end
 function F.select(m,e,previous,tick,state,view)
     state=state or {};local ms=tick*50
+    if m.profileId=='building_overhead_v1' or m.profileId=='prop_overhead_v1' then
+        state.direction='S';state.tick=tick
+        local id,index=F.sample(m,'idle','S',ms)
+        return id,state,'idle','S',index
+    end
     local dx,dy=0,0;if previous then dx=e.x-previous.x;dy=e.y-previous.y end
     local moving=dx~=0 or dy~=0
     local direction=F.direction(dx,dy,state.direction)
     local clip=moving and 'move' or 'idle';local elapsed=ms
-    if not moving and e.order and e.order.kind=='harvest' and e.harvestRemaining then clip='work' end
+    if not moving and e.harvestUntil then clip='work' end
     if moving and state.tick~=tick then
         local distance=math.sqrt(dx*dx+dy*dy)/256
         local stride=m.referenceStride and m.referenceStride.distance

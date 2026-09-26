@@ -2,7 +2,7 @@ local Frames=require('src.asset_frames')
 local V={}
 local teams={{0.38,0.75,0.96},{0.94,0.43,0.32},{0.7,0.48,0.95}}
 local backgrounds={{0.08,0.11,0.13},{0.65,0.7,0.58},{0.18,0.27,0.2}}
-local clipOrder={'idle','move','attack','death','work','hit'}
+local clipOrder={'idle','move','attack','death','work','hit','deploy','construction'}
 function V.create(sprites)
     local ids={};for id in pairs(sprites and sprites.units or {}) do ids[#ids+1]=id end;table.sort(ids)
     return setmetatable({sprites=sprites,ids=ids,unitIndex=1,clipIndex=1,directionIndex=1,playing=true,timeMs=0,speed=1,zoom=3,teamIndex=1,backgroundIndex=1,guides=true,rectangles=false,buttons={}}, {__index=V})
@@ -53,7 +53,7 @@ end
 function V:draw()
     local g=love.graphics;local w,h=g.getDimensions();local bg=backgrounds[self.backgroundIndex]
     g.push('all');g.setShader();g.clear(bg);g.setColor(0.04,0.06,0.08,0.94);g.rectangle('fill',0,0,w,132)
-    g.setColor(0.95,0.94,0.88);g.print('BASTION / ASSET REVIEW',20,12)
+    g.setColor(0.95,0.94,0.88);g.print('FACTION / ASSET REVIEW',20,12)
     local id,u=self:unit();local clip=self:clip()
     g.print('Unit: '..(id or 'none')..'   Clip: '..clip..'   '..(self.playing and 'Playing' or 'Paused')..'   Speed: '..self.speed..'x   Zoom: '..self.zoom..'x',20,36)
     self.buttons={};local x,y=20,62

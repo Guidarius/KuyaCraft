@@ -200,8 +200,11 @@ def setup_scene(rig, meshes, recipe):
     # Known source is upright Z; scale uses rest head/feet rather than animated bounds.
     body_meshes = [o for o in meshes if any(n in o.name for n in ['Head','Boot','Helmet'])]
     rest_z = [v.co.z for o in body_meshes for v in o.data.vertices]
-    height = max(rest_z)-min(rest_z) if rest_z else rig.data.bones['Head'].tail_local.z
+    height = (1 if recipe.get('sourceId') in ('procedural_aircraft_v1','procedural_buildings_v1') else
+              max(rest_z)-min(rest_z) if rest_z else rig.data.bones['Head'].tail_local.z)
     root.scale = (float(recipe.get('scale',1.0))/height,)*3
+    if 'referenceHeight' in recipe:
+        root.scale = (float(recipe.get('scale',1.0))/recipe['referenceHeight'],)*3
     for name, pos, energy, size in [('Key',(-3,-4,7),500,5),('Fill',(4,-1,4),200,4)]:
         data = bpy.data.lights.new(name, 'AREA'); data.energy=energy;data.shape='DISK';data.size=size
         obj = bpy.data.objects.new(name,data);scene.collection.objects.link(obj);obj.location=pos
@@ -243,6 +246,24 @@ def mask_material(team):
 
 
 def run(options):
+    sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+    if options.unit in ("keep","depot","barracks","sanctum"):
+        import orders_building_export
+        return orders_building_export.run(options)
+    if options.unit in ("gryphon","reliquary"):
+        import orders_special_export
+        return orders_special_export.run(options)
+    if options.unit == "drop_pod":
+        import drop_pod_export
+        return drop_pod_export.run(options)
+    import building_model
+    if options.unit in building_model.IDS:
+        import building_export
+        return building_export.run(options)
+    if options.unit in ('command_blimp', 'battleship'):
+        sys.path.insert(0,str(Path(options.root)/'tools/blender'))
+        import aircraft_export
+        return aircraft_export.run(options)
     if options.unit == 'mouse_builder':
         sys.path.insert(0,str(Path(options.root)/'tools/blender'))
         import woodland_export
@@ -257,7 +278,11 @@ def run(options):
     rootpath=Path(options.root).resolve()
     sys.path.insert(0,str(rootpath/'tools'/'blender'))
     import unit_model
+    if options.unit in ('associate','medic','enforcer'):
+        import megacorp_model as unit_model
     recipe=json.loads((rootpath/'art'/'recipes'/(options.unit+'.json')).read_text(encoding='utf-8-sig'))
+    if options.unit in ('worker','worker_loaded','footman','crossbow') and recipe.get('model',{}).get('family')=='orders':
+        import orders_model as unit_model
     if recipe['unitId'] != options.unit:
         raise ValueError('Recipe identity mismatch')
     if recipe.get('sourceHash') != info['sourceHash']:
@@ -277,7 +302,13 @@ def run(options):
     baked,animation_report=build_baked_actions(rig,recipe,unit_model)
     scene,root,camera=setup_scene(rig,meshes,recipe)
     pose_bounds=[]
-    for size in [64,96,128]:
+    max_cell=recipe.get('maxCellSize',128)
+    if max_cell not in (128,192,256):
+        raise ValueError('maxCellSize must be 128, 192 or 256')
+    min_cell=recipe.get('minCellSize',64)
+    if min_cell not in (64,96,128,192,256) or min_cell>max_cell:
+        raise ValueError('Invalid minimum animation canvas')
+    for size in [s for s in (64,96,128,192,256) if min_cell<=s<=max_cell]:
         configure_camera(scene,camera,size);pose_bounds=[]
         for clip,spec in recipe['clips'].items():
             assign(rig,baked[clip])
@@ -291,7 +322,7 @@ def run(options):
     else:
         write_json(output/'bounds-failure.json',pose_bounds)
         bpy.ops.wm.save_as_mainfile(filepath=str(output/'bounds-failure.blend'))
-        raise ValueError('Animation exceeds maximum128pxcell; inspect bounds-failure.json')
+        raise ValueError(f'Animation exceeds maximum {max_cell}px cell; inspect bounds-failure.json')
     normal_materials={o.name:list(o.data.materials) for o in meshes}
     masks={True:mask_material(True),False:mask_material(False)}
     clips={k:{'durationMs':v['durationMs'],'loop':v['loop'],'samples':1 if options.preview else v['samples'],
@@ -318,8 +349,8 @@ def run(options):
             set_frame(sample+1)
             grip=unit_model.grip_report(rig)
             report['grips'].append({'clip':clip,'sample':sample+1,**grip})
-            if options.unit == 'crossbow' and clip != 'death' and grip.get('supportGripError',0) > .015:
-                raise ValueError('Baked crossbow grip separates from stock')
+            if options.unit in ('crossbow','associate') and clip != 'death' and grip.get('supportGripError',0) > .015:
+                raise ValueError('Baked support hand separates from weapon')
     total=sum(c['samples'] for c in clips.values())*8
     for clip,spec in clips.items():
         assign(rig,baked[clip])

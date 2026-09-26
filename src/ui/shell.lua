@@ -1,7 +1,14 @@
 local C=require('src.content')
 local S={}
+-- The next faction in the menu's cycle: content order by id, so a new faction appears
+-- without the menu knowing its name.
+function S.nextFaction(current)
+ local ids={};for id in pairs(C.factions) do ids[#ids+1]=id end;table.sort(ids)
+ for i,id in ipairs(ids) do if id==current then return ids[i%#ids+1] end end
+ return ids[1]
+end
 function S.create(options)
- local self=setmetatable({options=options,screen='main',settings=require('src.ui.settings').load(),widgets=require('src.ui.widgets').create(),faction=options.faction or 'bastion',opponent='wild',map=options.map or 'twin_marches',address='127.0.0.1:22122',message='',fonts={small=love.graphics.newFont(14),title=love.graphics.newFont(36)}},{__index=S})
+ local self=setmetatable({options=options,screen='main',settings=require('src.ui.settings').load(),widgets=require('src.ui.widgets').create(),faction=C.factions[options.faction] and options.faction or S.nextFaction(nil),opponent=C.factions[options.opponent] and options.opponent or S.nextFaction(S.nextFaction(nil)),map=options.map or 'twin_marches',address='127.0.0.1:22122',message='',fonts={small=love.graphics.newFont(14),title=love.graphics.newFont(36)}},{__index=S})
  if options.replay then self:start({replay=options.replay}) elseif options.host or options.join then
   local config={seed=12345,players={{faction=self.faction},{faction=self.opponent}}};local opts={host=options.host,join=options.join,manualLobby=true}
   local ok,n=pcall(require('src.net.session').create,opts,config,C,require('src.maps').create(self.map));self.screen='multiplayer';self.address=options.host or options.join;if ok then self.lobby=n else self.message=tostring(n) end
@@ -30,31 +37,38 @@ end
 function S:draw()
  if self.screen=='match' then return self.match:draw() end
  local g=love.graphics;local scale=self.settings.scale/100;local width,height=g.getDimensions();local w,h=width/scale,height/scale
- g.clear(.035,.058,.075);g.push('all');g.scale(scale);g.setFont(self.fonts.small);self.widgets:begin(scale);self.widgets.context=self.screen
+ -- The menus wear the chosen faction's look, so picking a side on the skirmish screen shows it.
+ local theme=require('src.ui.theme').of(self.faction);self.widgets.theme=theme
+ g.clear(theme.backdrop[1],theme.backdrop[2],theme.backdrop[3]);g.push('all');g.scale(scale);g.setFont(self.fonts.small);self.widgets:begin(scale);self.widgets.context=self.screen
  local x,y=w/2-230,math.max(105,h/2-210)
- g.setColor(.13,.2,.22);g.polygon('fill',0,h,w*.48,h*.1,w,h);g.setColor(.045,.07,.09,.92);g.rectangle('fill',x-30,y-30,520,490,8)
- g.setFont(self.fonts.title);g.setColor(.91,.83,.59);g.printf('LoveRTS',0,32,w,'center');g.setFont(self.fonts.small)
+ g.setColor(theme.shape[1],theme.shape[2],theme.shape[3]);g.polygon('fill',0,h,w*.48,h*.1,w,h);g.setColor(theme.card[1],theme.card[2],theme.card[3],.92);g.rectangle('fill',x-30,y-30,520,490,theme.radius*2)
+ g.setColor(theme.line[1],theme.line[2],theme.line[3],.6);g.rectangle('line',x-30,y-30,520,490,theme.radius*2)
+ g.setFont(self.fonts.title);g.setColor(theme.accent[1],theme.accent[2],theme.accent[3]);g.printf('LoveRTS',0,32,w,'center');g.setFont(self.fonts.small)
  local function button(id,label,row,fn,reason,tip) self.widgets:button(id,label,x,y+row*48,460,38,fn,reason,tip) end
- local function label(t,yy) g.setColor(.8,.85,.82);g.printf(t,x,yy,460) end
+ local function label(t,yy) g.setColor(theme.text[1],theme.text[2],theme.text[3]);g.printf(t,x,yy,460) end
  if self.screen=='main' then
-  label('Small armies. Distinct factions. Every order matters.',y)
+  label(require('src.ui.theme').default.motto,y)
   for i,item in ipairs({{'Skirmish','skirmish'},{'Multiplayer','multiplayer'},{'Replays','replays'},{'Settings','settings'},{'Quit','quit'}}) do
    button(item[2],item[1],i,function() if item[2]=='quit' then love.event.quit() else self.screen=item[2];self.message='';if self.screen=='replays' then self:replays() end end end)
   end
  elseif self.screen=='skirmish' then
   label('SKIRMISH',y)
-  button('map','Map: '..self.map,1,function() self.map=({twin_marches='river_pass',river_pass='open_fields',open_fields='movement_lab',movement_lab='twin_marches'})[self.map] or 'river_pass' end)
-  button('faction','Your faction: '..C.factions[self.faction].label,2,function() self.faction=self.faction=='bastion' and 'wild' or 'bastion' end)
-  button('opponent','Bot: '..C.factions[self.opponent].label,3,function() self.opponent=self.opponent=='bastion' and 'wild' or 'bastion' end)
-  label(self.faction=='bastion' and 'Bastion: protection and sustained combat near your Warden.' or 'Wild Pact: recovery, mobility and choosing engagements.',y+194)
-  local map=require('src.maps').create(self.map);local cell=math.min(170/map.width,65/map.height);local mx=x+145;local my=y+240
-  for cy=0,map.height-1 do for cx=0,map.width-1 do if map.blocked[cy*map.width+cx+1] then g.setColor(.2,.35,.45) else g.setColor(.22,.35,.27) end;g.rectangle('fill',mx+cx*cell,my+cy*cell,cell,cell) end end
+  local Maps=require('src.maps')
+  button('map','Map: '..Maps.label(self.map),1,function() self.map=Maps.next(self.map) end)
+  button('faction','Your faction: '..C.factions[self.faction].label,2,function() self.faction=S.nextFaction(self.faction) end)
+  button('opponent','Bot: '..C.factions[self.opponent].label,3,function() self.opponent=S.nextFaction(self.opponent) end)
+  label(C.factions[self.faction].blurb or '',y+194)
+  -- The map is converted once per choice, not once per frame: the large ones are 50,000 cells.
+  if self.previewId~=self.map then self.previewId=self.map;self.previewMap=Maps.create(self.map) end
+  local map=self.previewMap;g.setColor(.8,.85,.82);g.printf((Maps.info[self.map] and Maps.info[self.map].blurb or '')..'  '..map.width..'x'..map.height,x,y+236,310)
+  local cell=math.min(130/map.width,88/map.height);local mx=x+325;local my=y+234
+  for cy=0,map.height-1 do for cx=0,map.width-1 do local key=cy*map.width+cx+1;if map.blocked[key] then g.setColor(.2,.35,.45) elseif map.unbuildable and map.unbuildable[key] then g.setColor(.42,.36,.25) else g.setColor(.22,.35,.27) end;g.rectangle('fill',mx+cx*cell,my+cy*cell,cell,cell) end end
   button('start','Start skirmish',7,function() self:start() end);button('back','Back',8,function() self.screen='main' end)
  elseif self.screen=='multiplayer' then
   label('PRIVATE MULTIPLAYER | direct IP',y)
   button('address',(self.focus=='address' and '> ' or '')..self.address,1,function() self.focus='address' end,nil,'Click to edit host:port. Enter finishes.')
   button('faction','Your faction: '..C.factions[self.faction].label,2,function()
-   self.faction=self.faction=='bastion' and 'wild' or 'bastion';if self.lobby then self.lobby:setLobby(self.faction,false) end
+   self.faction=S.nextFaction(self.faction);if self.lobby then self.lobby:setLobby(self.faction,false) end
   end,self.lobby and not self.lobby.compatible and 'Compatibility pending' or nil)
   if not self.lobby then
    for i,kind in ipairs({'host','join'}) do button(kind,kind=='host' and 'Host game' or 'Join game',2+i,function()

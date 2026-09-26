@@ -15,7 +15,38 @@ function T.run()
     local c={id=3,owner=1,category='unit',alive=true,x=10,y=10};v.entities[4]=c
     f:observe({},v,7);assert(#f.items==1 and f.items[1].kind=='ready')
     f:observe({},v,0);assert(#f.items==0,'rewind reset')
-    T.unobserved();T.flash();T.floatingText();T.shake()
+    T.unobserved();T.flash();T.floatingText();T.shake();T.windup();T.selectionCue()
+end
+-- A selection reply is chosen per unit kind when the manifest has one, and falls back to the
+-- generic cue otherwise, including for a selection with no unit to name.
+function T.selectionCue()
+    local Audio=require('src.ui.audio')
+    local a=Audio.create({})
+    local heard={}
+    a.templates={select=true,['select-shield']=true}
+    a.play=function(_,name) heard[#heard+1]=name end
+    a:selected('shield');a:selected('crossbow');a:selected(nil)
+    assert(heard[1]=='select-shield','a unit with its own selection cue did not use it: '..tostring(heard[1]))
+    assert(heard[2]=='select' and heard[3]=='select','a unit without its own cue did not fall back to the generic one')
+end
+-- A swing in progress is reported as how far it has got, and forgotten once it has landed or the
+-- swinging unit is out of sight. The body leans into the blow from this.
+function T.windup()
+    local f=require('src.feedback').create()
+    local hq={id=9,owner=1,category='building'}
+    local a={id=1,kind='shield',owner=1,category='unit',alive=true,x=0,y=0}
+    local v={player={hq=9},entities={hq,a}}
+    f:observe({},v,0)
+    assert(f:windup(1,0)==nil,'a unit that is not swinging reported a windup')
+    f:observe({{kind='windup',source=1,tick=1}},v,1)
+    assert(f:windup(1,1)==0,'a swing did not start at zero')
+    f:observe({},v,3)
+    assert(f:windup(1,3)==0.5,'a swing is not halfway two ticks in: '..tostring(f:windup(1,3)))
+    f:observe({},v,6)
+    assert(f:windup(1,6)==nil,'a landed swing was still reported')
+    f:observe({{kind='windup',source=1,tick=7}},v,7)
+    f:observe({},{player={hq=9},entities={hq}},8)
+    assert(f:windup(1,8)==nil,'a swing out of sight was still reported')
 end
 -- An event naming an entity the player cannot see produces nothing, even though the
 -- event itself was delivered (an impact can be heard without revealing its source).

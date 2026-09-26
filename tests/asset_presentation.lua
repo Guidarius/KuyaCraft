@@ -42,7 +42,7 @@ local function fixture(name)
         for i,e in ipairs(members) do
             e.x=((player==1 and 15 or 25)+(i-1)%6)*256+128
             e.y=(12+math.floor((i-1)/6))*256+128
-            if e.kind=='worker' and i%2==0 then e.category='carrier';e.kind='carrier';e.payload=8 end
+            if e.kind=='worker' and i%2==0 then e.carrying=8;e.carryResource='gold' end
         end
     end
     return world
@@ -58,7 +58,7 @@ local function legacyRenderer(shader)
     return setmetatable({units={shieldguard=unit},states={},shader=shader,diagnostics={}},{__index=Sprites})
 end
 function P.create(options)
-    options=options or {};local app=App.create({faction='bastion',map='open_fields'})
+    options=options or {};local app=App.create({faction='bastion',map='open_fields',content=Content})
     local self=setmetatable({app=app,benchmark=not not options['asset-benchmark'],tickTimes={},drawTimes={},cadence={},frames=0,accumulator=0,
         ticks=math.max(120,math.min(1200,tonumber(options['asset-samples']) or 300)),pendingShots=0,
         attacks=0,movingTicks=0,comparisons=0,started=now(),memoryBefore=collectgarbage('count'),screenshots={},modes={}}, {__index=P})

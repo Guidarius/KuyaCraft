@@ -1,5 +1,4 @@
 local Codec=require('src.sim.codec')
-local Content=require('src.content')
 local Sim=require('src.sim')
 local Actions=require('src.ui.actions')
 local Camera=require('src.ui.camera')
@@ -19,7 +18,7 @@ local function ctrl() return love.keyboard.isDown('lctrl','rctrl') end
 function I.arm(app,command,ability,px,py)
  app.building=nil
  if not command then app.targeting=nil;return end
- local spec=ability and Content.abilities and Content.abilities[ability] or nil
+ local spec=ability and app.content.abilities and app.content.abilities[ability] or nil
  -- A no-target ability has nothing to click: it fires where the caster stands.
  if spec and spec.target=='none' then app.targeting=nil;I.castAt(app,nil,nil,nil,ability);return end
  -- Smart cast: the key is the cast. Warcraft 3 added this because arming and then
@@ -38,17 +37,17 @@ function I.arm(app,command,ability,px,py)
  end
  app.targeting={command=command,ability=ability,spec=spec}
 end
-function I.disarm(app) app.targeting=nil;app.building=nil end
+function I.disarm(app) app.targeting=nil;app.building=nil;app.landing=nil end
 -- Every selected unit that owns the ability casts it. Out of range is not an error: the
 -- caster walks, exactly as it does for an attack order.
 function I.castAt(app,x,y,target,ability)
  if app.playback then return end
- local spec=Content.abilities and Content.abilities[ability]
+ local spec=app.content.abilities and app.content.abilities[ability]
  if not spec then return end
  local ordered={}
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  local d=e and e.alive and Content.units[e.kind]
+  local d=e and e.alive and e.owner==app.player and app.content.units[e.kind]
   local owns=false
   if d and d.abilities then for _,name in ipairs(d.abilities) do if name==ability then owns=true end end end
   if owns then
@@ -72,6 +71,14 @@ function I.resolveTargeting(app,x,y,hit)
  if not t then return end
  app.targeting=nil
  if t.ability then return I.castAt(app,x,y,hit,t.ability) end
+ -- A pod launch is aimed at ground, from the headquarters, whatever is selected.
+ if t.command=='pod_launch' then
+  -- Checked here first, so an uncovered click says why at the cursor and keeps the aim armed.
+  local cx,cy=math.floor(x/256),math.floor(y/256);local coverage=app.view.player.coverage
+  if coverage and not coverage[cy*app.view.map.width+cx+1] then app.targeting=t;Feedback.notify(app,'rejected','Outside relay coverage','orbit-launch',nil,x,y);return end
+  app:command('pod_launch',app.view.player.hq,{x=cx,y=cy})
+  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind='move'};app.audio:play('click');return
+ end
  I.intent(app,x,y,hit,t.command)
 end
 -- Whether the pointer is over something the armed ability may be aimed at. Only unit
@@ -81,7 +88,7 @@ function I.castLegal(app,spec,hit)
  if not spec then return true end
  if spec.target~='unit' then return true end
  if not hit or not hit.alive then return false end
- if hit.category=='node' or hit.category=='carrier' then return false end
+ if hit.category=='node' then return false end
  local filter=spec.filter or {enemy=true}
  if hit.category=='building' and not filter.building then return false end
  if hit.owner==app.player then return filter.ally==true or filter.self==true end
@@ -117,21 +124,31 @@ function I.intent(app,x,y,target,kind)
  local ordered={}
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  if e and e.alive and e.category=='unit' then
+  if e and e.alive and e.category=='unit' and e.owner==app.player then
    local command=focus and 'attack' or kind;local args={append=shift(),group=app.commandGroup}
    if not command then
+    local def=app.content.units[e.kind]
     if target and target.owner==app.player and target.remaining and target.remaining>0 and e.kind=='worker' then command='build'
+    -- A right-click on a patch a worker can work is a harvest order; anyone else just walks there.
+    elseif target and target.category=='node' and def and def.harvest and def.harvest[target.resource] then command='harvest'
+    -- A right-click on your own building with room inside steps in.
+    elseif target and target.owner==app.player and target.category=='building' and target.remaining==0 and (app.content.buildings[target.kind] or {}).garrison and def and not def.flying then command='garrison'
     elseif target and target.owner~=app.player and target.category~='node' then command='attack'
     -- Right-clicking one of your own live units falls in behind it.
     elseif target and target.owner==app.player and target.category=='unit' and target.id~=id then command='follow'
     else command='move' end
    end
-   if command=='attack' or command=='build' or command=='follow' then args.target=target and target.id else args.x=x;args.y=y end
+   if command=='attack' or command=='build' or command=='follow' or command=='harvest' or command=='garrison' then args.target=target and target.id else args.x=x;args.y=y end
    if app:command(command,id,args)==false then return end;count=count+1;ordered[#ordered+1]={id=id,kind=e.kind,command=command}
   end
  end
+ -- An inspected enemy or neutral is read, not ordered. Say so rather than doing nothing.
+ local inspected=count==0 and Selection.inspecting(app)
+ if inspected then Feedback.notify(app,'rejected',inspected.owner==0 and 'You cannot command neutrals' or 'You cannot command the enemy');return end
  if count>0 then
-  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=kind or 'move',group=app.commandGroup}
+  -- Coloured by what was actually ordered: a right-click becomes a move, an attack, a follow or
+  -- a resumed build depending on what was under the cursor.
+  app.orderMarker={x=x,y=y,time=app.clock,tick=app.world.tick,kind=ordered[1].command or kind or 'move',group=app.commandGroup,count=count}
   I.acknowledge(app,ordered);app.message='Order issued'
  end
 end
@@ -152,7 +169,7 @@ function I.rally(app,x,y,target)
  local count=0
  for _,id in ipairs(app.selected) do
   local e=app:entity(id)
-  if e and e.alive and e.category=='building' and e.queue then
+  if e and e.alive and e.category=='building' and e.queue and e.owner==app.player then
    if target and target.id~=id then app:command('rally',id,{target=target.id})
    else app:command('rally',id,{x=x,y=y}) end
    count=count+1
@@ -166,6 +183,8 @@ end
 function I.mousepressed(app,x,y,button,presses)
  Actions.context(app)
  if button==2 and (app.building or app.targeting) then I.disarm(app);return end
+ -- A right-click on a widget that offers a second action (an orbit frame: cancel) takes it.
+ if button==2 and app.widgets.hover and app.widgets.hover.alt and not app.overlay then app.widgets.hover.alt();return end
  if app.widgets.context and app.widgets.context~=(app.overlay or 'match') then return end
  if button==1 then local hit,reason,item=app.widgets:click(x,y);if hit then if reason then Feedback.notify(app,'rejected',reason,item.id,item.details and item.details.costs) end;return end end
  if app.overlay then return end
@@ -194,13 +213,21 @@ function I.mousepressed(app,x,y,button,presses)
  if button==1 then
   if app.building then
    local wx,wy=app:position(x,y);local cx,cy=math.floor(wx/256),math.floor(wy/256)
-   local valid,reason=Sim.placement(app.view,Content,app.building,cx,cy)
+   local valid,reason=Sim.placement(app.view,app.content,app.building,cx,cy,app.landing~=nil)
    if valid then
     local issued=false
+    -- A landing site for an item ready in orbit needs no worker: the headquarters lands it.
+    if app.landing then app.activeAction=app.building;issued=app:command('land',app.view.player.hq,{index=app.landing,x=cx,y=cy})~=false;if issued then Feedback.notify(app,'build_order','Landing ordered',app.building,nil,wx,wy) end
+     -- Shift lands the next ready building straight away, as it repeats a placement for workers.
+     local Orbital=require('src.ui.orbital');local landed=app.landing;local nextIndex=issued and shift() and Orbital.nextReady(Orbital.model(app.view,app.content),landed) or nil
+     app.building=nil;app.landing=nil;app.activeAction=nil
+     -- The landed item leaves the queue, so whatever was behind it moves up one place.
+     if nextIndex and nextIndex~=landed then local item=app.view.player.callDown[nextIndex];app.building=item.kind;app.landing=nextIndex>landed and nextIndex-1 or nextIndex end
+     return end
     for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.alive and e.owner==app.player and e.kind=='worker' then app.activeAction=app.building;issued=app:command('build',id,{building=app.building,x=cx,y=cy,append=shift()});app.activeAction=nil;if not issued then return end;break end end
     if issued then Feedback.notify(app,'build_order','Construction ordered',app.building,nil,wx,wy) else Feedback.notify(app,'rejected','Select workers to build',app.building,nil,wx,wy) end
     if issued and not shift() then app.awaitingPlacement=app.building;app.building=nil end
-   else Feedback.notify(app,'rejected',reason,app.building,Actions.costs(app,require('src.content').buildings[app.building].cost),wx,wy) end
+   else Feedback.notify(app,'rejected',reason,app.building,Actions.costs(app,app.content.buildings[app.building].cost),wx,wy) end
   elseif app.targeting then local wx,wy=app:position(x,y);I.resolveTargeting(app,wx,wy,app:pick(x,y))
   elseif (presses and presses>=2) or ctrl() then I.selectSameKind(app,x,y)
   else app.drag={x=x,y=y};app.capture='selection' end
@@ -229,7 +256,7 @@ function I.updateHover(app,x,y)
  local shape='arrow'
  if app.building then
   local wx,wy=app:position(x,y)
-  local valid=Sim.placement(app.view,Content,app.building,math.floor(wx/256),math.floor(wy/256))
+  local valid=Sim.placement(app.view,app.content,app.building,math.floor(wx/256),math.floor(wy/256),app.landing~=nil)
   shape=valid and 'build' or 'invalid'
  elseif app.targeting and app.targeting.ability then shape=I.castShape(app,hit)
  elseif app.targeting and (app.targeting.command=='attack_move' or app.targeting.command=='patrol') then shape='attack'
@@ -285,7 +312,7 @@ end
 function I.boxSelect(app,x0,y0,x1,y1)
  local own,buildings,other={},{},{}
  for _,e in ipairs(app.view.entities) do
-  if e.alive and e.category~='node' and e.category~='carrier' then
+  if e.alive and e.category~='node' and not e.garrisoned then
    local sx,sy=app:screen(e.x,e.y)
    if Camera.contains(app,sx,sy) and sx>=x0 and sx<=x1 and sy>=y0 and sy<=y1 then
     if e.owner~=app.player then other[#other+1]=e.id
@@ -316,13 +343,18 @@ function I.mousereleased(app,x,y,button)
  if app.capture=='pan' and button==3 or app.capture=='minimap' and button==1 then app.capture=nil;return end
  if button~=1 or not app.drag then return end
  local drag=app.drag;app.drag=nil;app.capture=nil
- if not shift() then app.selected={} end
- if math.abs(x-drag.x)+math.abs(y-drag.y)<8 then local e=app:pick(x,y,true);if e then if shift() then Selection.toggle(app.selected,e.id) else app.selected={e.id} end end
+ local picked
+ if math.abs(x-drag.x)+math.abs(y-drag.y)<8 then
+  -- Your own unit under the pointer wins; failing that, whatever is there, to inspect it.
+  local e=app:pick(x,y,true,true) or app:pick(x,y,false,true)
+  picked=e and {e.id} or {}
  else
-  local picked=I.boxSelect(app,math.min(x,drag.x),math.min(y,drag.y),math.max(x,drag.x),math.max(y,drag.y))
-  for _,id in ipairs(picked) do if shift() then Selection.toggle(app.selected,id) else app.selected[#app.selected+1]=id end end
+  picked=I.boxSelect(app,math.min(x,drag.x),math.min(y,drag.y),math.max(x,drag.x),math.max(y,drag.y))
  end
- table.sort(app.selected);Actions.context(app);app.audio:play('select')
+ Selection.apply(app,picked,shift())
+ table.sort(app.selected);Actions.context(app)
+ local lead=app:entity(Selection.primary(app) or app.selected[1])
+ app.audio:selected(lead and lead.kind)
 end
 -- Keys the match loop owns and that rebinding must not be able to take away.
 local RESERVED={escape=true,tab=true,f2=true,f3=true,f4=true,f5=true,f6=true,f7=true,f8=true,f10=true,q=true,w=true,e=true,r=true,u=true,y=true}
@@ -331,7 +363,7 @@ function I.army(app)
  local ids={}
  for _,e in ipairs(app.view.entities) do
   if e.alive and e.owner==app.player and e.category=='unit' then
-   local d=Content.units[e.kind]
+   local d=app.content.units[e.kind]
    if d and not d.worker then ids[#ids+1]=e.id end
   end
  end
@@ -375,9 +407,22 @@ function I.keypressed(app,key)
  end
  if app.overlay then return end
  local bindings=app.settings.bindings
+ -- Orbital logistics answer from anywhere: there is no building on the map to select for what
+ -- is made off it. P stays Patrol while units are selected; the sidebar's button always works.
+ if app.sidebar and not ctrl() then
+  local Orbital=require('src.ui.orbital')
+  if key=='b' and app.cardPage~='requisition' then Orbital.openPage(app,'requisition');return end
+  if key=='p' and app.cardPage~='pod' then
+   local units=false;for _,id in ipairs(app.selected) do local e=app:entity(id);if e and e.category=='unit' and e.owner==app.player then units=true end end
+   if not units then Orbital.openPage(app,'pod');return end
+  end
+  if key==bindings.idle then Orbital.armNext(app);return end
+ end
  if key==bindings.hero then
-  if ctrl() then app.followHero=not app.followHero;app.message=app.followHero and 'Following hero' or 'Hero follow off';return end
-  app.selected={app.view.player.hero};local e=app:entity(app.view.player.hero);if app.lastHero and app.clock-app.lastHero<.35 and e then Camera.glide(app,e.x,e.y) end;app.lastHero=app.clock
+  -- The hero, or the headquarters for a faction that has none.
+  local focus=app.view.player.hero or app.view.player.hq
+  if ctrl() and app.view.player.hero then app.followHero=not app.followHero;app.message=app.followHero and 'Following hero' or 'Hero follow off';return end
+  app.selected={focus};local e=app:entity(focus);if app.lastHero and app.clock-app.lastHero<.35 and e then Camera.glide(app,e.x,e.y) end;app.lastHero=app.clock
  elseif key==bindings.alert then local a=app.alerts.items[1];if a and a.x then Camera.glide(app,a.x,a.y) end
  elseif key==bindings.idle then I.selectIdleWorker(app)
  elseif key=='f2' then
@@ -393,13 +438,14 @@ function I.keypressed(app,key)
  elseif key=='tab' then
   local kind=Selection.cycle(app)
   if kind then
-   local label=(Content.units[kind] or Content.buildings[kind] or {}).label or kind
+   local label=(app.content.units[kind] or app.content.buildings[kind] or {}).label or kind
    app.message=label..' commands';app.audio:play('click')
   end
   app.lastTab=app.clock
  elseif tonumber(key) and tonumber(key)>=1 and tonumber(key)<=9 then
   local n=tonumber(key)
-  if love.keyboard.isDown('lctrl','rctrl') then app.groups[n]=Codec.copy(app.selected)
+  -- A control group is for commanding, so an inspected enemy is never bound to one.
+  if love.keyboard.isDown('lctrl','rctrl') then if not Selection.inspecting(app) then app.groups[n]=Codec.copy(app.selected) end
   elseif app.groups[n] then app.selected={};for _,id in ipairs(app.groups[n]) do local e=app:entity(id);if e and e.alive then app.selected[#app.selected+1]=id end end
    if app.lastGroup==n and app.clock-(app.lastGroupTime or -100)<.35 then local e=app:entity(app.selected[1]);if e then Camera.glide(app,e.x,e.y) end end
    app.lastGroup=n;app.lastGroupTime=app.clock

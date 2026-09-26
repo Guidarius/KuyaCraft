@@ -1,6 +1,25 @@
 -- Optional LuaJIT sampling; all state and wall-clock work stay in tooling.
 local P={}
 function P.start(mode)
+    if mode=='traces' then
+        local counts={};local events={}
+        local function trace(event,id,fn,pc,err,info)
+            events[event]=(events[event] or 0)+1
+            if event=='abort' then
+                local source=debug.getinfo(fn,'S')
+                local key=tostring(err)..':'..tostring(info)..' '..source.short_src..':'..source.linedefined
+                counts[key]=(counts[key] or 0)+1
+            end
+        end
+        jit.attach(trace,'trace')
+        return function()
+            jit.attach(trace)
+            local rows={};for key,count in pairs(counts) do rows[#rows+1]={key=key,count=count} end
+            table.sort(rows,function(a,b)return a.count>b.count end)
+            for _,event in ipairs({'start','stop','abort','flush'}) do print('TRACE '..event..' '..(events[event] or 0)) end
+            for i=1,math.min(20,#rows) do print(rows[i].count..' '..rows[i].key) end
+        end
+    end
     if mode=='phases' then
         local step=require('src.sim').step;local saved={};local samples={}
         local names={'combatOrders','economy','movement','visibility','finishOrders','combat'};local wanted={}
