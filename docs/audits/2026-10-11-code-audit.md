@@ -17,7 +17,7 @@ audit of every existing subsystem.
 
 ### P2 — Bound received frame and checksum buffers
 
-Location: `src/net/session.lua:68–75`, with cleanup at `:98–108`.
+Location: `src/net/session.lua:73–79`, with cleanup at `:102–111`.
 This defect predates the incoming mouse merge.
 
 The host submission path uses `Lock.submit`, which bounds ticks to a 120-tick
@@ -82,19 +82,30 @@ assert(count(net.frames)==1000 and count(net.remoteHashes)==1000)
   below `1.9e-7`; no blade intersections with the tested surfaces and no equipment
   penetrating the ground.
 - Multiplayer buffer reproduction: **confirmed** as described above.
-- Full `scripts/test-all.ps1`: results pending at initial report creation.
+- Full `scripts/test-all.ps1`: **passed**, exit code 0:
+  - 194 headless tests, zero failures, including replay/scenario coverage.
+  - Four fresh-process 100,000-tick determinism runs agree at checkpoints
+    (30/60/144 FPS schedules and default/tuned JIT caches).
+  - Real local ENet host/client processes agree across 600 ticks.
+  - Rendered UI passes at 1280x720, 1920x1080, and 2560x1080.
+  - Presentation and sprite-viewer checks complete successfully.
+  - The new-profile 240-mobile simulation test reports 7.260 ms p95 against
+    the unchanged 10 ms budget. This excludes rendering, bots, and replay work.
 
 The Blender checks reopened existing generated `mouse-base-v2` and
 `mouse-guard-v1` artifacts with the current verifier scripts. They did not rebuild
 the models or rerender the sprites. Geometry checks do not establish aesthetic
 quality, shield readability, complete collision freedom, or production readiness.
 The mouse study remains separate from the shipping sprite catalog.
+The exporter/model source pairs match the saved-artifact source versions after
+normalizing line endings; raw recipe hashes vary with checkout line endings.
 
 ## Remaining checks and boundaries
 
 No gameplay fixes, golden updates, performance-budget changes, or source-asset
 changes were made. Human motion/art review, actual playtesting, and separate-PC
-network validation remain outside this audit. No newly introduced blocking
+network validation remain outside this audit. The optional rendered performance
+benchmarks and a fresh full asset export were not run. No newly introduced blocking
 defect has been confirmed in the incoming mouse tooling; this is limited to the
 source and structural checks described above.
 
